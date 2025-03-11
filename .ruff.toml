@@ -1,0 +1,108 @@
+# Exclude a variety of commonly ignored directories. This means Ruff will not lint or format files with these names
+exclude = [
+  ".bzr",
+  ".direnv",
+  ".eggs",
+  ".git",
+  ".git-rewrite",
+  ".hg",
+  ".ipynb_checkpoints",
+  ".mypy_cache",
+  ".nox",
+  ".pants.d",
+  ".pyenv",
+  ".pytest_cache",
+  ".pytype",
+  ".ruff_cache",
+  ".svn",
+  ".tox",
+  ".venv",
+  ".vscode",
+  "__pypackages__",
+  "_build",
+  "buck-out",
+  "build",
+  "dist",
+  "node_modules",
+  "site-packages",
+  "venv",
+]
+
+indent-width = 4 # each indent is 4 spaces, equivalent to using "tab" 
+line-length = 100 # max no of characters in a line. Black default is 88 characters
+target-version = "py310" # Assumes Python 3.10 and above
+
+[lint]
+select = [
+  "A", # flake8-builtins
+  "B", # flake8-bugbear
+  "D", # pydocstyle
+  "E", # pycodestyle errors
+  "F", # pyflakes
+  "G", # flake8-logging-format
+  "I", # isort
+  "N", # pep8-naming
+  "S", # flake8-bandit
+  "W", # pycodestyle warnings
+  "C4", # flake8-comprehensions
+  "EM", # flake8-errmsg
+  "PD", # pandas-vet
+  "PL", # Pylint
+  "UP", # pyupgrade - auto-upgrade syntax for current version of Python
+  "ANN", # flake8-annotations
+  "BLE", # flake8-blind-except
+  "C90", # McCabe complexity checker
+  "ERA", # eradicate - removes commented out code
+  "FBT", # flake8-boolean-trap
+  "FLY", # flynt
+  "ICN", # flake8-import-conventions
+  "LOG", # flake8-logger
+  "NPY", # numpy-specific rules
+  "PGH", # pygrep-hooks
+  "PIE", # flake8-pie
+  "RET", # flake8-return
+  "RSE", # flake8-raise
+  "SIM", # flake8-simplify
+  "RUF", # ruff-specific rules
+  "TCH", # flake8-type-checking
+  "TID", # flake8-tidy-imports
+  "TRY", # tryceratops
+  "ASYNC", # flake8-async
+]
+
+ignore = [
+  "W191", # lint rule that may clash with Ruff Formatter: tab-indentation
+  "E111", # lint rule that may clash with Ruff Formatter: indentation-with-invalid-multiple
+  "E114", # lint rule that may clash with Ruff Formatter: indentation-with-invalid-multiple-comment
+  "E117", # lint rule that may clash with Ruff Formatter: over-indented
+  "D206", # lint rule that may clash with Ruff Formatter: indent-with-spaces
+  "D300", # lint rule that may clash with Ruff Formatter: triple-single-quotes      
+  "D1", # ignore this to match google docstring convention
+  "G004", # ignore this to allow f-strings in logging
+  "UP015", # ignore this to allow "with open" statements to have modes explicitly stated 
+  "SIM102", # ignore this to avoid changing nested if statements to single if statements, potentially confusing
+  "ANN101", # ignore this to avoid needing to annotate "self" in class methods
+  "ANN102", # ignore this to avoid needing to annotate "cls" in class methods
+]
+
+# Allow fix for all enabled rules (when using "Fix all" or when `--fix` is provided to ruff check in CLI)
+fixable = ["ALL"]
+unfixable = ["F401"] # disable autofix for unused-imports
+
+dummy-variable-rgx = "^(_+\\w*)$" # Allow unused variables when underscore-prefixed
+flake8-bugbear.extend-immutable-calls = [
+  "fastapi.Depends",
+  "fastapi.Query",
+] # Allow default arguments like, e.g., `data: List[str] = fastapi.Query(None)`.  
+isort.force-single-line = true # force each import to be in its own line
+pycodestyle.max-doc-length = 100 # max line-length for docstrings
+pydocstyle.convention = "google" # docstring convention. Options: "google", "numpy", or "pep257"
+pylint.max-args = 10 # max no of args in a function
+
+[format]
+docstring-code-format = true # Enable auto-formatting of code examples in docstrings. Markdown, reStructuredText code/literal blocks and doctests are all supported
+docstring-code-line-length = "dynamic" # Set line length limit used when formatting code snippets in docstrings. This only has an effect when the `docstring-code-format` setting is enabled
+indent-style = "space" # indent with spaces, rather than "tab"
+line-ending = "lf" # options: "auto", "lf", "cr-lf", "native"
+quote-style = "double" # Use double quotes as voted by majority
+skip-magic-trailing-comma = false # respects magic trailing commas

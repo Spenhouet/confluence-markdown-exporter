@@ -1,0 +1,19 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "venv",
+      "detail": "Setup a virtual environment.",
+      "type": "shell",
+      "command": "${workspaceFolder}/bin/venv.sh",
+      "problemMatcher": []
+    },
+    {
+      "label": "pip",
+      "detail": "Install pip packages.",
+      "type": "shell",
+      "command": "${workspaceFolder}/bin/pip.sh",
+      "problemMatcher": []
+    }
+  ]
+}

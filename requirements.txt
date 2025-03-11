@@ -1,0 +1,4 @@
+atlassian-python-api
+pydantic-settings
+pandas
+tqdm
