@@ -9,6 +9,20 @@
       "type": "debugpy",
       "request": "launch",
       "program": "${file}",
+      "justMyCode": false,
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceRoot}"
+      }
+    },
+    {
+      "name": "Python: Export Page",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/confluence_to_markdown/main.py",
+      "justMyCode": false,
+      "args": ["page", "944046108"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
