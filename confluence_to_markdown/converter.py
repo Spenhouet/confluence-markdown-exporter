@@ -25,14 +25,13 @@ class ConfluenceApiSettings(BaseSettings):
 # TODO ensure drawio diagrams work
 # TODO ensure other attachments work like PDF or ZIP
 # TODO store whole space
-# TODO resolve export internal/relative links
-# TODO alternative for info boxes? https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts
 # TODO ensure emojis work https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis
 # TODO ensure task lists work
 # TODO use @ for mentions
 # TODO add page properties to front matter
 # TODO add labels to front matter
 # TODO support table and figure captions
+# TODO resolve export internal/relative links
 
 # TODO advanced: read version by version and commit in git using change comment and user info
 
@@ -71,11 +70,30 @@ class ConfluencePageConverter(TableConverter, MarkdownConverter):
         html = self.html(page_id)
         return self.convert(html) + "\n"  # Add newline at end of file
 
+    def convert_alert(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        """Convert Confluence info macros to Markdown GitHub style alerts.
+
+        GitHub specific alert types: https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts
+        """
+        alert_type_map = {
+            "info": "IMPORTANT",
+            "panel": "NOTE",
+            "tip": "TIP",
+            "note": "WARNING",
+            "warning": "CAUTION",
+        }
+
+        alert_type = alert_type_map.get(str(el["data-macro-name"]), "NOTE")
+
+        return f"\n> [!{alert_type}]\n> {text}\n\n"
+
     def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         # Handle Confluence macros
         if el.has_attr("data-macro-name"):
             if el["data-macro-name"] in self.options["macros_to_ignore"]:
                 return ""
+            if el["data-macro-name"] in ["panel", "info", "note", "tip", "warning"]:
+                return self.convert_alert(el, text, parent_tags)
 
         return super().convert_div(el, text, parent_tags)
 
