@@ -1,5 +1,3 @@
-from typing import cast
-
 import typer
 import yaml
 
@@ -12,6 +10,7 @@ app = typer.Typer()
 
 
 # TODO make output path configurable
+# TODO build and publish to pypi
 
 
 @app.command()
@@ -35,7 +34,7 @@ def page(page_id: int) -> None:
     with open(f"scratch/{page_id}.html", "w") as file:
         file.write(html)
 
-    markdown = converter.convert(page_id)
+    markdown = converter.convert_page(page_id)
 
     # header = {
     #     "space": space_key,

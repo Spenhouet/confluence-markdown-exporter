@@ -10,6 +10,8 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
+from confluence_to_markdown.utils.table_converter import TableConverter
+
 
 class ConfluenceApiSettings(BaseSettings):
     username: str = Field()
@@ -24,18 +26,18 @@ class ConfluenceApiSettings(BaseSettings):
 # TODO ensure other attachments work like PDF or ZIP
 # TODO store whole space
 # TODO resolve export internal/relative links
-# TODO format markdown so that table lines aline
 # TODO alternative for info boxes? https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts
 # TODO ensure emojis work https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis
 # TODO ensure task lists work
 # TODO use @ for mentions
 # TODO add page properties to front matter
 # TODO add labels to front matter
+# TODO support table and figure captions
 
 # TODO advanced: read version by version and commit in git using change comment and user info
 
 
-class ConfluencePageConverter(MarkdownConverter):
+class ConfluencePageConverter(TableConverter, MarkdownConverter):
     """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
     class Options(MarkdownConverter.DefaultOptions):
@@ -65,9 +67,9 @@ class ConfluencePageConverter(MarkdownConverter):
 
         return f"<h1>{title}</h1>{body_view}"
 
-    def convert(self, page_id: int) -> str:
+    def convert_page(self, page_id: int) -> str:
         html = self.html(page_id)
-        return super().convert(html) + "\n"  # Add newline at end of file
+        return self.convert(html) + "\n"  # Add newline at end of file
 
     def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         # Handle Confluence macros

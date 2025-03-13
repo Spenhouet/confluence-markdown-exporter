@@ -1,6 +1,7 @@
 atlassian-python-api
-pydantic-settings
+markdownify
 pandas
+pydantic-settings
+tabulate
 tqdm
 typer
-markdownify
