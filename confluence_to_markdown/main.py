@@ -1,5 +1,4 @@
 import typer
-import yaml
 
 from confluence_to_markdown.converter import ConfluencePageConverter
 
@@ -15,18 +14,6 @@ app = typer.Typer()
 
 @app.command()
 def page(page_id: int) -> None:
-    # space = page_data.get("space", {})
-    # space_key = space.get("key")
-    # space_name = space.get("name")
-
-    # Get labels
-    # label_response = cast(dict, api_session.get_page_labels(page_id))
-    # labels = (
-    #     [f"#{label['name']}" for label in label_response["results"]]
-    #     if label_response and label_response["results"]
-    #     else ""
-    # )
-
     converter = ConfluencePageConverter()
 
     # TODO remove
@@ -35,22 +22,6 @@ def page(page_id: int) -> None:
         file.write(html)
 
     markdown = converter.convert_page(page_id)
-
-    # header = {
-    #     "space": space_key,
-    #     "space_name": space_name,
-    #     "tags": labels,
-    # }
-
-    #     markdown = f"""\
-    # ---
-    # {yaml.dump(header, indent=2, sort_keys=False).strip()}
-    # ---
-
-    # # {page_title}
-
-    # {markdown_body}
-    # """
 
     with open(f"scratch/{page_id}.md", "w") as file:
         file.write(markdown)
