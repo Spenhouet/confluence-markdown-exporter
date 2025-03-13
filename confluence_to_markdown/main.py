@@ -1,11 +1,8 @@
 import typer
 
-from confluence_to_markdown.converter import ConfluencePageConverter
+from confluence_to_markdown.confluence import Page
 
 app = typer.Typer()
-
-# Confluence API documentation
-# https://developer.atlassian.com/cloud/confluence/rest/v2/intro
 
 
 # TODO make output path configurable
@@ -14,17 +11,13 @@ app = typer.Typer()
 
 @app.command()
 def page(page_id: int) -> None:
-    converter = ConfluencePageConverter()
+    page = Page.from_id(page_id)
 
-    # TODO remove
-    html = converter.html(page_id)
-    with open(f"scratch/{page_id}.html", "w") as file:
-        file.write(html)
+    with open(f"scratch/{page.title}.html", "w") as file:
+        file.write(page.html)
 
-    markdown = converter.convert_page(page_id)
-
-    with open(f"scratch/{page_id}.md", "w") as file:
-        file.write(markdown)
+    with open(f"scratch/{page.title}.md", "w") as file:
+        file.write(page.markdown)
 
 
 @app.command()
