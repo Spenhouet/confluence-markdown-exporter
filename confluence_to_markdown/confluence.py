@@ -133,6 +133,24 @@ class Attachment(BaseModel):
         )
 
 
+class ExportPath(BaseModel):
+    home_path: Path
+    space_path: Path
+    filename: str
+
+    @classmethod
+    def from_page(cls, page: "Page") -> "ExportPath":
+        home_path = Path(*[sanitize_filename(ancestor) for ancestor in page.ancestors])
+        return cls(
+            home_path=home_path,
+            space_path=Path(sanitize_filename(page.space.name)) / home_path,
+            filename=sanitize_filename(page.title),
+        )
+
+    def filename_with_extension(self, extension: str) -> str:
+        return f"{self.filename}.{extension}"
+
+
 class Page(BaseModel):
     id: int
     title: str
@@ -141,7 +159,11 @@ class Page(BaseModel):
     labels: list["Label"]
     attachments: list["Attachment"]
     descendants: list[int]
-    path: str
+    ancestors: list[str]
+
+    @property
+    def export_path(self) -> ExportPath:
+        return ExportPath.from_page(self)
 
     @property
     def html(self) -> str:
@@ -156,20 +178,22 @@ class Page(BaseModel):
             self.export_html(file_path)
         self.export_markdown(file_path)
 
-    def export_file_path(self, export_path: StrPath, file_extension: str) -> Path:
-        return (
-            Path(export_path)
-            / sanitize_filename(self.space.name)
-            / self.path
-            / f"{sanitize_filename(self.title)}.{file_extension}"
-        )
-
     def export_html(self, export_path: StrPath) -> None:
         soup = BeautifulSoup(self.html, "html.parser")
-        save_file(self.export_file_path(export_path, "html"), str(soup.prettify()))
+        save_file(
+            Path(export_path)
+            / self.export_path.space_path
+            / self.export_path.filename_with_extension("html"),
+            str(soup.prettify()),
+        )
 
     def export_markdown(self, export_path: StrPath) -> None:
-        save_file(self.export_file_path(export_path, "md"), self.markdown)
+        save_file(
+            Path(export_path)
+            / self.export_path.space_path
+            / self.export_path.filename_with_extension("md"),
+            self.markdown,
+        )
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Page":
@@ -190,9 +214,7 @@ class Page(BaseModel):
                 page.get("id")
                 for page in data.get("descendants", {}).get("page", {}).get("results", [])
             ],
-            path="/".join(
-                [sanitize_filename(ancestor.get("title")) for ancestor in data.get("ancestors", {})]
-            ),
+            ancestors=[ancestor.get("title") for ancestor in data.get("ancestors", [])],
         )
 
     @classmethod
