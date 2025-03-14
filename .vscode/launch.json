@@ -22,8 +22,9 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_to_markdown/main.py",
       "justMyCode": false,
-      "args": ["page", "1013743763"],
-      // "args": ["page", "944046108"],
+      "args": ["page", "1013743763", "scratch"],
+      // "args": ["page", "1887174657", "scratch"],
+      // "args": ["page", "944046108", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
