@@ -22,9 +22,20 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_to_markdown/main.py",
       "justMyCode": false,
-      "args": ["page", "1013743763", "scratch"],
-      // "args": ["page", "1887174657", "scratch"],
-      // "args": ["page", "944046108", "scratch"],
+      "args": ["page", "<page_id>", "scratch"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceRoot}"
+      }
+    },
+    {
+      "name": "Python: Export Space",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/confluence_to_markdown/main.py",
+      "justMyCode": false,
+      "args": ["space", "<space_key>", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
