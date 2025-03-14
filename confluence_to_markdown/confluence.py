@@ -1,10 +1,13 @@
 """Confluence API documentation.
 
-https://developer.atlassian.com/cloud/confluence/rest/v2/intro
+https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+import os
 import re
 from collections.abc import Set
+from os import PathLike
+from pathlib import Path
 from typing import TypeAlias
 from typing import cast
 
@@ -19,9 +22,14 @@ from pydantic import Field
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
+from confluence_to_markdown.utils.export import sanitize_filename
+from confluence_to_markdown.utils.export import save_file
 from confluence_to_markdown.utils.table_converter import TableConverter
 
 JsonResponse: TypeAlias = dict
+StrPath: TypeAlias = str | PathLike[str]
+
+DEBUG: bool = bool(os.getenv("DEBUG"))
 
 
 class ApiSettings(BaseSettings):
@@ -70,6 +78,7 @@ class Space(BaseModel):
     key: str
     name: str
     description: str
+    homepage: int
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Space":
@@ -77,11 +86,12 @@ class Space(BaseModel):
             key=data.get("key", ""),
             name=data.get("name", ""),
             description=data.get("description", {}).get("plain", {}).get("value", ""),
+            homepage=data.get("homepage", {}).get("id"),
         )
 
     @classmethod
     def from_key(cls, space_key: str) -> "Space":
-        return cls.from_json(cast(JsonResponse, api.get_space(space_key)))
+        return cls.from_json(cast(JsonResponse, api.get_space(space_key, expand="homepage")))
 
 
 class Label(BaseModel):
@@ -130,7 +140,8 @@ class Page(BaseModel):
     body: str
     labels: list["Label"]
     attachments: list["Attachment"]
-    children: list["Page"]
+    descendants: list[int]
+    path: str
 
     @property
     def html(self) -> str:
@@ -139,6 +150,26 @@ class Page(BaseModel):
     @property
     def markdown(self) -> str:
         return self.Converter(self).markdown
+
+    def export(self, file_path: StrPath) -> None:
+        if DEBUG:
+            self.export_html(file_path)
+        self.export_markdown(file_path)
+
+    def export_file_path(self, export_path: StrPath, file_extension: str) -> Path:
+        return (
+            Path(export_path)
+            / sanitize_filename(self.space.name)
+            / self.path
+            / f"{sanitize_filename(self.title)}.{file_extension}"
+        )
+
+    def export_html(self, export_path: StrPath) -> None:
+        soup = BeautifulSoup(self.html, "html.parser")
+        save_file(self.export_file_path(export_path, "html"), str(soup.prettify()))
+
+    def export_markdown(self, export_path: StrPath) -> None:
+        save_file(self.export_file_path(export_path, "md"), self.markdown)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Page":
@@ -155,10 +186,13 @@ class Page(BaseModel):
                 Attachment.from_json(attachment)
                 for attachment in data.get("children", {}).get("attachment", {}).get("results", [])
             ],
-            children=[
-                Page.from_json(page)
-                for page in data.get("children", {}).get("page", {}).get("results", [])
+            descendants=[
+                page.get("id")
+                for page in data.get("descendants", {}).get("page", {}).get("results", [])
             ],
+            path="/".join(
+                [sanitize_filename(ancestor.get("title")) for ancestor in data.get("ancestors", {})]
+            ),
         )
 
     @classmethod
@@ -168,7 +202,8 @@ class Page(BaseModel):
                 JsonResponse,
                 api.get_page_by_id(
                     page_id,
-                    expand="body.view,space,metadata.labels,children.attachment,children.page,metadata.properties",
+                    # ,body.export_view
+                    expand="body.view,space.homepage,metadata.labels,children.attachment,descendants.page,ancestors",
                 ),
             )
         )
@@ -183,11 +218,19 @@ class Page(BaseModel):
         # TODO ensure emojis work https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis
         # TODO support table and figure captions
         # TODO ensure page properties report works
+        # TODO checkout body.export view
+        #       -> export view fills in dynamic content like page property reports, but
+        #          removed html attributes
 
         # Later
+        # TODO support confluence folders
         # TODO resolve export internal/relative links
         # TODO Support badges via https://shields.io/badges/static-badge
         # TODO advanced: read version by version and commit in git using change comment and user info
+        # TODO what to do with comments?
+
+        # FIXME Workaround for Confluence `createpage.action` bug: Load body.editor2 content and
+        #   search for <a> with same text within adf-fallback
 
         class Options(MarkdownConverter.DefaultOptions):
             bullets = "-"
@@ -206,13 +249,6 @@ class Page(BaseModel):
         def markdown(self) -> str:
             md_body = self.convert(self.page.html)
             return f"{self.front_matter}\n{md_body}\n"  # Add newline at end of file
-
-        # @classmethod
-        # def export_page(cls, page_id: int, file_path: str, **options) -> None:
-        #     instance = cls(page_id, **options)
-        #     md = instance.convert_page()
-        #     with open(f"{file_path}/{instance.title}", "w") as file:
-        #         file.write(md)
 
         @property
         def front_matter(self) -> str:
