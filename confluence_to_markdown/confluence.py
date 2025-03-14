@@ -98,12 +98,39 @@ class Label(BaseModel):
         )
 
 
+class Attachment(BaseModel):
+    id: str
+    title: str
+    media_type: str
+    file_size: int
+    media_type_description: str
+    file_id: str
+    collection_name: str
+    download_link: str
+
+    @classmethod
+    def from_json(cls, data: JsonResponse) -> "Attachment":
+        extensions = data.get("extensions", {})
+        return cls(
+            id=data.get("id", ""),
+            title=data.get("title", ""),
+            media_type=extensions.get("mediaType", ""),
+            file_size=extensions.get("fileSize", 0),
+            media_type_description=extensions.get("mediaTypeDescription", ""),
+            file_id=extensions.get("fileId", ""),
+            collection_name=extensions.get("collectionName", ""),
+            download_link=data.get("_links", {}).get("download", ""),
+        )
+
+
 class Page(BaseModel):
     id: int
     title: str
     space: Space
     body: str
     labels: list["Label"]
+    attachments: list["Attachment"]
+    children: list["Page"]
 
     @property
     def html(self) -> str:
@@ -120,7 +147,18 @@ class Page(BaseModel):
             title=data.get("title", ""),
             space=Space.from_json(data.get("space", {})),
             body=data.get("body", {}).get("view", {}).get("value", ""),
-            labels=[Label.from_json(label) for label in data.get("labels", {}).get("results", [])],
+            labels=[
+                Label.from_json(label)
+                for label in data.get("metadata", {}).get("labels", {}).get("results", [])
+            ],
+            attachments=[
+                Attachment.from_json(attachment)
+                for attachment in data.get("children", {}).get("attachment", {}).get("results", [])
+            ],
+            children=[
+                Page.from_json(page)
+                for page in data.get("children", {}).get("page", {}).get("results", [])
+            ],
         )
 
     @classmethod
@@ -128,7 +166,10 @@ class Page(BaseModel):
         return cls.from_json(
             cast(
                 JsonResponse,
-                api.get_page_by_id(page_id, expand="body.view,space,labels"),
+                api.get_page_by_id(
+                    page_id,
+                    expand="body.view,space,metadata.labels,children.attachment,children.page,metadata.properties",
+                ),
             )
         )
 
