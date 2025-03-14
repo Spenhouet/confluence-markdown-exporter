@@ -2,10 +2,17 @@ import re
 from pathlib import Path
 
 
-def save_file(file_path: Path, content: str) -> None:
+def save_file(file_path: Path, content: str | bytes) -> None:
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    with file_path.open("w", encoding="utf-8") as file:
-        file.write(content)
+    if isinstance(content, bytes):
+        with file_path.open("wb") as file:
+            file.write(content)
+    elif isinstance(content, str):
+        with file_path.open("w", encoding="utf-8") as file:
+            file.write(content)
+    else:
+        msg = "Content must be either a string or bytes."
+        raise TypeError(msg)
 
 
 def sanitize_filename(filename: str, replacement: str = "_") -> str:

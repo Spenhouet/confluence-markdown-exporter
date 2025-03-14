@@ -3,6 +3,7 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+import mimetypes
 import os
 import re
 from collections.abc import Set
@@ -108,15 +109,51 @@ class Label(BaseModel):
         )
 
 
+class ExportPath(BaseModel):
+    dirpath: Path
+    filename: str
+
+    @property
+    def filepath(self) -> Path:
+        return self.dirpath / self.filename
+
+    @classmethod
+    def from_page(cls, page: "Page") -> "ExportPath":
+        home_path = Path(*[sanitize_filename(ancestor) for ancestor in page.ancestors])
+        space_path = Path(sanitize_filename(page.space.name))
+        return cls(
+            dirpath=space_path / home_path,
+            filename=f"{sanitize_filename(page.title)}.md",
+        )
+
+    @classmethod
+    def from_attachment(cls, attachment: "Attachment") -> "ExportPath":
+        space_path = Path(sanitize_filename(attachment.space.name))
+        return cls(
+            dirpath=space_path / "attachments",
+            filename=f"{attachment.file_id}{mimetypes.guess_extension(attachment.media_type)}",
+        )
+
+
 class Attachment(BaseModel):
     id: str
     title: str
-    media_type: str
     file_size: int
+    space: Space
+    media_type: str
     media_type_description: str
     file_id: str
     collection_name: str
     download_link: str
+
+    @property
+    def filename(self) -> str:
+        extension = mimetypes.guess_extension(self.media_type)
+        return f"{self.file_id}{extension}"
+
+    @property
+    def export_path(self) -> ExportPath:
+        return ExportPath.from_attachment(self)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Attachment":
@@ -124,31 +161,23 @@ class Attachment(BaseModel):
         return cls(
             id=data.get("id", ""),
             title=data.get("title", ""),
-            media_type=extensions.get("mediaType", ""),
+            space=Space.from_json(data.get("space", {})),
             file_size=extensions.get("fileSize", 0),
+            media_type=extensions.get("mediaType", ""),
             media_type_description=extensions.get("mediaTypeDescription", ""),
             file_id=extensions.get("fileId", ""),
             collection_name=extensions.get("collectionName", ""),
             download_link=data.get("_links", {}).get("download", ""),
         )
 
+    def export(self, export_path: StrPath) -> None:
+        response = api._session.get(str(api.url + self.download_link))
+        response.raise_for_status()  # Raise error if request fails
 
-class ExportPath(BaseModel):
-    home_path: Path
-    space_path: Path
-    filename: str
-
-    @classmethod
-    def from_page(cls, page: "Page") -> "ExportPath":
-        home_path = Path(*[sanitize_filename(ancestor) for ancestor in page.ancestors])
-        return cls(
-            home_path=home_path,
-            space_path=Path(sanitize_filename(page.space.name)) / home_path,
-            filename=sanitize_filename(page.title),
+        save_file(
+            Path(export_path) / self.export_path.filepath,
+            response.content,
         )
-
-    def filename_with_extension(self, extension: str) -> str:
-        return f"{self.filename}.{extension}"
 
 
 class Page(BaseModel):
@@ -173,27 +202,31 @@ class Page(BaseModel):
     def markdown(self) -> str:
         return self.Converter(self).markdown
 
-    def export(self, file_path: StrPath) -> None:
+    def export(self, export_path: StrPath) -> None:
         if DEBUG:
-            self.export_html(file_path)
-        self.export_markdown(file_path)
+            self.export_html(export_path)
+        self.export_markdown(export_path)
+        self.export_attachments(export_path)
 
     def export_html(self, export_path: StrPath) -> None:
         soup = BeautifulSoup(self.html, "html.parser")
         save_file(
-            Path(export_path)
-            / self.export_path.space_path
-            / self.export_path.filename_with_extension("html"),
+            Path(export_path) / self.export_path.filepath.with_suffix(".html"),
             str(soup.prettify()),
         )
 
     def export_markdown(self, export_path: StrPath) -> None:
         save_file(
-            Path(export_path)
-            / self.export_path.space_path
-            / self.export_path.filename_with_extension("md"),
+            Path(export_path) / self.export_path.filepath,
             self.markdown,
         )
+
+    def export_attachments(self, export_path: StrPath) -> None:
+        for attachment in self.attachments:
+            attachment.export(export_path)
+
+    def get_attachment_by_file_id(self, file_id: str) -> Attachment:
+        return next(attachment for attachment in self.attachments if attachment.file_id == file_id)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Page":
@@ -225,7 +258,7 @@ class Page(BaseModel):
                 api.get_page_by_id(
                     page_id,
                     # ,body.export_view
-                    expand="body.view,space.homepage,metadata.labels,children.attachment,descendants.page,ancestors",
+                    expand="body.view,space.homepage,metadata.labels,children.attachment.space.homepage,descendants.page,ancestors,macroRenderedOutput",
                 ),
             )
         )
@@ -236,10 +269,9 @@ class Page(BaseModel):
         # TODO ensure images work
         # TODO ensure drawio diagrams work
         # TODO ensure other attachments work like PDF or ZIP
-        # TODO store whole space
         # TODO ensure emojis work https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis
         # TODO support table and figure captions
-        # TODO ensure page properties report works
+        # TODO ensure page property reports work
         # TODO checkout body.export view
         #       -> export view fills in dynamic content like page property reports, but
         #          removed html attributes
@@ -379,5 +411,15 @@ class Page(BaseModel):
             return md
 
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            # TODO download attachment via API?
+            file_id = el.get("data-media-id")
+
+            if not file_id:
+                msg = "Image does not have a data-media-id attribute"
+                raise ValueError(msg)
+
+            attachment = self.page.get_attachment_by_file_id(str(file_id))
+
+            el["src"] = os.path.relpath(
+                attachment.export_path.filepath, self.page.export_path.dirpath
+            )
             return super().convert_img(el, text, parent_tags)
