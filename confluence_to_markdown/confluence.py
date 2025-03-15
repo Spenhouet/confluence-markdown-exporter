@@ -393,6 +393,12 @@ class Page(BaseModel):
 
             return f"\n\n```{code_language}\n{text}\n```\n\n"
 
+        def convert_sub(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            return f"<sub>{text}</sub>"
+
+        def convert_sup(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            return f"<sup>{text}</sup>"
+
         def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if "user-mention" in str(el.get("class")):
                 return self.convert_user(el, text, parent_tags)
