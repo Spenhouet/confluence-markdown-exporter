@@ -186,6 +186,7 @@ class Page(BaseModel):
     space: Space
     body: str
     body_export: str
+    editor2: str
     labels: list["Label"]
     attachments: list["Attachment"]
     descendants: list[int]
@@ -244,6 +245,7 @@ class Page(BaseModel):
             space=Space.from_json(data.get("space", {})),
             body=data.get("body", {}).get("view", {}).get("value", ""),
             body_export=data.get("body", {}).get("export_view", {}).get("value", ""),
+            editor2=data.get("body", {}).get("editor2", {}).get("value", ""),
             labels=[
                 Label.from_json(label)
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
@@ -266,7 +268,7 @@ class Page(BaseModel):
                 JsonResponse,
                 api.get_page_by_id(
                     page_id,
-                    expand="body.view,body.export_view,space.homepage,metadata.labels,"
+                    expand="body.view,body.export_view,body.editor2,space.homepage,metadata.labels,"
                     "metadata.properties,children.attachment.space.homepage,descendants.page,"
                     "ancestors,macroRenderedOutput",
                 ),
@@ -280,7 +282,8 @@ class Page(BaseModel):
         # TODO ensure other attachments work like PDF or ZIP
         # TODO ensure emojis work https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis
         # TODO support table and figure captions
-        # TODO resolve export internal/relative links
+
+        # TODO Optimize: Only load descendants when needed
 
         # Later
         # TODO Support badges via https://shields.io/badges/static-badge
@@ -391,11 +394,32 @@ class Page(BaseModel):
             return f"\n\n```{code_language}\n{text}\n```\n\n"
 
         def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            if el.has_attr("class") and "user-mention" in el["class"]:
+            if "user-mention" in str(el.get("class")):
                 return self.convert_user(el, text, parent_tags)
-            # TODO Convert internal page links to wiki style links (or relative links)
+            if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
+                if fallback := BeautifulSoup(self.page.editor2, "html.parser").find(
+                    "a", string=text
+                ):
+                    return self.convert_a(fallback, text, parent_tags)  # type: ignore -
+                return f"[[{text}]]"
+            if "page" in str(el.get("data-linked-resource-type")):
+                page_id = el.get("data-linked-resource-id")
+                return self.convert_page_link(int(str(page_id)))
+            if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el["href"])):
+                page_id = match.group(1)
+                return self.convert_page_link(int(page_id))
 
             return super().convert_a(el, text, parent_tags)
+
+        def convert_page_link(self, page_id: int) -> str:
+            if not page_id:
+                msg = "Page link does not have valid page_id."
+                raise ValueError(msg)
+
+            page = Page.from_id(page_id)
+            relpath = os.path.relpath(page.export_path.filepath, self.page.export_path.dirpath)
+
+            return f"[{page.title}]({relpath.replace(' ', '%20')})"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
@@ -417,6 +441,12 @@ class Page(BaseModel):
 
             return md
 
+        def convert_ul(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            if "td" in parent_tags:
+                return str(el)
+                # return super().convert_ul(el, text, parent_tags).strip().replace("\n", "<br/>")
+            return super().convert_ul(el, text, parent_tags)
+
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             file_id = el.get("data-media-id")
 
@@ -425,12 +455,12 @@ class Page(BaseModel):
                 raise ValueError(msg)
 
             attachment = self.page.get_attachment_by_file_id(str(file_id))
-
-            el["src"] = os.path.relpath(
+            relpath = os.path.relpath(
                 attachment.export_path.filepath, self.page.export_path.dirpath
             )
+            el["src"] = relpath.replace(" ", "%20")
             return super().convert_img(el, text, parent_tags)
-            # FIXME Wiki style image link has alignment issues
+            # REPORT Wiki style image link has alignment issues
             # return f"![[{attachment.export_path.filepath}]]"
 
         def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
@@ -449,7 +479,6 @@ class Page(BaseModel):
             # Find out how to fetch the macro content
 
             # TODO instead use markdown integrated front matter properties query
-            # FIXME Fix multi row in 688816133 on bullet point list
 
             data_cql = el.get("data-cql")
             if not data_cql:
