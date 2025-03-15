@@ -185,6 +185,7 @@ class Page(BaseModel):
     title: str
     space: Space
     body: str
+    body_export: str
     labels: list["Label"]
     attachments: list["Attachment"]
     descendants: list[int]
@@ -214,6 +215,12 @@ class Page(BaseModel):
             Path(export_path) / self.export_path.filepath.with_suffix(".html"),
             str(soup.prettify()),
         )
+        soup = BeautifulSoup(self.body_export, "html.parser")
+        save_file(
+            Path(export_path)
+            / self.export_path.filepath.with_name("export_view").with_suffix(".html"),
+            str(soup.prettify()),
+        )
 
     def export_markdown(self, export_path: StrPath) -> None:
         save_file(
@@ -235,6 +242,7 @@ class Page(BaseModel):
             title=data.get("title", ""),
             space=Space.from_json(data.get("space", {})),
             body=data.get("body", {}).get("view", {}).get("value", ""),
+            body_export=data.get("body", {}).get("export_view", {}).get("value", ""),
             labels=[
                 Label.from_json(label)
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
@@ -257,8 +265,9 @@ class Page(BaseModel):
                 JsonResponse,
                 api.get_page_by_id(
                     page_id,
-                    # ,body.export_view
-                    expand="body.view,space.homepage,metadata.labels,children.attachment.space.homepage,descendants.page,ancestors,macroRenderedOutput",
+                    expand="body.view,body.export_view,space.homepage,metadata.labels,"
+                    "metadata.properties,children.attachment.space.homepage,descendants.page,"
+                    "ancestors,macroRenderedOutput",
                 ),
             )
         )
@@ -266,19 +275,13 @@ class Page(BaseModel):
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
-        # TODO ensure images work
         # TODO ensure drawio diagrams work
         # TODO ensure other attachments work like PDF or ZIP
         # TODO ensure emojis work https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis
         # TODO support table and figure captions
-        # TODO ensure page property reports work
-        # TODO checkout body.export view
-        #       -> export view fills in dynamic content like page property reports, but
-        #          removed html attributes
+        # TODO resolve export internal/relative links
 
         # Later
-        # TODO support confluence folders
-        # TODO resolve export internal/relative links
         # TODO Support badges via https://shields.io/badges/static-badge
         # TODO advanced: read version by version and commit in git using change comment and user info
         # TODO what to do with comments?
@@ -328,6 +331,8 @@ class Page(BaseModel):
         def convert_page_properties(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> None:
+            # TODO can this be queries via REST API instead?
+
             rows = [
                 cast(list[Tag], tr.find_all(["th", "td"]))
                 for tr in cast(list[Tag], el.find_all("tr"))
@@ -387,6 +392,7 @@ class Page(BaseModel):
         def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("class") and "user-mention" in el["class"]:
                 return self.convert_user(el, text, parent_tags)
+            # TODO Convert internal page links to wiki style links (or relative links)
 
             return super().convert_a(el, text, parent_tags)
 
@@ -423,3 +429,30 @@ class Page(BaseModel):
                 attachment.export_path.filepath, self.page.export_path.dirpath
             )
             return super().convert_img(el, text, parent_tags)
+            # FIXME Wiki style image link has alignment issues
+            # return f"![[{attachment.export_path.filepath}]]"
+
+        def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            if el.has_attr("class") and "metadata-summary-macro" in el["class"]:
+                return self.convert_page_properties_report(el, text, parent_tags)
+
+            return super().convert_table(el, text, parent_tags)
+
+        def convert_page_properties_report(
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+        ) -> str:
+            # TODO can this be queries via REST API instead?
+            # api.cql('label = "curated-dataset" and space = STRUCT and parent = 688816133', expand='metadata.properties')
+            # data-macro-id="5836d104-f9e9-44cf-9d05-e332b86275c0"
+            # https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content---macro-body/#api-wiki-rest-api-content-id-history-version-macro-id-macroid-get
+            # Find out how to fetch the macro content
+
+            # TODO instead use markdown integrated front matter properties query
+            # FIXME Fix multi row in 688816133 on bullet point list
+
+            data_cql = el.get("data-cql")
+            if not data_cql:
+                return ""
+            soup = BeautifulSoup(self.page.body_export, "html.parser")
+            table = soup.find("table", {"data-cql": data_cql})
+            return super().convert_table(table, "", parent_tags)  # type: ignore -
