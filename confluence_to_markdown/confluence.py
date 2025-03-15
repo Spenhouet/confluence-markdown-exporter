@@ -230,7 +230,8 @@ class Page(BaseModel):
 
     def export_attachments(self, export_path: StrPath) -> None:
         for attachment in self.attachments:
-            attachment.export(export_path)
+            if attachment.file_id in self.body:
+                attachment.export(export_path)
 
     def get_attachment_by_file_id(self, file_id: str) -> Attachment:
         return next(attachment for attachment in self.attachments if attachment.file_id == file_id)
