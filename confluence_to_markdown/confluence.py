@@ -288,6 +288,7 @@ class Page(BaseModel):
         # Later
         # TODO Support badges via https://shields.io/badges/static-badge
         # TODO advanced: read version by version and commit in git using change comment and user info
+        # TODO display Jira issue titles
         # TODO what to do with comments?
 
         # FIXME Workaround for Confluence `createpage.action` bug: Load body.editor2 content and
@@ -381,6 +382,18 @@ class Page(BaseModel):
 
             return super().convert_div(el, text, parent_tags)
 
+        def convert_span(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            if el.has_attr("data-macro-name"):
+                if el["data-macro-name"] == "jira":
+                    return self.convert_jira_issue(el, text, parent_tags)
+
+            return text
+
+        def convert_jira_issue(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            # return str(el.get("data-jira-key"))
+            # TODO query Jira API for issue title
+            return self.process_tag(el.find("a", {"class": "jira-issue-key"}), parent_tags)
+
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if not text:
                 return ""
@@ -446,12 +459,6 @@ class Page(BaseModel):
                 return md.replace(f"{bullet} ", f"{bullet} {'[x]' if is_checked else '[ ]'} ", 1)
 
             return md
-
-        def convert_ul(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            if "td" in parent_tags:
-                return str(el)
-                # return super().convert_ul(el, text, parent_tags).strip().replace("\n", "<br/>")
-            return super().convert_ul(el, text, parent_tags)
 
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             file_id = el.get("data-media-id")
