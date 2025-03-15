@@ -6,6 +6,40 @@ from markdownify import MarkdownConverter
 from tabulate import tabulate
 
 
+def pad(rows: list[list[Tag]]) -> list[list[Tag]]:
+    padded: list[list[Tag]] = []
+    occ: dict[tuple[int, int], Tag] = {}
+    for r, row in enumerate(rows):
+        cur: list[Tag] = []
+        c = 0
+        for cell in row:
+            while (r, c) in occ:
+                cur.append(occ.pop((r, c)))
+                c += 1
+            rs = int(cell.get("rowspan", 1))  # type: ignore -
+            cs = int(cell.get("colspan", 1))  # type: ignore -
+            cur.append(cell)
+            # Append extra cells for colspan
+            for _ in range(1, cs):
+                cur.append(make_empty_cell())
+            # Mark future cells for rowspan and colspan
+            for i in range(rs):
+                for j in range(cs):
+                    if i or j:
+                        occ[(r + i, c + j)] = make_empty_cell()
+            c += cs
+        while (r, c) in occ:
+            cur.append(occ.pop((r, c)))
+            c += 1
+        padded.append(cur)
+    return padded
+
+
+def make_empty_cell() -> Tag:
+    """Return an empty <td> Tag."""
+    return Tag(name="td")
+
+
 class TableConverter(MarkdownConverter):
     def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         rows = [
@@ -15,13 +49,14 @@ class TableConverter(MarkdownConverter):
         if not rows:
             return ""
 
+        padded_rows = pad(rows)
+        converted = [[self.convert(str(cell)) for cell in row] for row in padded_rows]
+
         has_header = all(cell.name == "th" for cell in rows[0])
-        rows = [[self.convert(str(cell)) for cell in row] for row in rows]
-
         if has_header:
-            return tabulate(rows[1:], headers=rows[0], tablefmt="pipe")
+            return tabulate(converted[1:], headers=converted[0], tablefmt="pipe")
 
-        return tabulate(rows, headers=[""] * len(rows[0]), tablefmt="pipe")
+        return tabulate(converted, headers=[""] * len(converted[0]), tablefmt="pipe")
 
     def convert_th(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <th> tag."""
