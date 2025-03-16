@@ -15,6 +15,7 @@ from typing import cast
 
 import yaml
 from atlassian import Confluence as ConfluenceApi
+from atlassian.errors import ApiError
 from bs4 import BeautifulSoup
 from bs4 import Tag
 from markdownify import ATX
@@ -23,6 +24,7 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
+from requests import HTTPError
 
 from confluence_to_markdown.utils.export import sanitize_filename
 from confluence_to_markdown.utils.export import sanitize_key
@@ -125,7 +127,9 @@ class ExportPath(BaseModel):
 
     @classmethod
     def from_page(cls, page: "Page") -> "ExportPath":
-        home_path = Path(*[sanitize_filename(ancestor) for ancestor in page.ancestors])
+        home_path = Path(
+            *[sanitize_filename(Page.from_id(ancestor).title) for ancestor in page.ancestors]
+        )
         space_path = Path(sanitize_filename(page.space.name))
         return cls(
             dirpath=space_path / home_path,
@@ -209,18 +213,25 @@ class Page(BaseModel):
     editor2: str
     labels: list["Label"]
     attachments: list["Attachment"]
-    ancestors: list[str]
+    ancestors: list[int]
 
     @property
     def descendants(self) -> list[int]:
-        data = cast(
-            JsonResponse,
-            api.get_page_by_id(self.id, expand="descendants.page"),
-        )
-        return [
-            page.get("id")
-            for page in data.get("descendants", {}).get("page", {}).get("results", [])
-        ]
+        url = f"rest/api/content/{self.id}/descendant/page"
+        try:
+            response = cast(JsonResponse, api.get(url, params={"limit": 10000}))
+        except HTTPError as e:
+            if e.response.status_code == 404:  # noqa: PLR2004
+                # Raise ApiError as the documented reason is ambiguous
+                msg = (
+                    "There is no content with the given id, "
+                    "or the calling user does not have permission to view the content"
+                )
+                raise ApiError(msg, reason=e) from e
+
+            raise
+
+        return [page.get("id") for page in response.get("results", [])]
 
     @property
     def export_path(self) -> ExportPath:
@@ -302,7 +313,7 @@ class Page(BaseModel):
             attachments=[
                 Attachment.from_json(attachment) for attachment in attachments.get("results", [])
             ],
-            ancestors=[ancestor.get("title") for ancestor in data.get("ancestors", [])],
+            ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])],
         )
 
     @classmethod
@@ -322,18 +333,14 @@ class Page(BaseModel):
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
-        # TODO ensure other attachments work like PDF or ZIP, Text
-        # TODO ensure emojis work https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis
+        # FIXME Image in table cells (e.g. "Before" and "After" images)
         # TODO support table and figure captions
 
-        # TODO lazy load body content
-
-        # Later
+        # Advanced/Future features:
         # TODO Support badges via https://shields.io/badges/static-badge
-        # TODO advanced: read version by version and commit in git using change comment and user info
-        # TODO display Jira issue titles
+        # TODO Read version by version and commit in git using change comment and user info
+        # TODO Display Jira issue titles
         # TODO what to do with page comments?
-        # TODO store hidden macros as comments
 
         class Options(MarkdownConverter.DefaultOptions):
             bullets = "-"
@@ -349,7 +356,7 @@ class Page(BaseModel):
         @property
         def markdown(self) -> str:
             md_body = self.convert(self.page.html)
-            return f"{self.front_matter}\n{md_body}\n"  # Add newline at end of file
+            return f"{self.front_matter}\n{self.breadcrumbs}\n{md_body}\n"  # Add newline at end of file
 
         @property
         def front_matter(self) -> str:
@@ -362,6 +369,12 @@ class Page(BaseModel):
             # Indent the root level list items
             yml = re.sub(r"^( *)(- )", r"\1" + " " * indent + r"\2", yml, flags=re.MULTILINE)
             return f"---\n{yml}\n---\n"
+
+        @property
+        def breadcrumbs(self) -> str:
+            return " > ".join(
+                [self.convert_page_link(ancestor) for ancestor in self.page.ancestors]
+            )
 
         @property
         def labels(self) -> list[str]:
