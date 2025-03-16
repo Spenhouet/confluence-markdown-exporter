@@ -285,6 +285,9 @@ class Page(BaseModel):
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Page":
+        attachments = cast(
+            JsonResponse, api.get_attachments_from_content(data.get("id", 0), limit=1000)
+        )
         return cls(
             id=data.get("id", 0),
             title=data.get("title", ""),
@@ -297,8 +300,7 @@ class Page(BaseModel):
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
             attachments=[
-                Attachment.from_json(attachment)
-                for attachment in data.get("children", {}).get("attachment", {}).get("results", [])
+                Attachment.from_json(attachment) for attachment in attachments.get("results", [])
             ],
             ancestors=[ancestor.get("title") for ancestor in data.get("ancestors", [])],
         )
@@ -312,7 +314,7 @@ class Page(BaseModel):
                 api.get_page_by_id(
                     page_id,
                     expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                    "metadata.properties,children.attachment,ancestors",
+                    "metadata.properties,ancestors",
                 ),
             )
         )
@@ -332,7 +334,6 @@ class Page(BaseModel):
         # TODO display Jira issue titles
         # TODO what to do with page comments?
         # TODO store hidden macros as comments
-        # TODO instert TOC equivalent
 
         class Options(MarkdownConverter.DefaultOptions):
             bullets = "-"
@@ -481,6 +482,8 @@ class Page(BaseModel):
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = el.get("data-linked-resource-id")
                 return self.convert_page_link(int(str(page_id)))
+            if "attachment" in str(el.get("data-linked-resource-type")):
+                return self.convert_attachment_link(el, text, parent_tags)
             if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el["href"])):
                 page_id = match.group(1)
                 return self.convert_page_link(int(page_id))
@@ -499,6 +502,16 @@ class Page(BaseModel):
             relpath = os.path.relpath(page.export_path.filepath, self.page.export_path.dirpath)
 
             return f"[{page.title}]({relpath.replace(' ', '%20')})"
+
+        def convert_attachment_link(
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+        ) -> str:
+            attachment_id = el.get("data-media-id")
+            attachment = self.page.get_attachment_by_file_id(str(attachment_id))
+            relpath = os.path.relpath(
+                attachment.export_path.filepath, self.page.export_path.dirpath
+            )
+            return f"[{attachment.title}]({relpath.replace(' ', '%20')})"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
@@ -522,10 +535,8 @@ class Page(BaseModel):
 
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             file_id = el.get("data-media-id")
-
             if not file_id:
-                msg = "Image does not have a data-media-id attribute"
-                raise ValueError(msg)
+                return ""
 
             attachment = self.page.get_attachment_by_file_id(str(file_id))
             relpath = os.path.relpath(
