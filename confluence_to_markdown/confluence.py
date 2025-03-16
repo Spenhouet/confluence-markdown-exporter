@@ -333,8 +333,13 @@ class Page(BaseModel):
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
-        # FIXME Image in table cells (e.g. "Before" and "After" images)
-        # TODO support table and figure captions
+        # FIXME Image in table cells (e.g. "Before" and "After" images, 934379624)
+        # TODO support table captions
+        # TODO support figure captions (934379624)
+        # TODO support macro with side by side view ("Fit", 934379624)
+        # TODO ensure Jira issue macro works (329154640)
+
+        # FIXME Potentially the REST API timesout - retry?
 
         # Advanced/Future features:
         # TODO Support badges via https://shields.io/badges/static-badge
@@ -454,6 +459,9 @@ class Page(BaseModel):
             return self.process_tag(toc, parent_tags)
 
         def convert_comment(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            if _ := el.find("div", {"data-macro-name": "toc"}):
+                return super().convert_div(el, text, parent_tags)
+
             content = super().convert_p(el, text, parent_tags)
             return f"\n<!--{content}-->\n"
 
