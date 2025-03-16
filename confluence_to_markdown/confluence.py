@@ -25,6 +25,7 @@ from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 
 from confluence_to_markdown.utils.export import sanitize_filename
+from confluence_to_markdown.utils.export import sanitize_key
 from confluence_to_markdown.utils.export import save_file
 from confluence_to_markdown.utils.table_converter import TableConverter
 
@@ -368,7 +369,7 @@ class Page(BaseModel):
         def set_page_properties(self, **props: list[str] | str | None) -> None:
             for key, value in props.items():
                 if value:
-                    self.page_properties[key.lower().replace(" ", "-").replace("_", "-")] = value
+                    self.page_properties[sanitize_key(key)] = value
 
         def convert_page_properties(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
@@ -419,7 +420,7 @@ class Page(BaseModel):
                 if el["data-macro-name"] == "drawio":
                     return self.convert_drawio(el, text, parent_tags)
                 if el["data-macro-name"] == "scroll-ignore":
-                    return self.convert_scroll_ignore(el, text, parent_tags)
+                    return self.convert_comment(el, text, parent_tags)
 
             return super().convert_div(el, text, parent_tags)
 
@@ -430,9 +431,7 @@ class Page(BaseModel):
 
             return text
 
-        def convert_scroll_ignore(
-            self, el: BeautifulSoup, text: str, parent_tags: list[str]
-        ) -> str:
+        def convert_comment(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             content = super().convert_p(el, text, parent_tags)
             return f"\n<!--{content}-->\n"
 

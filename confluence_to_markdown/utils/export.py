@@ -51,3 +51,21 @@ def sanitize_filename(filename: str, replacement: str = "_") -> str:
 
     # Limit length to 255 characters (common filesystem limit)
     return sanitized[:255]
+
+
+def sanitize_key(s: str, connector: str = "_") -> str:
+    """Convert an input string to a valid Python/YAML-compatible key.
+
+    - Lowercase the string.
+    - Replace non-alphanumeric characters with underscores.
+    - Collapse multiple underscores into one.
+    - Trim leading/trailing underscores.
+    - Prefix with 'key_' if the first character is not a letter or underscore.
+    """
+    s = s.lower()
+    s = re.sub(f"[^a-z0-9{connector}]", connector, s)
+    s = re.sub(f"{connector}+", connector, s)
+    s = s.strip(connector)
+    if not re.match(r"^[a-z]", s):
+        s = f"key{connector}{s}"
+    return s
