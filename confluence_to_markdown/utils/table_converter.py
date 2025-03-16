@@ -69,7 +69,7 @@ class TableConverter(MarkdownConverter):
 
     def convert_td(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <td> tag."""
-        return text.replace("\n", "<br/>").rstrip("<br/>")
+        return text.replace("\n", "<br/>").removesuffix("<br/>")
 
     def convert_thead(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <thead> tag."""
@@ -78,6 +78,11 @@ class TableConverter(MarkdownConverter):
     def convert_tbody(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <tbody> tag."""
         return text
+
+    def convert_ol(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        if "td" in parent_tags:
+            return str(el)
+        return super().convert_ol(el, text, parent_tags)
 
     def convert_ul(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         if "td" in parent_tags:
