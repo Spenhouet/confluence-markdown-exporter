@@ -3,6 +3,7 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+import functools
 import mimetypes
 import os
 import re
@@ -31,6 +32,11 @@ JsonResponse: TypeAlias = dict
 StrPath: TypeAlias = str | PathLike[str]
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
+
+
+# TODO load space via key and cache, rather than via page query
+# TODO load attachments on-demand rather than all at once
+# TODO load page descendants on-demand rather than all at once
 
 
 class ApiSettings(BaseSettings):
@@ -63,14 +69,17 @@ class User(BaseModel):
         )
 
     @classmethod
+    @functools.lru_cache(maxsize=100)
     def from_username(cls, username: str) -> "User":
         return cls.from_json(cast(JsonResponse, api.get_user_details_by_username(username)))
 
     @classmethod
+    @functools.lru_cache(maxsize=100)
     def from_userkey(cls, userkey: str) -> "User":
         return cls.from_json(cast(JsonResponse, api.get_user_details_by_userkey(userkey)))
 
     @classmethod
+    @functools.lru_cache(maxsize=100)
     def from_accountid(cls, accountid: int) -> "User":
         return cls.from_json(cast(JsonResponse, api.get_user_details_by_accountid(accountid)))
 
@@ -91,6 +100,7 @@ class Space(BaseModel):
         )
 
     @classmethod
+    @functools.lru_cache(maxsize=100)
     def from_key(cls, space_key: str) -> "Space":
         return cls.from_json(cast(JsonResponse, api.get_space(space_key, expand="homepage")))
 
@@ -171,11 +181,15 @@ class Attachment(BaseModel):
         )
 
     def export(self, export_path: StrPath) -> None:
+        filepath = Path(export_path) / self.export_path.filepath
+        if filepath.exists():
+            return
+
         response = api._session.get(str(api.url + self.download_link))
         response.raise_for_status()  # Raise error if request fails
 
         save_file(
-            Path(export_path) / self.export_path.filepath,
+            filepath,
             response.content,
         )
 
@@ -262,6 +276,7 @@ class Page(BaseModel):
         )
 
     @classmethod
+    @functools.lru_cache(maxsize=1000)
     def from_id(cls, page_id: int) -> "Page":
         return cls.from_json(
             cast(
@@ -284,6 +299,7 @@ class Page(BaseModel):
         # TODO support table and figure captions
 
         # TODO Optimize: Only load descendants when needed
+        # TODO lazy load body content
 
         # Later
         # TODO Support badges via https://shields.io/badges/static-badge
