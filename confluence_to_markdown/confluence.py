@@ -34,10 +34,6 @@ StrPath: TypeAlias = str | PathLike[str]
 DEBUG: bool = bool(os.getenv("DEBUG"))
 
 
-# TODO load attachments on-demand rather than all at once
-# TODO load page descendants on-demand rather than all at once
-
-
 class ApiSettings(BaseSettings):
     username: str = Field()
     password: str = Field()
@@ -212,8 +208,18 @@ class Page(BaseModel):
     editor2: str
     labels: list["Label"]
     attachments: list["Attachment"]
-    descendants: list[int]
     ancestors: list[str]
+
+    @property
+    def descendants(self) -> list[int]:
+        data = cast(
+            JsonResponse,
+            api.get_page_by_id(self.id, expand="descendants.page"),
+        )
+        return [
+            page.get("id")
+            for page in data.get("descendants", {}).get("page", {}).get("results", [])
+        ]
 
     @property
     def export_path(self) -> ExportPath:
@@ -293,10 +299,6 @@ class Page(BaseModel):
                 Attachment.from_json(attachment)
                 for attachment in data.get("children", {}).get("attachment", {}).get("results", [])
             ],
-            descendants=[
-                page.get("id")
-                for page in data.get("descendants", {}).get("page", {}).get("results", [])
-            ],
             ancestors=[ancestor.get("title") for ancestor in data.get("ancestors", [])],
         )
 
@@ -309,8 +311,7 @@ class Page(BaseModel):
                 api.get_page_by_id(
                     page_id,
                     expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                    "metadata.properties,children.attachment,descendants.page,"
-                    "ancestors,macroRenderedOutput",
+                    "metadata.properties,children.attachment,ancestors",
                 ),
             )
         )
@@ -318,15 +319,11 @@ class Page(BaseModel):
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
-        # TODO ensure other attachments work like PDF or ZIP
+        # TODO ensure other attachments work like PDF or ZIP, Text
         # TODO ensure emojis work https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis
         # TODO support table and figure captions
 
-        # TODO Optimize: Only load descendants when needed
         # TODO lazy load body content
-
-        # FIXME fix "</ul" bug
-        # FIXME drawio png not properly loaded?
 
         # Later
         # TODO Support badges via https://shields.io/badges/static-badge
