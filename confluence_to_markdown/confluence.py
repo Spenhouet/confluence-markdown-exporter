@@ -289,7 +289,9 @@ class Page(BaseModel):
         # TODO Support badges via https://shields.io/badges/static-badge
         # TODO advanced: read version by version and commit in git using change comment and user info
         # TODO display Jira issue titles
-        # TODO what to do with comments?
+        # TODO what to do with page comments?
+        # TODO store hidden macros as comments
+        # TODO instert TOC equivalent
 
         # FIXME Workaround for Confluence `createpage.action` bug: Load body.editor2 content and
         #   search for <a> with same text within adf-fallback
@@ -410,7 +412,10 @@ class Page(BaseModel):
             return f"<sub>{text}</sub>"
 
         def convert_sup(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            return f"<sup>{text}</sup>"
+            """Convert superscript to Markdown footnotes."""
+            if el.previous_sibling is None:
+                return f"[^{text}]:"  # Footnote definition
+            return f"[^{text}]"  # f"<sup>{text}</sup>"
 
         def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if "user-mention" in str(el.get("class")):
