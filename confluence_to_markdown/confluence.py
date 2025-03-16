@@ -140,7 +140,7 @@ class ExportPath(BaseModel):
         space_path = Path(sanitize_filename(attachment.space.name))
         return cls(
             dirpath=space_path / "attachments",
-            filename=f"{attachment.file_id}{mimetypes.guess_extension(attachment.media_type)}",
+            filename=f"{attachment.filename}",
         )
 
 
@@ -154,11 +154,20 @@ class Attachment(BaseModel):
     file_id: str
     collection_name: str
     download_link: str
+    comment: str
+
+    @property
+    def extension(self) -> str:
+        if self.comment == "draw.io diagram" and self.media_type == "application/vnd.jgraph.mxfile":
+            return ".drawio"
+        if self.comment == "draw.io preview" and self.media_type == "image/png":
+            return ".drawio.png"
+
+        return mimetypes.guess_extension(self.media_type) or ""
 
     @property
     def filename(self) -> str:
-        extension = mimetypes.guess_extension(self.media_type)
-        return f"{self.file_id}{extension}"
+        return f"{self.file_id}{self.extension}"
 
     @property
     def export_path(self) -> ExportPath:
@@ -177,6 +186,7 @@ class Attachment(BaseModel):
             file_id=extensions.get("fileId", ""),
             collection_name=extensions.get("collectionName", ""),
             download_link=data.get("_links", {}).get("download", ""),
+            comment=extensions.get("comment", ""),
         )
 
     def export(self, export_path: StrPath) -> None:
@@ -244,11 +254,27 @@ class Page(BaseModel):
 
     def export_attachments(self, export_path: StrPath) -> None:
         for attachment in self.attachments:
+            if (
+                attachment.filename.endswith(".drawio")
+                and f"diagramName={attachment.title}" in self.body
+            ):
+                attachment.export(export_path)
+                continue
+            if (
+                attachment.filename.endswith(".drawio.png")
+                and attachment.title.replace(" ", "%20") in self.body_export
+            ):
+                attachment.export(export_path)
+                continue
             if attachment.file_id in self.body:
                 attachment.export(export_path)
+                continue
 
     def get_attachment_by_file_id(self, file_id: str) -> Attachment:
         return next(attachment for attachment in self.attachments if attachment.file_id == file_id)
+
+    def get_attachment_by_title(self, title: str) -> Attachment:
+        return next(attachment for attachment in self.attachments if attachment.title == title)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Page":
@@ -292,13 +318,15 @@ class Page(BaseModel):
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
-        # TODO ensure drawio diagrams work
         # TODO ensure other attachments work like PDF or ZIP
         # TODO ensure emojis work https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#using-emojis
         # TODO support table and figure captions
 
         # TODO Optimize: Only load descendants when needed
         # TODO lazy load body content
+
+        # FIXME fix "</ul" bug
+        # FIXME drawio png not properly loaded?
 
         # Later
         # TODO Support badges via https://shields.io/badges/static-badge
@@ -307,9 +335,6 @@ class Page(BaseModel):
         # TODO what to do with page comments?
         # TODO store hidden macros as comments
         # TODO instert TOC equivalent
-
-        # FIXME Workaround for Confluence `createpage.action` bug: Load body.editor2 content and
-        #   search for <a> with same text within adf-fallback
 
         class Options(MarkdownConverter.DefaultOptions):
             bullets = "-"
@@ -396,6 +421,8 @@ class Page(BaseModel):
                     return self.convert_alert(el, text, parent_tags)
                 if el["data-macro-name"] == "details":
                     self.convert_page_properties(el, text, parent_tags)
+                if el["data-macro-name"] == "drawio":
+                    return self.convert_drawio(el, text, parent_tags)
 
             return super().convert_div(el, text, parent_tags)
 
@@ -495,6 +522,25 @@ class Page(BaseModel):
             return super().convert_img(el, text, parent_tags)
             # REPORT Wiki style image link has alignment issues
             # return f"![[{attachment.export_path.filepath}]]"
+
+        def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
+                drawio_name = match.group(1)
+                preview_name = f"{drawio_name}.png"
+                drawio_attachment = self.page.get_attachment_by_title(drawio_name)
+                preview_attachment = self.page.get_attachment_by_title(preview_name)
+                drawio_relpath = os.path.relpath(
+                    drawio_attachment.export_path.filepath, self.page.export_path.dirpath
+                )
+                preview_relpath = os.path.relpath(
+                    preview_attachment.export_path.filepath, self.page.export_path.dirpath
+                )
+
+                drawio_image_embedding = f"![{drawio_name}]({preview_relpath.replace(' ', '%20')})"
+                drawio_link = f"[{drawio_image_embedding}]({drawio_relpath.replace(' ', '%20')})"
+                return f"\n{drawio_link}\n\n"
+
+            return ""
 
         def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("class") and "metadata-summary-macro" in el["class"]:
