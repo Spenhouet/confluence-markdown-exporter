@@ -34,7 +34,6 @@ StrPath: TypeAlias = str | PathLike[str]
 DEBUG: bool = bool(os.getenv("DEBUG"))
 
 
-# TODO load space via key and cache, rather than via page query
 # TODO load attachments on-demand rather than all at once
 # TODO load page descendants on-demand rather than all at once
 
@@ -171,7 +170,7 @@ class Attachment(BaseModel):
         return cls(
             id=data.get("id", ""),
             title=data.get("title", ""),
-            space=Space.from_json(data.get("space", {})),
+            space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
             file_size=extensions.get("fileSize", 0),
             media_type=extensions.get("mediaType", ""),
             media_type_description=extensions.get("mediaTypeDescription", ""),
@@ -256,7 +255,7 @@ class Page(BaseModel):
         return cls(
             id=data.get("id", 0),
             title=data.get("title", ""),
-            space=Space.from_json(data.get("space", {})),
+            space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
             body=data.get("body", {}).get("view", {}).get("value", ""),
             body_export=data.get("body", {}).get("export_view", {}).get("value", ""),
             editor2=data.get("body", {}).get("editor2", {}).get("value", ""),
@@ -283,8 +282,8 @@ class Page(BaseModel):
                 JsonResponse,
                 api.get_page_by_id(
                     page_id,
-                    expand="body.view,body.export_view,body.editor2,space.homepage,metadata.labels,"
-                    "metadata.properties,children.attachment.space.homepage,descendants.page,"
+                    expand="body.view,body.export_view,body.editor2,metadata.labels,"
+                    "metadata.properties,children.attachment,descendants.page,"
                     "ancestors,macroRenderedOutput",
                 ),
             )
