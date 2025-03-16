@@ -336,9 +336,7 @@ class Page(BaseModel):
         class Options(MarkdownConverter.DefaultOptions):
             bullets = "-"
             heading_style = ATX
-            macros_to_ignore: Set[str] = frozenset(
-                ["scroll-ignore", "qc-read-and-understood-signature-box"]
-            )
+            macros_to_ignore: Set[str] = frozenset(["qc-read-and-understood-signature-box"])
             front_matter_indent = 2
 
         def __init__(self, page: "Page", **options) -> None:  # noqa: ANN003
@@ -420,6 +418,8 @@ class Page(BaseModel):
                     self.convert_page_properties(el, text, parent_tags)
                 if el["data-macro-name"] == "drawio":
                     return self.convert_drawio(el, text, parent_tags)
+                if el["data-macro-name"] == "scroll-ignore":
+                    return self.convert_scroll_ignore(el, text, parent_tags)
 
             return super().convert_div(el, text, parent_tags)
 
@@ -429,6 +429,12 @@ class Page(BaseModel):
                     return self.convert_jira_issue(el, text, parent_tags)
 
             return text
+
+        def convert_scroll_ignore(
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+        ) -> str:
+            content = super().convert_p(el, text, parent_tags)
+            return f"\n<!--{content}-->\n"
 
         def convert_jira_issue(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             # return str(el.get("data-jira-key"))
