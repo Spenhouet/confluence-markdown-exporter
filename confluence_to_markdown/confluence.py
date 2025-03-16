@@ -421,6 +421,8 @@ class Page(BaseModel):
                     return self.convert_drawio(el, text, parent_tags)
                 if el["data-macro-name"] == "scroll-ignore":
                     return self.convert_comment(el, text, parent_tags)
+                if el["data-macro-name"] == "toc":
+                    return self.convert_toc(el, text, parent_tags)
 
             return super().convert_div(el, text, parent_tags)
 
@@ -430,6 +432,12 @@ class Page(BaseModel):
                     return self.convert_jira_issue(el, text, parent_tags)
 
             return text
+
+        def convert_toc(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            toc = BeautifulSoup(self.page.body_export, "html.parser").find(
+                "div", {"class": "toc-macro"}
+            )
+            return self.process_tag(toc, parent_tags)
 
         def convert_comment(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             content = super().convert_p(el, text, parent_tags)
@@ -476,6 +484,9 @@ class Page(BaseModel):
             if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el["href"])):
                 page_id = match.group(1)
                 return self.convert_page_link(int(page_id))
+            if str(el.get("href", "")).startswith("#"):
+                # Handle heading links
+                return f"[{text}](#{sanitize_key(text, '-')})"
 
             return super().convert_a(el, text, parent_tags)
 
