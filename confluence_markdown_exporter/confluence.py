@@ -384,8 +384,8 @@ class Page(BaseModel):
     def get_attachment_by_file_id(self, file_id: str) -> Attachment:
         return next(attachment for attachment in self.attachments if attachment.file_id == file_id)
 
-    def get_attachment_by_title(self, title: str) -> Attachment:
-        return next(attachment for attachment in self.attachments if attachment.title == title)
+    def get_attachments_by_title(self, title: str) -> list[Attachment]:
+        return [attachment for attachment in self.attachments if attachment.title == title]
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Page":
@@ -701,13 +701,17 @@ class Page(BaseModel):
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
                 drawio_name = match.group(1)
                 preview_name = f"{drawio_name}.png"
-                drawio_attachment = self.page.get_attachment_by_title(drawio_name)
-                preview_attachment = self.page.get_attachment_by_title(preview_name)
+                drawio_attachments = self.page.get_attachments_by_title(drawio_name)
+                preview_attachments = self.page.get_attachments_by_title(preview_name)
+
+                if not drawio_attachments or not preview_attachments:
+                    return f"\n<!-- Drawio diagram `{drawio_name}` not found -->\n\n"
+
                 drawio_relpath = os.path.relpath(
-                    drawio_attachment.export_path.filepath, self.page.export_path.dirpath
+                    drawio_attachments[0].export_path.filepath, self.page.export_path.dirpath
                 )
                 preview_relpath = os.path.relpath(
-                    preview_attachment.export_path.filepath, self.page.export_path.dirpath
+                    preview_attachments[0].export_path.filepath, self.page.export_path.dirpath
                 )
 
                 drawio_image_embedding = f"![{drawio_name}]({preview_relpath.replace(' ', '%20')})"
