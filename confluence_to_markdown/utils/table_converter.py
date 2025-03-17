@@ -10,6 +10,8 @@ def pad(rows: list[list[Tag]]) -> list[list[Tag]]:
     padded: list[list[Tag]] = []
     occ: dict[tuple[int, int], Tag] = {}
     for r, row in enumerate(rows):
+        if not row:
+            continue
         cur: list[Tag] = []
         c = 0
         for cell in row:
@@ -69,7 +71,7 @@ class TableConverter(MarkdownConverter):
 
     def convert_td(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <td> tag."""
-        return text.replace("\n", "<br/>").removesuffix("<br/>")
+        return text.replace("\n", "<br/>").removesuffix("<br/>").removeprefix("<br/>")
 
     def convert_thead(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <thead> tag."""

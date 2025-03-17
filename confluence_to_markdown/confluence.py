@@ -484,6 +484,8 @@ class Page(BaseModel):
                     return self.convert_comment(el, text, parent_tags)
                 if el["data-macro-name"] == "toc":
                     return self.convert_toc(el, text, parent_tags)
+                if el["data-macro-name"] == "jira":
+                    return self.convert_jira_table(el, text, parent_tags)
             if "columnLayout" in str(el.get("class", "")):
                 return self.convert_column_layout(el, text, parent_tags)
 
@@ -508,11 +510,27 @@ class Page(BaseModel):
 
             return self.convert_table(BeautifulSoup(html, "html.parser"), text, parent_tags)
 
+        def convert_jira_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            jira_tables = BeautifulSoup(self.page.body_export, "html.parser").find_all(
+                "div", {"class": "jira-table"}
+            )
+
+            if len(jira_tables) > 1:
+                print("Multiple Jira tables are not supported. Ignoring.")
+                return text
+
+            return self.process_tag(jira_tables[0], parent_tags)
+
         def convert_toc(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            toc = BeautifulSoup(self.page.body_export, "html.parser").find(
+            tocs = BeautifulSoup(self.page.body_export, "html.parser").find_all(
                 "div", {"class": "toc-macro"}
             )
-            return self.process_tag(toc, parent_tags)
+
+            if len(tocs) > 1:
+                print("Multiple TOC macros are not supported. Ignoring.")
+                return text
+
+            return self.process_tag(tocs[0], parent_tags)
 
         def convert_comment(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if _ := el.find("div", {"data-macro-name": "toc"}):
