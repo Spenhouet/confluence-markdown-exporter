@@ -60,6 +60,32 @@ jira = Jira(
 )
 
 
+class JiraIssue(BaseModel):
+    key: str
+    summary: str
+    description: str
+    status: str
+    assignee: str
+
+    @classmethod
+    def from_json(cls, data: JsonResponse) -> "JiraIssue":
+        fields = data.get("fields", {})
+        assignee = fields.get("assignee", {}).get("displayName", "Unassigned")
+        return cls(
+            key=data.get("key", ""),
+            summary=fields.get("summary", ""),
+            description=fields.get("description", ""),
+            status=fields.get("status", {}).get("name", ""),
+            assignee=assignee,
+        )
+
+    @classmethod
+    @functools.lru_cache(maxsize=100)
+    def from_key(cls, issue_key: str) -> "JiraIssue":
+        issue_data = cast(JsonResponse, jira.get_issue(issue_key))
+        return cls.from_json(issue_data)
+
+
 class User(BaseModel):
     username: str
     display_name: str
@@ -256,21 +282,30 @@ class Page(BaseModel):
 
     def export(self, export_path: StrPath) -> None:
         if DEBUG:
-            self.export_html(export_path)
+            self.export_body(export_path)
         self.export_markdown(export_path)
         self.export_attachments(export_path)
 
-    def export_html(self, export_path: StrPath) -> None:
+    def export_body(self, export_path: StrPath) -> None:
         soup = BeautifulSoup(self.html, "html.parser")
         save_file(
-            Path(export_path) / self.export_path.filepath.with_suffix(".html"),
+            Path(export_path)
+            / self.export_path.dirpath
+            / f"{self.export_path.filepath.stem}_body_view.html",
             str(soup.prettify()),
         )
         soup = BeautifulSoup(self.body_export, "html.parser")
         save_file(
             Path(export_path)
-            / self.export_path.filepath.with_name("export_view").with_suffix(".html"),
+            / self.export_path.dirpath
+            / f"{self.export_path.filepath.stem}_body_export_view.html",
             str(soup.prettify()),
+        )
+        save_file(
+            Path(export_path)
+            / self.export_path.dirpath
+            / f"{self.export_path.filepath.stem}_body_editor2.xml",
+            str(self.editor2),
         )
 
     def export_markdown(self, export_path: StrPath) -> None:
@@ -352,7 +387,6 @@ class Page(BaseModel):
         # Advanced/Future features:
         # TODO Support badges via https://shields.io/badges/static-badge
         # TODO Read version by version and commit in git using change comment and user info
-        # TODO Display Jira issue titles
         # TODO what to do with page comments?
 
         class Options(MarkdownConverter.DefaultOptions):
@@ -369,7 +403,7 @@ class Page(BaseModel):
         @property
         def markdown(self) -> str:
             md_body = self.convert(self.page.html)
-            return f"{self.front_matter}\n{self.breadcrumbs}\n{md_body}\n"  # Add newline at end of file
+            return f"{self.front_matter}\n{self.breadcrumbs}\n{md_body}\n"
 
         @property
         def front_matter(self) -> str:
@@ -494,9 +528,8 @@ class Page(BaseModel):
                 return self.process_tag(link, parent_tags)
             if not link:
                 return text
-            issue = cast(JsonResponse, jira.get_issue(str(issue_key)))
-            summary = issue.get("fields", {}).get("summary")
-            return f"[[{issue_key}] {summary}]({link.get('href')})"
+            issue = JiraIssue.from_key(str(issue_key))
+            return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
 
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if not text:
@@ -519,7 +552,7 @@ class Page(BaseModel):
                 return f"[^{text}]:"  # Footnote definition
             return f"[^{text}]"  # f"<sup>{text}</sup>"
 
-        def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
             if "user-mention" in str(el.get("class")):
                 return self.convert_user(el, text, parent_tags)
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
@@ -533,7 +566,7 @@ class Page(BaseModel):
                 return self.convert_page_link(int(str(page_id)))
             if "attachment" in str(el.get("data-linked-resource-type")):
                 return self.convert_attachment_link(el, text, parent_tags)
-            if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el["href"])):
+            if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el.get("href", ""))):
                 page_id = match.group(1)
                 return self.convert_page_link(int(page_id))
             if str(el.get("href", "")).startswith("#"):
