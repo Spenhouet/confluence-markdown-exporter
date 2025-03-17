@@ -569,7 +569,7 @@ class Page(BaseModel):
             return f"{text}"
 
         def convert_user(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            return f"{text.replace(' (Unlicensed)', '')}"
+            return f"{text.removesuffix('(Unlicensed)').removesuffix('(Deactivated)').strip()}"
 
         def convert_li(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             md = super().convert_li(el, text, parent_tags)
