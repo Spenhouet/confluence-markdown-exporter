@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "A tool to export Confluence pages to Markdown"
 keywords = ["confluence", "atlassian", "markdown", "export", "convertion", "download"]
 readme = "README.md"
-license = "MIT"
+license = { text = "MIT" }
 authors = [
     { name = "Sebastian Penhouet" }
 ]
