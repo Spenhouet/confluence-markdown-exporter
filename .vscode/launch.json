@@ -20,26 +20,56 @@
       "name": "Python: Export Page",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/confluence_to_markdown/main.py",
+      "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["page", "<page_id>", "scratch"],
+      "args": ["page", "<page-id>", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
-        "PYTHONPATH": "${workspaceRoot}"
+        "PYTHONPATH": "${workspaceRoot}",
+        "DEBUG": "true"
+      }
+    },
+    {
+      "name": "Python: Export Page with Descendants",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
+      "justMyCode": false,
+      "args": ["page-with-descendants", "<page-id>", "scratch"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceRoot}",
+        "DEBUG": "true"
       }
     },
     {
       "name": "Python: Export Space",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/confluence_to_markdown/main.py",
+      "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["space", "<space_key>", "scratch"],
+      "args": ["space", "<space-key>", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
-        "PYTHONPATH": "${workspaceRoot}"
+        "PYTHONPATH": "${workspaceRoot}",
+        "DEBUG": "true"
+      }
+    },
+    {
+      "name": "Python: Export All Spaces",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
+      "justMyCode": false,
+      "args": ["all-spaces", "scratch"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceRoot}",
+        "DEBUG": "true"
       }
     }
   ]
