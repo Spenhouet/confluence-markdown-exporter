@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools", "wheel", "cibuildwheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "confluence-markdown-exporter"
+version = "1.0.0"
+description = "A tool to export Confluence pages to Markdown"
+keywords = ["confluence", "atlassian", "markdown", "export", "convertion", "download"]
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "Sebastian Penhouet" }
+]
+dependencies = [
+    'atlassian-python-api',
+    'markdownify',
+    'pandas',
+    'pydantic-settings',
+    'tabulate',
+    'tqdm',
+    'typer',
+]
+requires-python = ">= 3.10"
+
+[project.optional-dependencies]
+dev = [
+    'ruff==0.9.10'
+]
+
+[project.urls]
+Homepage = "https://github.com/Spenhouet/confluence-markdown-exporter"
+Documentation = "https://github.com/Spenhouet/confluence-markdown-exporter/blob/main/README.md"
+Source = "https://github.com/Spenhouet/confluence-markdown-exporter"
+Tracker = "https://github.com/Spenhouet/confluence-markdown-exporter/issues"
+
+[project.scripts]
+confluence-markdown-exporter = "confluence_markdown_exporter:main"
+cf-export = "confluence_markdown_exporter:main"
+
+[tool.cibuildwheel]
+# Add cibuildwheel configuration here if needed

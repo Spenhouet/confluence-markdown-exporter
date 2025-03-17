@@ -1,0 +1,111 @@
+name: Build and upload to PyPI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - published
+
+jobs:
+  build_wheels:
+    name: Build wheels for ${{ matrix.os }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      matrix:
+        os:
+          [
+            linux-intel,
+            linux-arm,
+            windows,
+            macOS-intel,
+            macOS-arm,
+            iOS,
+            pyodide,
+          ]
+        include:
+          - archs: auto
+            platform: auto
+          - os: linux-intel
+            runs-on: ubuntu-latest
+          - os: linux-arm
+            runs-on: ubuntu-24.04-arm
+          - os: windows
+            runs-on: windows-latest
+          - os: macos-intel
+            # macos-13 was the last x86_64 runner
+            runs-on: macos-13
+          - os: macos-arm
+            # macos-14+ (including latest) are ARM64 runners
+            runs-on: macos-latest
+            archs: auto,universal2
+          - os: ios
+            runs-on: macos-latest
+            platform: ios
+          - os: pyodide
+            runs-on: ubuntu-latest
+            platform: pyodide
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.23.0
+        env:
+          CIBW_PLATFORM: ${{ matrix.platform }}
+          CIBW_ARCHS: ${{ matrix.archs }}
+        # Can also be configured directly, using `with:`
+        # with:
+        #   package-dir: .
+        #   output-dir: wheelhouse
+        #   config-file: "{package}/pyproject.toml"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ./wheelhouse/*.whl
+
+  build_sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        run: pipx run build --sdist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cibw-sdist
+          path: dist/*.tar.gz
+
+  upload_pypi:
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+    if: github.event_name == 'release' && github.event.action == 'published'
+    # or, alternatively, upload to PyPI on every tag starting with 'v' (remove on: release above to use this)
+    # if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          # unpacks all CIBW artifacts into dist/
+          pattern: cibw-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate artifact attestations
+        uses: actions/attest-build-provenance@v2.2.0
+        with:
+          subject-path: "dist/*"
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        # with:
+        # To test: repository-url: https://test.pypi.org/legacy/
