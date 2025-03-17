@@ -75,7 +75,7 @@ jira = Jira(
 class JiraIssue(BaseModel):
     key: str
     summary: str
-    description: str
+    description: str | None
     status: str
 
     @classmethod
