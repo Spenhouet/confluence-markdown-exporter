@@ -15,6 +15,7 @@ from typing import cast
 
 import yaml
 from atlassian import Confluence as ConfluenceApi
+from atlassian import Jira
 from atlassian.errors import ApiError
 from bs4 import BeautifulSoup
 from bs4 import Tag
@@ -46,7 +47,13 @@ class ApiSettings(BaseSettings):
 
 
 settings = ApiSettings()  # type: ignore reportCallIssue as the parameters are read via env file
-api = ConfluenceApi(
+confluence = ConfluenceApi(
+    url=settings.url,
+    username=settings.username,
+    password=settings.password,
+)
+
+jira = Jira(
     url=settings.url,
     username=settings.username,
     password=settings.password,
@@ -69,17 +76,19 @@ class User(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_username(cls, username: str) -> "User":
-        return cls.from_json(cast(JsonResponse, api.get_user_details_by_username(username)))
+        return cls.from_json(cast(JsonResponse, confluence.get_user_details_by_username(username)))
 
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_userkey(cls, userkey: str) -> "User":
-        return cls.from_json(cast(JsonResponse, api.get_user_details_by_userkey(userkey)))
+        return cls.from_json(cast(JsonResponse, confluence.get_user_details_by_userkey(userkey)))
 
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_accountid(cls, accountid: int) -> "User":
-        return cls.from_json(cast(JsonResponse, api.get_user_details_by_accountid(accountid)))
+        return cls.from_json(
+            cast(JsonResponse, confluence.get_user_details_by_accountid(accountid))
+        )
 
 
 class Space(BaseModel):
@@ -100,7 +109,7 @@ class Space(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_key(cls, space_key: str) -> "Space":
-        return cls.from_json(cast(JsonResponse, api.get_space(space_key, expand="homepage")))
+        return cls.from_json(cast(JsonResponse, confluence.get_space(space_key, expand="homepage")))
 
 
 class Label(BaseModel):
@@ -195,7 +204,7 @@ class Attachment(BaseModel):
         if filepath.exists():
             return
 
-        response = api._session.get(str(api.url + self.download_link))
+        response = confluence._session.get(str(confluence.url + self.download_link))
         response.raise_for_status()  # Raise error if request fails
 
         save_file(
@@ -219,7 +228,7 @@ class Page(BaseModel):
     def descendants(self) -> list[int]:
         url = f"rest/api/content/{self.id}/descendant/page"
         try:
-            response = cast(JsonResponse, api.get(url, params={"limit": 10000}))
+            response = cast(JsonResponse, confluence.get(url, params={"limit": 10000}))
         except HTTPError as e:
             if e.response.status_code == 404:  # noqa: PLR2004
                 # Raise ApiError as the documented reason is ambiguous
@@ -297,7 +306,7 @@ class Page(BaseModel):
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Page":
         attachments = cast(
-            JsonResponse, api.get_attachments_from_content(data.get("id", 0), limit=1000)
+            JsonResponse, confluence.get_attachments_from_content(data.get("id", 0), limit=1000)
         )
         return cls(
             id=data.get("id", 0),
@@ -322,7 +331,7 @@ class Page(BaseModel):
         return cls.from_json(
             cast(
                 JsonResponse,
-                api.get_page_by_id(
+                confluence.get_page_by_id(
                     page_id,
                     expand="body.view,body.export_view,body.editor2,metadata.labels,"
                     "metadata.properties,ancestors",
@@ -426,7 +435,7 @@ class Page(BaseModel):
 
             return f"\n> [!{alert_type}]\n> {text.strip()}\n\n"
 
-        def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
             # Handle Confluence macros
             if el.has_attr("data-macro-name"):
                 if el["data-macro-name"] in self.options["macros_to_ignore"]:
@@ -479,9 +488,15 @@ class Page(BaseModel):
             return f"\n<!--{content}-->\n"
 
         def convert_jira_issue(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            # return str(el.get("data-jira-key"))
-            # TODO query Jira API for issue title
-            return self.process_tag(el.find("a", {"class": "jira-issue-key"}), parent_tags)
+            issue_key = el.get("data-jira-key")
+            link = cast(BeautifulSoup, el.find("a", {"class": "jira-issue-key"}))
+            if not issue_key:
+                return self.process_tag(link, parent_tags)
+            if not link:
+                return text
+            issue = cast(JsonResponse, jira.get_issue(str(issue_key)))
+            summary = issue.get("fields", {}).get("summary")
+            return f"[[{issue_key}] {summary}]({link.get('href')})"
 
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if not text:
