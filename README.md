@@ -1,6 +1,13 @@
-# confluence-markdown-exporter
-
-The confluence-markdown-exporter is a tool designed to convert Confluence pages into Markdown format. This exporter helps in migrating content from Confluence to platforms that support Markdown, ensuring that the content retains its structure and formatting.
+<h1 align="center">confluence-markdown-exporter</h1>
+<p align="center">
+    <em>The confluence-markdown-exporter exports Confluence pages in Markdown format. This exporter helps in migrating content from Confluence to platforms that support Markdown e.g. Obsidian, Foam, Dendron and more.</em>
+</p>
+<p align="center">
+  <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/publish.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/publish.yml/badge.svg" alt="Build and publish to PyPI"></a>
+  <a href="https://pypi.org/project/confluence-markdown-exporter" target="_blank">
+    <img src="https://img.shields.io/pypi/v/confluence-markdown-exporter?color=%2334D058&label=PyPI%20package" alt="Package version">
+   </a>
+</p>
 
 ## Features
 
@@ -30,39 +37,44 @@ The confluence-markdown-exporter is a tool designed to convert Confluence pages 
 
 To use the confluence-markdown-exporter, follow these steps:
 
-1. **Installation**: Clone the repository and install the necessary dependencies.
+1. **Installation**: Install python package via pip.
 
    ```sh
-   git clone https://github.com/yourusername/confluence-markdown-exporter.git
-   cd confluence-markdown-exporter
-   pip install -r requirements.txt
+   pip install confluence-markdown-exporter
    ```
 
-2. **Configuration**: Configure the exporter by copying the `.env.template` file to `.env` and filling in your Confluence instance details and authentication.
+2. **Setting Environment Parameters**
+
+   1. Set `ATLASSIAN_USERNAME` to your Atlassian account email address (e.g. mike.meier@company.de)
+   2. Set `ATLASSIAN_API_TOKEN` to your Atlassian token that can be created on https://id.atlassian.com/manage-profile/security/api-tokens
+   3. Set `ATLASSIAN_URL` to your Atlassian instance URL (e.g. https://company.atlassian.net)
 
    ```sh
-   cp .env.template .env
+   export ATLASSIAN_USERNAME="work mail address"
+   export ATLASSIAN_API_TOKEN="API token Test"
+   export ATLASSIAN_URL="https://company.atlassian.net"
    ```
 
-   Edit the `.env` file to include your Confluence details:
-
-   ```env
-   USERNAME=your-username
-   PASSWORD=your-api-token
-   URL=https://your-confluence-instance.atlassian.net
-   ```
-
-3. **Exporting**: Run the exporter with the desired Confluence page ID.
+3. **Exporting**: Run the exporter with the desired Confluence page ID or space key.
 
    ```sh
-   python confluence_markdown_exporter/main.py page 123456 ./output_path/
+   python confluence-markdown-exporter page <page-id e.g. 645208921> <output path e.g. ./output_path/>
+   python confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
+   python confluence-markdown-exporter space <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
    ```
 
-4. **Output**: The exported Markdown file will be saved in the `output` directory.
+   Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
+
+4. **Output**: The exported Markdown file(s) will be saved in the specified `output` directory e.g.:
    ```sh
    output_path/
-   └── space-abcdef
-        └── page-123456.md
+   └── MYSPACE/
+      ├── MYSPACE.md
+      └── MYSPACE/
+         ├── My Confluence Page.md
+         └── My Confluence Page/
+               ├── My nested Confluence Page.md
+               └── Another one.md
    ```
 
 ## Contributing

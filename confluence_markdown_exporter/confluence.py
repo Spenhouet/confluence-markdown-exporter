@@ -39,24 +39,24 @@ DEBUG: bool = bool(os.getenv("DEBUG"))
 
 
 class ApiSettings(BaseSettings):
-    username: str = Field()
-    password: str = Field()
-    url: str = Field()
+    atlassian_username: str = Field()
+    atlassian_api_token: str = Field()
+    atlassian_url: str = Field()
 
     model_config = SettingsConfigDict(env_file=".env")
 
 
 settings = ApiSettings()  # type: ignore reportCallIssue as the parameters are read via env file
 confluence = ConfluenceApi(
-    url=settings.url,
-    username=settings.username,
-    password=settings.password,
+    url=settings.atlassian_url,
+    username=settings.atlassian_username,
+    password=settings.atlassian_api_token,
 )
 
 jira = Jira(
-    url=settings.url,
-    username=settings.username,
-    password=settings.password,
+    url=settings.atlassian_url,
+    username=settings.atlassian_username,
+    password=settings.atlassian_api_token,
 )
 
 
