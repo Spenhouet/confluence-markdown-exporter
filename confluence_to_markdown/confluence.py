@@ -333,11 +333,11 @@ class Page(BaseModel):
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
-        # FIXME Image in table cells (e.g. "Before" and "After" images, 934379624)
         # TODO support table captions
         # TODO support figure captions (934379624)
         # TODO support macro with side by side view ("Fit", 934379624)
         # TODO ensure Jira issue macro works (329154640)
+        # TODO ensure excerpt macro works (1787822087)
 
         # FIXME Potentially the REST API timesout - retry?
 
@@ -564,6 +564,8 @@ class Page(BaseModel):
                 attachment.export_path.filepath, self.page.export_path.dirpath
             )
             el["src"] = relpath.replace(" ", "%20")
+            if "_inline" in parent_tags:
+                parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
             # REPORT Wiki style image link has alignment issues
             # return f"![[{attachment.export_path.filepath}]]"
