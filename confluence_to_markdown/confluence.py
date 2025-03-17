@@ -377,10 +377,8 @@ class Page(BaseModel):
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
-        # TODO support table captions
-        # TODO support figure captions (934379624)
-        # TODO ensure Jira issue macro works (329154640)
-        # TODO ensure excerpt macro works (1787822087)
+        # TODO Support table captions
+        # TODO Support figure captions (934379624)
 
         # FIXME Potentially the REST API timesout - retry?
 
@@ -419,8 +417,9 @@ class Page(BaseModel):
 
         @property
         def breadcrumbs(self) -> str:
-            return " > ".join(
-                [self.convert_page_link(ancestor) for ancestor in self.page.ancestors]
+            return (
+                " > ".join([self.convert_page_link(ancestor) for ancestor in self.page.ancestors])
+                + "\n"
             )
 
         @property
