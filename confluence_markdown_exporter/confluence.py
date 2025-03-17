@@ -763,6 +763,6 @@ def export_pages(page_ids: list[int], output_path: StrPath) -> None:
         page_ids: List of pages to export.
         output_path: The output path.
     """
-    for page_id in (pbar := tqdm(page_ids)):
+    for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
         pbar.set_postfix_str(f"Exporting page {page_id}")
         export_page(page_id, output_path)
