@@ -24,7 +24,7 @@ jobs:
       - build
     runs-on: ubuntu-latest
     environment:
-      name: pypi
+      name: publishing
       url: https://pypi.org/p/confluence-markdown-exporter
     permissions:
       id-token: write
