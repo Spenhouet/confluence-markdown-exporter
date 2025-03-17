@@ -33,9 +33,6 @@ jobs:
             # macos-14+ (including latest) are ARM64 runners
             runs-on: macos-latest
             archs: auto,universal2
-          - os: ios
-            runs-on: macos-latest
-            platform: ios
           - os: pyodide
             runs-on: ubuntu-latest
             platform: pyodide
