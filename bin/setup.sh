@@ -7,6 +7,3 @@ echo "${RECOMMENDED_VSCODE_EXTENSIONS[@]}"
 
 echo -e "\nInstalling recommended VS code extensions:"
 echo "${RECOMMENDED_VSCODE_EXTENSIONS[@]}" | xargs -L 1 code --install-extension
-
-echo -e "\nInstalling pre-commit hooks:"
-pre-commit install

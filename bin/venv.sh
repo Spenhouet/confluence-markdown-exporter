@@ -2,7 +2,7 @@
 eval "$(pyenv init -)" # initialize pyenv for current shell
 eval "$(pyenv virtualenv-init -)" # initialize pyenv-virtualenv for current shell
 
-VENV_NAME="confluence-to-markdown"
+VENV_NAME="confluence-markdown-exporter"
 PYTHON_VERSION=$(<.python-version)
 
 cd $(dirname -- "$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )") # cd to workspace folder

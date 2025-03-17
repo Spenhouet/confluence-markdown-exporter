@@ -5,9 +5,9 @@ from typing import Annotated
 import typer
 from tqdm import tqdm
 
-from confluence_to_markdown.confluence import Page
-from confluence_to_markdown.confluence import Space
-from confluence_to_markdown.utils.measure_time import measure
+from confluence_markdown_exporter.confluence import Page
+from confluence_markdown_exporter.confluence import Space
+from confluence_markdown_exporter.utils.measure_time import measure
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
 

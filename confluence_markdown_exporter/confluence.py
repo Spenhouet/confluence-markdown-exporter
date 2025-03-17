@@ -27,10 +27,10 @@ from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
 
-from confluence_to_markdown.utils.export import sanitize_filename
-from confluence_to_markdown.utils.export import sanitize_key
-from confluence_to_markdown.utils.export import save_file
-from confluence_to_markdown.utils.table_converter import TableConverter
+from confluence_markdown_exporter.utils.export import sanitize_filename
+from confluence_markdown_exporter.utils.export import sanitize_key
+from confluence_markdown_exporter.utils.export import save_file
+from confluence_markdown_exporter.utils.table_converter import TableConverter
 
 JsonResponse: TypeAlias = dict
 StrPath: TypeAlias = str | PathLike[str]

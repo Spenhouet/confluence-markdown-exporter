@@ -55,7 +55,7 @@ To use the confluence-markdown-exporter, follow these steps:
 3. **Exporting**: Run the exporter with the desired Confluence page ID.
 
    ```sh
-   python confluence_to_markdown/main.py page 123456 ./output_path/
+   python confluence_markdown_exporter/main.py page 123456 ./output_path/
    ```
 
 4. **Output**: The exported Markdown file will be saved in the `output` directory.
