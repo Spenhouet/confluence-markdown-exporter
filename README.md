@@ -61,6 +61,7 @@ To use the confluence-markdown-exporter, follow these steps:
    python confluence-markdown-exporter page <page-id e.g. 645208921> <output path e.g. ./output_path/>
    python confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
    python confluence-markdown-exporter space <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
+   python confluence-markdown-exporter all-spaces <output path e.g. ./output_path/>
    ```
 
    Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.

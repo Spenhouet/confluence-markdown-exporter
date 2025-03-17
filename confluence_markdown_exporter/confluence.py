@@ -7,6 +7,7 @@ import functools
 import mimetypes
 import os
 import re
+import sys
 from collections.abc import Set
 from os import PathLike
 from pathlib import Path
@@ -23,9 +24,11 @@ from markdownify import ATX
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import ValidationError
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
+from tqdm import tqdm
 
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
@@ -46,7 +49,16 @@ class ApiSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env")
 
 
-settings = ApiSettings()  # type: ignore reportCallIssue as the parameters are read via env file
+try:
+    settings = ApiSettings()  # type: ignore reportCallIssue as the parameters are read via env file
+except ValidationError:
+    print(
+        "Please set the required environment variables: "
+        "ATLASSIAN_USERNAME, ATLASSIAN_API_TOKEN, ATLASSIAN_URL\n\n"
+        "Read the README.md for more information."
+    )
+    sys.exit(1)
+
 confluence = ConfluenceApi(
     url=settings.atlassian_url,
     username=settings.atlassian_username,
@@ -65,18 +77,15 @@ class JiraIssue(BaseModel):
     summary: str
     description: str
     status: str
-    assignee: str
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "JiraIssue":
         fields = data.get("fields", {})
-        assignee = fields.get("assignee", {}).get("displayName", "Unassigned")
         return cls(
             key=data.get("key", ""),
             summary=fields.get("summary", ""),
             description=fields.get("description", ""),
             status=fields.get("status", {}).get("name", ""),
-            assignee=assignee,
         )
 
     @classmethod
@@ -117,11 +126,48 @@ class User(BaseModel):
         )
 
 
+class Organization(BaseModel):
+    spaces: list["Space"]
+
+    @property
+    def pages(self) -> list[int]:
+        return [page for space in self.spaces for page in space.pages]
+
+    def export(self, export_path: StrPath) -> None:
+        export_pages(self.pages, export_path)
+
+    @classmethod
+    def from_json(cls, data: JsonResponse) -> "Organization":
+        return cls(
+            spaces=[Space.from_json(space) for space in data.get("results", [])],
+        )
+
+    @classmethod
+    @functools.lru_cache(maxsize=100)
+    def from_api(cls) -> "Organization":
+        return cls.from_json(
+            cast(
+                JsonResponse,
+                confluence.get_all_spaces(
+                    space_type="global", space_status="current", expand="homepage"
+                ),
+            )
+        )
+
+
 class Space(BaseModel):
     key: str
     name: str
     description: str
     homepage: int
+
+    @property
+    def pages(self) -> list[int]:
+        homepage = Page.from_id(self.homepage)
+        return [self.homepage, *homepage.descendants]
+
+    def export(self, export_path: StrPath) -> None:
+        export_pages(self.pages, export_path)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Space":
@@ -285,6 +331,9 @@ class Page(BaseModel):
             self.export_body(export_path)
         self.export_markdown(export_path)
         self.export_attachments(export_path)
+
+    def export_with_descendants(self, export_path: StrPath) -> None:
+        export_pages([self.id, *self.descendants], export_path)
 
     def export_body(self, export_path: StrPath) -> None:
         soup = BeautifulSoup(self.html, "html.parser")
@@ -690,3 +739,26 @@ class Page(BaseModel):
             soup = BeautifulSoup(self.page.body_export, "html.parser")
             table = soup.find("table", {"data-cql": data_cql})
             return super().convert_table(table, "", parent_tags)  # type: ignore -
+
+
+def export_page(page_id: int, output_path: StrPath) -> None:
+    """Export a Confluence page to Markdown.
+
+    Args:
+        page_id: The page id.
+        output_path: The output path.
+    """
+    page = Page.from_id(page_id)
+    page.export(output_path)
+
+
+def export_pages(page_ids: list[int], output_path: StrPath) -> None:
+    """Export a list of Confluence pages to Markdown.
+
+    Args:
+        page_ids: List of pages to export.
+        output_path: The output path.
+    """
+    for page_id in (pbar := tqdm(page_ids)):
+        pbar.set_postfix_str(f"Exporting page {page_id}")
+        export_page(page_id, output_path)

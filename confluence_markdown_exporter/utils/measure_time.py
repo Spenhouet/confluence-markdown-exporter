@@ -32,7 +32,7 @@ def format_log_message(step: str, time: datetime, state: str) -> str:
         time: A timestamp
         state: The execution state
     """
-    return f"Step '{step}' {state} at {time.strftime('%Y-%m-%d %H:%M:%S')}"
+    return f"{step} {state} at {time.strftime('%Y-%m-%d %H:%M:%S')}"
 
 
 @contextmanager
@@ -50,9 +50,9 @@ def measure(step: str) -> Generator[None, None, None]:
 
     .. code-block::
 
-        Step 'My Step' started at 2020-07-09 13:49:00
-        Step 'My Step' ended at 2020-07-09 13:49:00
-        Duration of step 'My Step' was relativedelta(seconds=+2, microseconds=+1405)
+        My Step started at 2020-07-09 13:49:00
+        My Step ended at 2020-07-09 13:49:00
+        Duration of My Step was relativedelta(seconds=+2, microseconds=+1405)
 
     Args:
         step: The step name.
@@ -74,4 +74,4 @@ def measure(step: str) -> Generator[None, None, None]:
         end_time = datetime.now()
         print(format_log_message(step, time=end_time, state=state))
         duration = relativedelta(end_time, start_time)
-        print(f"Duration of step '{step}' was {duration}")
+        print(f"{step} took {duration}")
