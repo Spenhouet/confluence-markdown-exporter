@@ -11,69 +11,27 @@ on:
       - published
 
 jobs:
-  build_wheels:
-    name: Build wheels for ${{ matrix.os }}
-    runs-on: ${{ matrix.runs-on }}
-    strategy:
-      matrix:
-        os: [linux-intel, linux-arm, windows, macOS-intel, macOS-arm, pyodide]
-        include:
-          - archs: auto
-            platform: auto
-          - os: linux-intel
-            runs-on: ubuntu-latest
-          - os: linux-arm
-            runs-on: ubuntu-24.04-arm
-          - os: windows
-            runs-on: windows-latest
-          - os: macos-intel
-            # macos-13 was the last x86_64 runner
-            runs-on: macos-13
-          - os: macos-arm
-            # macos-14+ (including latest) are ARM64 runners
-            runs-on: macos-latest
-            archs: auto,universal2
-          - os: pyodide
-            runs-on: ubuntu-latest
-            platform: pyodide
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build wheels
-        uses: pypa/cibuildwheel@v2.23.0
-        env:
-          CIBW_PLATFORM: ${{ matrix.platform }}
-          CIBW_ARCHS: ${{ matrix.archs }}
-        # Can also be configured directly, using `with:`
-        # with:
-        #   package-dir: .
-        #   output-dir: wheelhouse
-        #   config-file: "{package}/pyproject.toml"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
-          path: ./wheelhouse/*.whl
-
-  build_sdist:
+  build:
     name: Build source distribution
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build sdist
-        run: pipx run build --sdist
+      - name: Build
+        run: pipx run build
 
       - uses: actions/upload-artifact@v4
         with:
-          name: cibw-sdist
-          path: dist/*.tar.gz
+          name: python-package-distributions
+          path: dist/
 
-  upload_pypi:
-    needs: [build_wheels, build_sdist]
+  publish-to-pypi:
+    needs:
+      - build
     runs-on: ubuntu-latest
-    environment: pypi
+    environment:
+      name: pypi
+      url: https://pypi.org/p/confluence-markdown-exporter
     permissions:
       id-token: write
       attestations: write
@@ -82,18 +40,16 @@ jobs:
     # or, alternatively, upload to PyPI on every tag starting with 'v' (remove on: release above to use this)
     # if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download all the dists
+        uses: actions/download-artifact@v4
         with:
-          # unpacks all CIBW artifacts into dist/
-          pattern: cibw-*
-          path: dist
-          merge-multiple: true
+          name: python-package-distributions
+          path: dist/
 
       - name: Generate artifact attestations
         uses: actions/attest-build-provenance@v2.2.0
         with:
           subject-path: "dist/*"
 
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        # with:
-        # To test: repository-url: https://test.pypi.org/legacy/
+      - name: Publish distribution to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

@@ -17,6 +17,7 @@ dependencies = [
     'markdownify',
     'pandas',
     'pydantic-settings',
+    'pyyaml',
     'tabulate',
     'tqdm',
     'typer',
@@ -35,11 +36,12 @@ Source = "https://github.com/Spenhouet/confluence-markdown-exporter"
 Tracker = "https://github.com/Spenhouet/confluence-markdown-exporter/issues"
 
 [project.scripts]
-confluence-markdown-exporter = "confluence_markdown_exporter:main"
-cf-export = "confluence_markdown_exporter:main"
+confluence-markdown-exporter = "confluence_markdown_exporter.main:app"
+cf-export = "confluence_markdown_exporter.main:app"
 
-[tool.cibuildwheel]
-# Add cibuildwheel configuration here if needed
+[project.entry-points."pipx.run"]
+confluence-markdown-exporter = "confluence_markdown_exporter.main:app"
+cf-export = "confluence_markdown_exporter.main:app"
 
 [tool.setuptools]
 packages = ["confluence_markdown_exporter"]
