@@ -40,3 +40,6 @@ cf-export = "confluence_markdown_exporter:main"
 
 [tool.cibuildwheel]
 # Add cibuildwheel configuration here if needed
+
+[tool.setuptools]
+packages = ["confluence_markdown_exporter"]
