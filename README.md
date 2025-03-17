@@ -59,14 +59,32 @@ To use the confluence-markdown-exporter, follow these steps:
 
 3. **Exporting**: Run the exporter with the desired Confluence page ID or space key.
 
+   Export a single Confluence page:
+
    ```sh
-   python confluence-markdown-exporter page <page-id e.g. 645208921> <output path e.g. ./output_path/>
-   python confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
-   python confluence-markdown-exporter space <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
-   python confluence-markdown-exporter all-spaces <output path e.g. ./output_path/>
+   confluence-markdown-exporter page <page-id e.g. 645208921> <output path e.g. ./output_path/>
    ```
 
-   Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
+   Export a Confluence page and all it's descendants:
+
+   ```sh
+   confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
+   ```
+
+   Export all Confluence pages of a single Space:
+
+   ```sh
+   confluence-markdown-exporter space <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
+   ```
+
+   Export all Confluence pages across all spaces:
+
+   ```sh
+   confluence-markdown-exporter all-spaces <output path e.g. ./output_path/>
+   ```
+
+   > [!TIP]
+   > Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
 
 4. **Output**: The exported Markdown file(s) will be saved in the specified `output` directory e.g.:
    ```sh
