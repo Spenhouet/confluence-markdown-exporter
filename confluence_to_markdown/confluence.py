@@ -335,7 +335,6 @@ class Page(BaseModel):
 
         # TODO support table captions
         # TODO support figure captions (934379624)
-        # TODO support macro with side by side view ("Fit", 934379624)
         # TODO ensure Jira issue macro works (329154640)
         # TODO ensure excerpt macro works (1787822087)
 
@@ -442,6 +441,8 @@ class Page(BaseModel):
                     return self.convert_comment(el, text, parent_tags)
                 if el["data-macro-name"] == "toc":
                     return self.convert_toc(el, text, parent_tags)
+            if "columnLayout" in str(el.get("class", "")):
+                return self.convert_column_layout(el, text, parent_tags)
 
             return super().convert_div(el, text, parent_tags)
 
@@ -451,6 +452,18 @@ class Page(BaseModel):
                     return self.convert_jira_issue(el, text, parent_tags)
 
             return text
+
+        def convert_column_layout(
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+        ) -> str:
+            cells = el.find_all("div", {"class": "cell"})
+
+            if len(cells) < 2:  # noqa: PLR2004
+                return super().convert_div(el, text, parent_tags)
+
+            html = f"<table><tr>{''.join([f'<td>{cell!s}</td>' for cell in cells])}</tr></table>"
+
+            return self.convert_table(BeautifulSoup(html, "html.parser"), text, parent_tags)
 
         def convert_toc(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             toc = BeautifulSoup(self.page.body_export, "html.parser").find(
