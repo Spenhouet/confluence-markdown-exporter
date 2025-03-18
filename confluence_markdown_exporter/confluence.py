@@ -276,8 +276,12 @@ class Attachment(BaseModel):
         if filepath.exists():
             return
 
-        response = confluence._session.get(str(confluence.url + self.download_link))
-        response.raise_for_status()  # Raise error if request fails
+        try:
+            response = confluence._session.get(str(confluence.url + self.download_link))
+            response.raise_for_status()  # Raise error if request fails
+        except HTTPError:
+            print(f"There is no attachment with titel '{self.title}'. Skipping export.")
+            return
 
         save_file(
             filepath,
