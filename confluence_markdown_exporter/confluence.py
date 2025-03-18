@@ -761,6 +761,8 @@ class Page(BaseModel):
                 return ""
             soup = BeautifulSoup(self.page.body_export, "html.parser")
             table = soup.find("table", {"data-cql": data_cql})
+            if not table:
+                return ""
             return super().convert_table(table, "", parent_tags)  # type: ignore -
 
 
