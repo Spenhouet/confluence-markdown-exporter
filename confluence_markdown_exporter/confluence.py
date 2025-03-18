@@ -595,8 +595,12 @@ class Page(BaseModel):
                 return self.process_tag(link, parent_tags)
             if not link:
                 return text
-            issue = JiraIssue.from_key(str(issue_key))
-            return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
+
+            try:
+                issue = JiraIssue.from_key(str(issue_key))
+                return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
+            except HTTPError:
+                return f"[[{issue_key}]]({link.get('href')})"
 
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if not text:
