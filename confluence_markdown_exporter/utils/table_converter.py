@@ -45,7 +45,9 @@ def make_empty_cell() -> Tag:
 class TableConverter(MarkdownConverter):
     def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         rows = [
-            cast(list[Tag], tr.find_all(["td", "th"])) for tr in cast(list[Tag], el.find_all("tr"))
+            cast(list[Tag], tr.find_all(["td", "th"]))
+            for tr in cast(list[Tag], el.find_all("tr"))
+            if tr
         ]
 
         if not rows:

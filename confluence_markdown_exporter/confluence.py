@@ -492,6 +492,7 @@ class Page(BaseModel):
             rows = [
                 cast(list[Tag], tr.find_all(["th", "td"]))
                 for tr in cast(list[Tag], el.find_all("tr"))
+                if tr
             ]
             if not rows:
                 return
