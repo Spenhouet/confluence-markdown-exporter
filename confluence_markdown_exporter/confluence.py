@@ -568,6 +568,10 @@ class Page(BaseModel):
                 "div", {"class": "jira-table"}
             )
 
+            if len(jira_tables) == 0:
+                print("No Jira table found. Ignoring.")
+                return text
+
             if len(jira_tables) > 1:
                 print("Multiple Jira tables are not supported. Ignoring.")
                 return text
@@ -578,6 +582,10 @@ class Page(BaseModel):
             tocs = BeautifulSoup(self.page.body_export, "html.parser").find_all(
                 "div", {"class": "toc-macro"}
             )
+
+            if len(tocs) == 0:
+                print("Could not find TOC macro. Ignoring.")
+                return text
 
             if len(tocs) > 1:
                 print("Multiple TOC macros are not supported. Ignoring.")
