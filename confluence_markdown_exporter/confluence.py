@@ -515,7 +515,8 @@ class Page(BaseModel):
 
             alert_type = alert_type_map.get(str(el["data-macro-name"]), "NOTE")
 
-            return f"\n> [!{alert_type}]\n> {text.strip()}\n\n"
+            blockquote = super().convert_blockquote(el, text, parent_tags)
+            return f"\n> [!{alert_type}]{blockquote}"
 
         def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
             # Handle Confluence macros
