@@ -637,8 +637,9 @@ class Page(BaseModel):
                     return self.convert_a(fallback, text, parent_tags)  # type: ignore -
                 return f"[[{text}]]"
             if "page" in str(el.get("data-linked-resource-type")):
-                page_id = el.get("data-linked-resource-id")
-                return self.convert_page_link(int(str(page_id)))
+                page_id = str(el.get("data-linked-resource-id", ""))
+                if page_id and page_id != "null":
+                    return self.convert_page_link(int(page_id))
             if "attachment" in str(el.get("data-linked-resource-type")):
                 return self.convert_attachment_link(el, text, parent_tags)
             if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el.get("href", ""))):
