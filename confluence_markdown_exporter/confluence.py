@@ -11,6 +11,7 @@ import sys
 from collections.abc import Set
 from os import PathLike
 from pathlib import Path
+from typing import Literal
 from typing import TypeAlias
 from typing import cast
 
@@ -49,8 +50,17 @@ class ApiSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env")
 
 
+class ConverterSettings(BaseSettings):
+    """Settings for the Markdown converter."""
+
+    markdown_style: Literal["GFM", "Obsidian"] = Field(
+        default="GFM",
+        description="Markdown style to use for conversion. Options: GFM, Obsidian.",
+    )
+
+
 try:
-    settings = ApiSettings()  # type: ignore reportCallIssue as the parameters are read via env file
+    api_settings = ApiSettings()  # type: ignore reportCallIssue as the parameters are read via env file
 except ValidationError:
     print(
         "Please set the required environment variables: "
@@ -59,16 +69,18 @@ except ValidationError:
     )
     sys.exit(1)
 
+converter_settings = ConverterSettings()
+
 confluence = ConfluenceApi(
-    url=settings.atlassian_url,
-    username=settings.atlassian_username,
-    password=settings.atlassian_api_token,
+    url=api_settings.atlassian_url,
+    username=api_settings.atlassian_username,
+    password=api_settings.atlassian_api_token,
 )
 
 jira = Jira(
-    url=settings.atlassian_url,
-    username=settings.atlassian_username,
-    password=settings.atlassian_api_token,
+    url=api_settings.atlassian_url,
+    username=api_settings.atlassian_username,
+    password=api_settings.atlassian_api_token,
 )
 
 
@@ -324,7 +336,14 @@ class Page(BaseModel):
 
     @property
     def html(self) -> str:
-        return f"<h1>{self.title}</h1>{self.body}"
+        match converter_settings.markdown_style:
+            case "GFM":
+                return f"<h1>{self.title}</h1>{self.body}"
+            case "Obsidian":
+                return self.body
+            case _:
+                msg = f"Invalid markdown style: {converter_settings.markdown_style}"
+                raise ValueError(msg)
 
     @property
     def markdown(self) -> str:
@@ -438,7 +457,10 @@ class Page(BaseModel):
         # Advanced/Future features:
         # TODO Support badges via https://shields.io/badges/static-badge
         # TODO Read version by version and commit in git using change comment and user info
+
         # TODO what to do with page comments?
+        # Insert using CriticMarkup: https://github.com/CriticMarkup/CriticMarkup-toolkit
+        # There is also a plugin for Obsidian supporting CriticMarkup: https://github.com/Fevol/obsidian-criticmarkup/tree/main
 
         class Options(MarkdownConverter.DefaultOptions):
             bullets = "-"
@@ -454,13 +476,19 @@ class Page(BaseModel):
         @property
         def markdown(self) -> str:
             md_body = self.convert(self.page.html)
-            return f"{self.front_matter}\n{self.breadcrumbs}\n{md_body}\n"
+            match converter_settings.markdown_style:
+                case "GFM":
+                    return f"{self.front_matter}\n{self.breadcrumbs}\n{md_body}\n"
+                case "Obsidian":
+                    return f"{self.front_matter}\n{md_body}\n"
+                case _:
+                    msg = f"Invalid markdown style: {converter_settings.markdown_style}"
+                    raise ValueError(msg)
+            return None
 
         @property
         def front_matter(self) -> str:
             indent = self.options["front_matter_indent"]
-            space = self.page.space
-            self.set_page_properties(space_name=space.name, space_key=space.key)
             self.set_page_properties(tags=self.labels)
 
             yml = yaml.dump(self.page_properties, indent=indent).strip()
@@ -535,7 +563,7 @@ class Page(BaseModel):
                 if el["data-macro-name"] == "drawio":
                     return self.convert_drawio(el, text, parent_tags)
                 if el["data-macro-name"] == "scroll-ignore":
-                    return self.convert_comment(el, text, parent_tags)
+                    return self.convert_hidden_content(el, text, parent_tags)
                 if el["data-macro-name"] == "toc":
                     return self.convert_toc(el, text, parent_tags)
                 if el["data-macro-name"] == "jira":
@@ -594,10 +622,9 @@ class Page(BaseModel):
 
             return self.process_tag(tocs[0], parent_tags)
 
-        def convert_comment(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            if _ := el.find("div", {"data-macro-name": "toc"}):
-                return super().convert_div(el, text, parent_tags)
-
+        def convert_hidden_content(
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+        ) -> str:
             content = super().convert_p(el, text, parent_tags)
             return f"\n<!--{content}-->\n"
 
