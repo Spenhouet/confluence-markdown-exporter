@@ -57,6 +57,12 @@ To use the confluence-markdown-exporter, follow these steps:
    export ATLASSIAN_URL="https://company.atlassian.net"
    ```
 
+   By default the converter uses a GitHub Flavored Markdown (GFM). You can also choose a Obsidian flavored markdown by setting:
+
+   ```sh
+   export MARKDOWN_STYLE="Obsidian"
+   ```
+
 3. **Exporting**: Run the exporter with the desired Confluence page ID or space key.
 
    Export a single Confluence page:
