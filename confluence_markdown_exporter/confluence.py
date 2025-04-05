@@ -491,6 +491,9 @@ class Page(BaseModel):
             indent = self.options["front_matter_indent"]
             self.set_page_properties(tags=self.labels)
 
+            if not self.page_properties:
+                return ""
+
             yml = yaml.dump(self.page_properties, indent=indent).strip()
             # Indent the root level list items
             yml = re.sub(r"^( *)(- )", r"\1" + " " * indent + r"\2", yml, flags=re.MULTILINE)
