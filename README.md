@@ -47,21 +47,33 @@ To use the confluence-markdown-exporter, follow these steps:
 
 2. **Setting Environment Parameters**
 
-   1. Set `ATLASSIAN_USERNAME` to your Atlassian account email address (e.g. mike.meier@company.de)
-   2. Set `ATLASSIAN_API_TOKEN` to your Atlassian token that can be created on https://id.atlassian.com/manage-profile/security/api-tokens
-   3. Set `ATLASSIAN_URL` to your Atlassian instance URL (e.g. https://company.atlassian.net)
+You must set **one** of the following authentication options:
 
-   ```sh
-   export ATLASSIAN_USERNAME="work mail address"
-   export ATLASSIAN_API_TOKEN="API token Test"
-   export ATLASSIAN_URL="https://company.atlassian.net"
-   ```
+1.  Username + API Token
 
-   By default the converter uses a GitHub Flavored Markdown (GFM). You can also choose a Obsidian flavored markdown by setting:
+- `ATLASSIAN_USERNAME`: Your Atlassian account email address
+- `ATLASSIAN_API_TOKEN`: An API token created at  
+  https://id.atlassian.com/manage-profile/security/api-tokens
 
-   ```sh
-   export MARKDOWN_STYLE="Obsidian"
-   ```
+  2.  Personal Access Token (PAT)
+
+- `ATLASSIAN_PAT`: A Personal Access Token (used instead of username+token)
+
+In all cases, you must also set:
+
+- `ATLASSIAN_URL`: Your Atlassian instance URL (e.g. `https://company.atlassian.net`)
+
+  ```sh
+  export ATLASSIAN_USERNAME="work mail address"
+  export ATLASSIAN_API_TOKEN="API token Test"
+  export ATLASSIAN_URL="https://company.atlassian.net"
+  ```
+
+  By default the converter uses a GitHub Flavored Markdown (GFM). You can also choose a Obsidian flavored markdown by setting:
+
+  ```sh
+  export MARKDOWN_STYLE="Obsidian"
+  ```
 
 3. **Exporting**: Run the exporter with the desired Confluence page ID or space key.
 
