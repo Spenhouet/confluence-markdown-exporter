@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
+from typing import Optional
 
 import yaml
 from atlassian import Confluence as ConfluenceApi
@@ -26,6 +27,7 @@ from markdownify import MarkdownConverter
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
@@ -43,9 +45,22 @@ DEBUG: bool = bool(os.getenv("DEBUG"))
 
 
 class ApiSettings(BaseSettings):
-    atlassian_username: str = Field()
-    atlassian_api_token: str = Field()
+    atlassian_username: Optional[str] = Field(default=None)
+    atlassian_api_token: Optional[str] = Field(default=None)
+    atlassian_pat: Optional[str] = Field(default=None)
     atlassian_url: str = Field()
+
+    @model_validator(mode="before")
+    def validate_auth(cls, values):
+        if values.get("atlassian_pat"):
+            return values
+
+        if values.get("atlassian_username") and values.get("atlassian_api_token"):
+            return values
+
+        raise ValueError(
+            "Either ATLASSIAN_PAT or both ATLASSIAN_USERNAME and ATLASSIAN_API_TOKEN must be set."
+        )
 
     model_config = SettingsConfigDict(env_file=".env")
 
@@ -64,25 +79,24 @@ try:
 except ValidationError:
     print(
         "Please set the required environment variables: "
-        "ATLASSIAN_USERNAME, ATLASSIAN_API_TOKEN, ATLASSIAN_URL\n\n"
+        "ATLASSIAN_URL and either both ATLASSIAN_USERNAME and ATLASSIAN_API_TOKEN"
+        "or ATLASSIAN_PAT\n\n"
         "Read the README.md for more information."
     )
     sys.exit(1)
 
 converter_settings = ConverterSettings()
 
-confluence = ConfluenceApi(
-    url=api_settings.atlassian_url,
-    username=api_settings.atlassian_username,
-    password=api_settings.atlassian_api_token,
-)
+if api_settings.atlassian_pat:
+    auth_args = {"token": api_settings.atlassian_pat}
+else:
+    auth_args = {
+        "username": api_settings.atlassian_username,
+        "password": api_settings.atlassian_api_token,
+    }
 
-jira = Jira(
-    url=api_settings.atlassian_url,
-    username=api_settings.atlassian_username,
-    password=api_settings.atlassian_api_token,
-)
-
+confluence = ConfluenceApi(url=api_settings.atlassian_url, **auth_args)
+jira = Jira(url=api_settings.atlassian_url, **auth_args)
 
 class JiraIssue(BaseModel):
     key: str
