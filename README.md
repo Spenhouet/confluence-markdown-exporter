@@ -39,82 +39,93 @@
 
 To use the confluence-markdown-exporter, follow these steps:
 
-1. **Installation**: Install python package via pip.
+### 1. Installation
 
-   ```sh
-   pip install confluence-markdown-exporter
-   ```
+Install python package via pip.
 
-2. **Setting Environment Parameters**
+```sh
+pip install confluence-markdown-exporter
+```
 
-You must set **one** of the following authentication options:
+### 2. Configure Authentication
 
-1.  Username + API Token
+You must set environment variables for **one** of the following authentication options:
 
-- `ATLASSIAN_USERNAME`: Your Atlassian account email address
-- `ATLASSIAN_API_TOKEN`: An API token created at  
-  https://id.atlassian.com/manage-profile/security/api-tokens
+1. Username + API Token
 
-  2.  Personal Access Token (PAT)
+   - `ATLASSIAN_USERNAME`: Your Atlassian account email address
+   - `ATLASSIAN_API_TOKEN`: An API token created at  
+      https://id.atlassian.com/manage-profile/security/api-tokens
 
-- `ATLASSIAN_PAT`: A Personal Access Token (used instead of username+token)
+2. Personal Access Token (PAT)
+
+   - `ATLASSIAN_PAT`: A Personal Access Token (used instead of username+token)
 
 In all cases, you must also set:
 
 - `ATLASSIAN_URL`: Your Atlassian instance URL (e.g. `https://company.atlassian.net`)
 
-  ```sh
-  export ATLASSIAN_USERNAME="work mail address"
-  export ATLASSIAN_API_TOKEN="API token Test"
-  export ATLASSIAN_URL="https://company.atlassian.net"
-  ```
+Here an example setting the environment variables for the Username + API Token authentication for the current terminal session.
 
-  By default the converter uses a GitHub Flavored Markdown (GFM). You can also choose a Obsidian flavored markdown by setting:
+```sh
+export ATLASSIAN_USERNAME="work mail address"
+export ATLASSIAN_API_TOKEN="API token Test"
+export ATLASSIAN_URL="https://company.atlassian.net"
+```
 
-  ```sh
-  export MARKDOWN_STYLE="Obsidian"
-  ```
+### 3. Exporting
 
-3. **Exporting**: Run the exporter with the desired Confluence page ID or space key.
+Run the exporter with the desired Confluence page ID or space key.
 
-   Export a single Confluence page:
+Export a single Confluence page:
 
-   ```sh
-   confluence-markdown-exporter page <page-id e.g. 645208921> <output path e.g. ./output_path/>
-   ```
+```sh
+confluence-markdown-exporter page <page-id e.g. 645208921> <output path e.g. ./output_path/>
+```
 
-   Export a Confluence page and all it's descendants:
+Export a Confluence page and all it's descendants:
 
-   ```sh
-   confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
-   ```
+```sh
+confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
+```
 
-   Export all Confluence pages of a single Space:
+Export all Confluence pages of a single Space:
 
-   ```sh
-   confluence-markdown-exporter space <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
-   ```
+```sh
+confluence-markdown-exporter space <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
+```
 
-   Export all Confluence pages across all spaces:
+Export all Confluence pages across all spaces:
 
-   ```sh
-   confluence-markdown-exporter all-spaces <output path e.g. ./output_path/>
-   ```
+```sh
+confluence-markdown-exporter all-spaces <output path e.g. ./output_path/>
+```
 
-   > [!TIP]
-   > Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
+> [!TIP]
+> Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
 
-4. **Output**: The exported Markdown file(s) will be saved in the specified `output` directory e.g.:
-   ```sh
-   output_path/
+### 4. Output
+
+The exported Markdown file(s) will be saved in the specified `output` directory e.g.:
+
+```sh
+output_path/
+└── MYSPACE/
+   ├── MYSPACE.md
    └── MYSPACE/
-      ├── MYSPACE.md
-      └── MYSPACE/
-         ├── My Confluence Page.md
-         └── My Confluence Page/
-               ├── My nested Confluence Page.md
-               └── Another one.md
-   ```
+      ├── My Confluence Page.md
+      └── My Confluence Page/
+            ├── My nested Confluence Page.md
+            └── Another one.md
+```
+
+## Configuration Options
+
+By default the converter uses a GitHub Flavored Markdown (GFM). You can also choose a Obsidian flavored markdown by setting:
+
+```sh
+export MARKDOWN_STYLE="Obsidian"
+```
 
 ## Contributing
 
