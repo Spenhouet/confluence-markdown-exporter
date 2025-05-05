@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
-from typing import Optional
 
 import yaml
 from atlassian import Confluence as ConfluenceApi
@@ -45,22 +44,21 @@ DEBUG: bool = bool(os.getenv("DEBUG"))
 
 
 class ApiSettings(BaseSettings):
-    atlassian_username: Optional[str] = Field(default=None)
-    atlassian_api_token: Optional[str] = Field(default=None)
-    atlassian_pat: Optional[str] = Field(default=None)
+    atlassian_username: str | None = Field(default=None)
+    atlassian_api_token: str | None = Field(default=None)
+    atlassian_pat: str | None = Field(default=None)
     atlassian_url: str = Field()
 
     @model_validator(mode="before")
-    def validate_auth(cls, values):
+    def validate_auth(self, values: dict) -> dict:
         if values.get("atlassian_pat"):
             return values
 
         if values.get("atlassian_username") and values.get("atlassian_api_token"):
             return values
 
-        raise ValueError(
-            "Either ATLASSIAN_PAT or both ATLASSIAN_USERNAME and ATLASSIAN_API_TOKEN must be set."
-        )
+        msg = "Either ATLASSIAN_PAT or both ATLASSIAN_USERNAME and ATLASSIAN_API_TOKEN must be set."
+        raise ValueError(msg)
 
     model_config = SettingsConfigDict(env_file=".env")
 
@@ -97,6 +95,7 @@ else:
 
 confluence = ConfluenceApi(url=api_settings.atlassian_url, **auth_args)
 jira = Jira(url=api_settings.atlassian_url, **auth_args)
+
 
 class JiraIssue(BaseModel):
     key: str
