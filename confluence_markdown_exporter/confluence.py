@@ -11,6 +11,7 @@ import sys
 from collections.abc import Set
 from os import PathLike
 from pathlib import Path
+from string import Template
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
@@ -50,12 +51,13 @@ class ApiSettings(BaseSettings):
     atlassian_url: str = Field()
 
     @model_validator(mode="before")
-    def validate_auth(self, values: dict) -> dict:
-        if values.get("atlassian_pat"):
-            return values
+    @classmethod
+    def validate_auth(cls, data: dict) -> dict:
+        if "atlassian_pat" in data:
+            return data
 
-        if values.get("atlassian_username") and values.get("atlassian_api_token"):
-            return values
+        if "atlassian_username" in data and "atlassian_api_token" in data:
+            return data
 
         msg = "Either ATLASSIAN_PAT or both ATLASSIAN_USERNAME and ATLASSIAN_API_TOKEN must be set."
         raise ValueError(msg)
@@ -69,6 +71,40 @@ class ConverterSettings(BaseSettings):
     markdown_style: Literal["GFM", "Obsidian"] = Field(
         default="GFM",
         description="Markdown style to use for conversion. Options: GFM, Obsidian.",
+    )
+    page_path: str = Field(
+        default="${space_name}/${homepage_title}/${ancestor_titles}/${page_title}.md",
+        description=(
+            "Path to store pages. Default: \n"
+            "  ${space_name}/${homepage_title}/${ancestor_titles}/${page_title}.md\n"
+            "Variables:\n"
+            "  ${space_key}       - Space key\n"
+            "  ${space_name}      - Space name\n"
+            "  ${homepage_id}     - Homepage ID\n"
+            "  ${homepage_title}  - Homepage title\n"
+            "  ${ancestor_ids}    - Ancestor IDs (separated by '/')\n"
+            "  ${ancestor_titles} - Ancestor titles (separated by '/')\n"
+            "  ${page_id}         - Page ID\n"
+            "  ${page_title}      - Page title"
+        ),
+    )
+    attachment_path: str = Field(
+        default="${space_name}/attachments/${attachment_file_id}${attachment_extension}",
+        description=(
+            "Path to store attachments. Default: \n"
+            "  ${space_name}/attachments/${attachment_file_id}${attachment_extension}\n"
+            "Variables:\n"
+            "  ${space_key}           - Space key\n"
+            "  ${space_name}          - Space name\n"
+            "  ${homepage_id}         - Homepage ID\n"
+            "  ${homepage_title}      - Homepage title\n"
+            "  ${ancestor_ids}        - Ancestor IDs (separated by '/')\n"
+            "  ${ancestor_titles}     - Ancestor titles (separated by '/')\n"
+            "  ${attachment_id}       - Attachment ID\n"
+            "  ${attachment_title}    - Attachment title\n"
+            "  ${attachment_file_id}  - Attachment file ID\n"
+            "  ${attachment_extension} - Attachment file extension (including leading dot)"
+        ),
     )
 
 
@@ -223,39 +259,28 @@ class Label(BaseModel):
         )
 
 
-class ExportPath(BaseModel):
-    dirpath: Path
-    filename: str
+class Document(BaseModel):
+    title: str
+    space: Space
+    ancestors: list[int]
 
     @property
-    def filepath(self) -> Path:
-        return self.dirpath / self.filename
-
-    @classmethod
-    def from_page(cls, page: "Page") -> "ExportPath":
-        home_path = Path(
-            *[sanitize_filename(Page.from_id(ancestor).title) for ancestor in page.ancestors]
-        )
-        space_path = Path(sanitize_filename(page.space.name))
-        return cls(
-            dirpath=space_path / home_path,
-            filename=f"{sanitize_filename(page.title)}.md",
-        )
-
-    @classmethod
-    def from_attachment(cls, attachment: "Attachment") -> "ExportPath":
-        space_path = Path(sanitize_filename(attachment.space.name))
-        return cls(
-            dirpath=space_path / "attachments",
-            filename=f"{attachment.filename}",
-        )
+    def _template_vars(self) -> dict[str, str]:
+        return {
+            "space_key": sanitize_filename(self.space.key),
+            "space_name": sanitize_filename(self.space.name),
+            "homepage_id": str(self.space.homepage),
+            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title),
+            "ancestor_ids": "/".join(str(a) for a in self.ancestors),
+            "ancestor_titles": "/".join(
+                sanitize_filename(Page.from_id(a).title) for a in self.ancestors
+            ),
+        }
 
 
-class Attachment(BaseModel):
+class Attachment(Document):
     id: str
-    title: str
     file_size: int
-    space: Space
     media_type: str
     media_type_description: str
     file_id: str
@@ -277,12 +302,24 @@ class Attachment(BaseModel):
         return f"{self.file_id}{self.extension}"
 
     @property
-    def export_path(self) -> ExportPath:
-        return ExportPath.from_attachment(self)
+    def _template_vars(self) -> dict[str, str]:
+        return {
+            **super()._template_vars,
+            "attachment_id": str(self.id),
+            "attachment_title": sanitize_filename(self.title),
+            "attachment_file_id": sanitize_filename(self.file_id),
+            "attachment_extension": self.extension,
+        }
+
+    @property
+    def export_path(self) -> Path:
+        filepath_template = Template(converter_settings.attachment_path)
+        return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Attachment":
         extensions = data.get("extensions", {})
+        container = data.get("container", {})
         return cls(
             id=data.get("id", ""),
             title=data.get("title", ""),
@@ -294,10 +331,14 @@ class Attachment(BaseModel):
             collection_name=extensions.get("collectionName", ""),
             download_link=data.get("_links", {}).get("download", ""),
             comment=extensions.get("comment", ""),
+            ancestors=[
+                *[ancestor.get("id") for ancestor in container.get("ancestors", [])],
+                container.get("id"),
+            ][1:],
         )
 
     def export(self, export_path: StrPath) -> None:
-        filepath = Path(export_path) / self.export_path.filepath
+        filepath = Path(export_path) / self.export_path
         if filepath.exists():
             return
 
@@ -314,16 +355,13 @@ class Attachment(BaseModel):
         )
 
 
-class Page(BaseModel):
+class Page(Document):
     id: int
-    title: str
-    space: Space
     body: str
     body_export: str
     editor2: str
     labels: list["Label"]
     attachments: list["Attachment"]
-    ancestors: list[int]
 
     @property
     def descendants(self) -> list[int]:
@@ -344,8 +382,17 @@ class Page(BaseModel):
         return [page.get("id") for page in response.get("results", [])]
 
     @property
-    def export_path(self) -> ExportPath:
-        return ExportPath.from_page(self)
+    def _template_vars(self) -> dict[str, str]:
+        return {
+            **super()._template_vars,
+            "page_id": str(self.id),
+            "page_title": sanitize_filename(self.title),
+        }
+
+    @property
+    def export_path(self) -> Path:
+        filepath_template = Template(converter_settings.page_path)
+        return Path(filepath_template.safe_substitute(self._template_vars))
 
     @property
     def html(self) -> str:
@@ -374,28 +421,26 @@ class Page(BaseModel):
     def export_body(self, export_path: StrPath) -> None:
         soup = BeautifulSoup(self.html, "html.parser")
         save_file(
-            Path(export_path)
-            / self.export_path.dirpath
-            / f"{self.export_path.filepath.stem}_body_view.html",
+            Path(export_path) / self.export_path.parent / f"{self.export_path.stem}_body_view.html",
             str(soup.prettify()),
         )
         soup = BeautifulSoup(self.body_export, "html.parser")
         save_file(
             Path(export_path)
-            / self.export_path.dirpath
-            / f"{self.export_path.filepath.stem}_body_export_view.html",
+            / self.export_path.parent
+            / f"{self.export_path.stem}_body_export_view.html",
             str(soup.prettify()),
         )
         save_file(
             Path(export_path)
-            / self.export_path.dirpath
-            / f"{self.export_path.filepath.stem}_body_editor2.xml",
+            / self.export_path.parent
+            / f"{self.export_path.stem}_body_editor2.xml",
             str(self.editor2),
         )
 
     def export_markdown(self, export_path: StrPath) -> None:
         save_file(
-            Path(export_path) / self.export_path.filepath,
+            Path(export_path) / self.export_path,
             self.markdown,
         )
 
@@ -426,7 +471,10 @@ class Page(BaseModel):
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Page":
         attachments = cast(
-            JsonResponse, confluence.get_attachments_from_content(data.get("id", 0), limit=1000)
+            JsonResponse,
+            confluence.get_attachments_from_content(
+                data.get("id", 0), limit=1000, expand="container.ancestors"
+            ),
         )
         return cls(
             id=data.get("id", 0),
@@ -442,7 +490,7 @@ class Page(BaseModel):
             attachments=[
                 Attachment.from_json(attachment) for attachment in attachments.get("results", [])
             ],
-            ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])],
+            ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
         )
 
     @classmethod
@@ -709,7 +757,7 @@ class Page(BaseModel):
                 raise ValueError(msg)
 
             page = Page.from_id(page_id)
-            relpath = os.path.relpath(page.export_path.filepath, self.page.export_path.dirpath)
+            relpath = os.path.relpath(page.export_path, self.page.export_path.parent)
 
             return f"[{page.title}]({relpath.replace(' ', '%20')})"
 
@@ -718,9 +766,7 @@ class Page(BaseModel):
         ) -> str:
             attachment_id = el.get("data-media-id")
             attachment = self.page.get_attachment_by_file_id(str(attachment_id))
-            relpath = os.path.relpath(
-                attachment.export_path.filepath, self.page.export_path.dirpath
-            )
+            relpath = os.path.relpath(attachment.export_path, self.page.export_path.parent)
             return f"[{attachment.title}]({relpath.replace(' ', '%20')})"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
@@ -749,15 +795,13 @@ class Page(BaseModel):
                 return ""
 
             attachment = self.page.get_attachment_by_file_id(str(file_id))
-            relpath = os.path.relpath(
-                attachment.export_path.filepath, self.page.export_path.dirpath
-            )
+            relpath = os.path.relpath(attachment.export_path, self.page.export_path.parent)
             el["src"] = relpath.replace(" ", "%20")
             if "_inline" in parent_tags:
                 parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
             # REPORT Wiki style image link has alignment issues
-            # return f"![[{attachment.export_path.filepath}]]"
+            # return f"![[{attachment.export_path}]]"
 
         def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
@@ -770,10 +814,12 @@ class Page(BaseModel):
                     return f"\n<!-- Drawio diagram `{drawio_name}` not found -->\n\n"
 
                 drawio_relpath = os.path.relpath(
-                    drawio_attachments[0].export_path.filepath, self.page.export_path.dirpath
+                    drawio_attachments[0].export_path,
+                    self.page.export_path.parent,
                 )
                 preview_relpath = os.path.relpath(
-                    preview_attachments[0].export_path.filepath, self.page.export_path.dirpath
+                    preview_attachments[0].export_path,
+                    self.page.export_path.parent,
                 )
 
                 drawio_image_embedding = f"![{drawio_name}]({preview_relpath.replace(' ', '%20')})"
