@@ -73,37 +73,37 @@ class ConverterSettings(BaseSettings):
         description="Markdown style to use for conversion. Options: GFM, Obsidian.",
     )
     page_path: str = Field(
-        default="${space_name}/${homepage_title}/${ancestor_titles}/${page_title}.md",
+        default="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md",
         description=(
             "Path to store pages. Default: \n"
-            "  ${space_name}/${homepage_title}/${ancestor_titles}/${page_title}.md\n"
+            "  {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md\n"
             "Variables:\n"
-            "  ${space_key}       - Space key\n"
-            "  ${space_name}      - Space name\n"
-            "  ${homepage_id}     - Homepage ID\n"
-            "  ${homepage_title}  - Homepage title\n"
-            "  ${ancestor_ids}    - Ancestor IDs (separated by '/')\n"
-            "  ${ancestor_titles} - Ancestor titles (separated by '/')\n"
-            "  ${page_id}         - Page ID\n"
-            "  ${page_title}      - Page title"
+            "  {space_key}       - Space key\n"
+            "  {space_name}      - Space name\n"
+            "  {homepage_id}     - Homepage ID\n"
+            "  {homepage_title}  - Homepage title\n"
+            "  {ancestor_ids}    - Ancestor IDs (separated by '/')\n"
+            "  {ancestor_titles} - Ancestor titles (separated by '/')\n"
+            "  {page_id}         - Page ID\n"
+            "  {page_title}      - Page title"
         ),
     )
     attachment_path: str = Field(
-        default="${space_name}/attachments/${attachment_file_id}${attachment_extension}",
+        default="{space_name}/attachments/{attachment_file_id}{attachment_extension}",
         description=(
             "Path to store attachments. Default: \n"
-            "  ${space_name}/attachments/${attachment_file_id}${attachment_extension}\n"
+            "  {space_name}/attachments/{attachment_file_id}{attachment_extension}\n"
             "Variables:\n"
-            "  ${space_key}           - Space key\n"
-            "  ${space_name}          - Space name\n"
-            "  ${homepage_id}         - Homepage ID\n"
-            "  ${homepage_title}      - Homepage title\n"
-            "  ${ancestor_ids}        - Ancestor IDs (separated by '/')\n"
-            "  ${ancestor_titles}     - Ancestor titles (separated by '/')\n"
-            "  ${attachment_id}       - Attachment ID\n"
-            "  ${attachment_title}    - Attachment title\n"
-            "  ${attachment_file_id}  - Attachment file ID\n"
-            "  ${attachment_extension} - Attachment file extension (including leading dot)"
+            "  {space_key}           - Space key\n"
+            "  {space_name}          - Space name\n"
+            "  {homepage_id}         - Homepage ID\n"
+            "  {homepage_title}      - Homepage title\n"
+            "  {ancestor_ids}        - Ancestor IDs (separated by '/')\n"
+            "  {ancestor_titles}     - Ancestor titles (separated by '/')\n"
+            "  {attachment_id}       - Attachment ID\n"
+            "  {attachment_title}    - Attachment title\n"
+            "  {attachment_file_id}  - Attachment file ID\n"
+            "  {attachment_extension} - Attachment file extension (including leading dot)"
         ),
     )
 
@@ -313,7 +313,7 @@ class Attachment(Document):
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(converter_settings.attachment_path)
+        filepath_template = Template(converter_settings.attachment_path.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
@@ -391,7 +391,7 @@ class Page(Document):
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(converter_settings.page_path)
+        filepath_template = Template(converter_settings.page_path.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @property

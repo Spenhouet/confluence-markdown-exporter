@@ -131,33 +131,33 @@ Via `PAGE_PATH` and `ATTACHMENT_PATH` you can customize how pages and attachment
 
 By default, pages are stored at:
 ```sh
-export PAGE_PATH=${space_name}/${homepage_title}/${ancestor_titles}/${page_title}.md
+export PAGE_PATH="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md"
 ```
 Available variables:
-  - `${space_key}`: The key of the Confluence space.
-  - `${space_name}`: The name of the Confluence space.
-  - `${homepage_id}`: The ID of the homepage of the Confluence space.
-  - `${homepage_title}`: The title of the homepage of the Confluence space.
-  - `${ancestor_ids}`: A slash-separated list of ancestor page IDs.
-  - `${ancestor_titles}`: A slash-separated list of ancestor page titles.
-  - `${page_id}`: The unique ID of the Confluence page.
-  - `${page_title}`: The title of the Confluence page.
+  - `{space_key}`: The key of the Confluence space.
+  - `{space_name}`: The name of the Confluence space.
+  - `{homepage_id}`: The ID of the homepage of the Confluence space.
+  - `{homepage_title}`: The title of the homepage of the Confluence space.
+  - `{ancestor_ids}`: A slash-separated list of ancestor page IDs.
+  - `{ancestor_titles}`: A slash-separated list of ancestor page titles.
+  - `{page_id}`: The unique ID of the Confluence page.
+  - `{page_title}`: The title of the Confluence page.
 
 By default, pages are stored at:
 ```sh
-export ATTACHMENT_PATH=${space_name}/attachments/${attachment_file_id}${attachment_extension}
+export ATTACHMENT_PATH="{space_name}/attachments/{attachment_file_id}{attachment_extension}"
 ```
 Available variables:
-  - `${space_key}`: The key of the Confluence space.
-  - `${space_name}`: The name of the Confluence space.
-  - `${homepage_id}`: The ID of the homepage of the Confluence space.
-  - `${homepage_title}`: The title of the homepage of the Confluence space.
-  - `${ancestor_ids}`: A slash-separated list of ancestor page IDs.
-  - `${ancestor_titles}`: A slash-separated list of ancestor page titles.
-  - `${attachment_id}`: The unique ID of the attachment.
-  - `${attachment_title}`: The title of the attachment.
-  - `${attachment_file_id}`: The file ID of the attachment.
-  - `${attachment_extension}`: The file extension of the attachment, including the leading dot.
+  - `{space_key}`: The key of the Confluence space.
+  - `{space_name}`: The name of the Confluence space.
+  - `{homepage_id}`: The ID of the homepage of the Confluence space.
+  - `{homepage_title}`: The title of the homepage of the Confluence space.
+  - `{ancestor_ids}`: A slash-separated list of ancestor page IDs.
+  - `{ancestor_titles}`: A slash-separated list of ancestor page titles.
+  - `{attachment_id}`: The unique ID of the attachment.
+  - `{attachment_title}`: The title of the attachment.
+  - `{attachment_file_id}`: The file ID of the attachment.
+  - `{attachment_extension}`: The file extension of the attachment, including the leading dot.
 
 ## Contributing
 
