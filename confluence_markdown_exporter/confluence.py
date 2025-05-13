@@ -368,18 +368,17 @@ class Page(Document):
         url = f"rest/api/content/{self.id}/descendant/page"
         try:
             response = cast(JsonResponse, confluence.get(url, params={"limit": 10000}))
+            results = response.get("results", [])
         except HTTPError as e:
-            if e.response.status_code == 404:  # noqa: PLR2004
-                # Raise ApiError as the documented reason is ambiguous
-                msg = (
-                    "There is no content with the given id, "
-                    "or the calling user does not have permission to view the content"
-                )
-                raise ApiError(msg, reason=e) from e
+            if e.response.status_code == 404:
+                print(f"WARNING: Content with ID {self.id} not found (404) when fetching descendants.")
+                return []
+            return []
+        except Exception:
+            print(f"ERROR: Unexpected error when fetching descendants for content ID {self.id}: {e}")
+            return []
 
-            raise
-
-        return [page.get("id") for page in response.get("results", [])]
+        return [page.get("id") for page in results if "id" in page]
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -496,16 +495,31 @@ class Page(Document):
     @classmethod
     @functools.lru_cache(maxsize=1000)
     def from_id(cls, page_id: int) -> "Page":
-        return cls.from_json(
-            cast(
-                JsonResponse,
-                confluence.get_page_by_id(
-                    page_id,
-                    expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                    "metadata.properties,ancestors",
-                ),
+        try:
+            return cls.from_json(
+                cast(
+                    JsonResponse,
+                    confluence.get_page_by_id(
+                        page_id,
+                        expand="body.view,body.export_view,body.editor2,metadata.labels,"
+                        "metadata.properties,ancestors",
+                    ),
+                )
             )
-        )
+        except ApiError as e:
+            print(f"WARNING: Could not access page with ID {page_id}: {str(e)}")
+            # Return a minimal page object with error information
+            return cls(
+                id=page_id,
+                title=f"[Error: Page not accessible]",
+                space=Space(key="", name="", description="", homepage=0),
+                body="",
+                body_export="",
+                editor2="",
+                labels=[],
+                attachments=[],
+                ancestors=[],
+            )
 
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
