@@ -370,12 +370,16 @@ class Page(Document):
             response = cast(JsonResponse, confluence.get(url, params={"limit": 10000}))
             results = response.get("results", [])
         except HTTPError as e:
-            if e.response.status_code == 404:
-                print(f"WARNING: Content with ID {self.id} not found (404) when fetching descendants.")
+            if e.response.status_code == 404:  # noqa: PLR2004
+                print(
+                    f"WARNING: Content with ID {self.id} not found (404) when fetching descendants."
+                )
                 return []
             return []
-        except Exception:
-            print(f"ERROR: Unexpected error when fetching descendants for content ID {self.id}: {e}")
+        except Exception as e:  # noqa: BLE001
+            print(
+                f"ERROR: Unexpected error when fetching descendants for content ID {self.id}: {e!s}"
+            )
             return []
 
         return [page.get("id") for page in results if "id" in page]
@@ -461,6 +465,9 @@ class Page(Document):
                 attachment.export(export_path)
                 continue
 
+    def get_attachment_by_id(self, attachment_id: str) -> Attachment:
+        return next(attachment for attachment in self.attachments if attachment_id in attachment.id)
+
     def get_attachment_by_file_id(self, file_id: str) -> Attachment:
         return next(attachment for attachment in self.attachments if attachment.file_id == file_id)
 
@@ -507,11 +514,11 @@ class Page(Document):
                 )
             )
         except ApiError as e:
-            print(f"WARNING: Could not access page with ID {page_id}: {str(e)}")
+            print(f"WARNING: Could not access page with ID {page_id}: {e!s}")
             # Return a minimal page object with error information
             return cls(
                 id=page_id,
-                title=f"[Error: Page not accessible]",
+                title="[Error: Page not accessible]",
                 space=Space(key="", name="", description="", homepage=0),
                 body="",
                 body_export="",
@@ -525,7 +532,7 @@ class Page(Document):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
         # TODO Support table captions
-        # TODO Support figure captions (934379624)
+        # TODO Support figure captions
 
         # FIXME Potentially the REST API timesout - retry?
 
@@ -593,7 +600,7 @@ class Page(Document):
         def convert_page_properties(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> None:
-            # TODO can this be queries via REST API instead?
+            # TODO can this be queried via REST API instead?
 
             rows = [
                 cast(list[Tag], tr.find_all(["th", "td"]))
@@ -646,6 +653,8 @@ class Page(Document):
                     return self.convert_toc(el, text, parent_tags)
                 if el["data-macro-name"] == "jira":
                     return self.convert_jira_table(el, text, parent_tags)
+                if el["data-macro-name"] == "attachments":
+                    return ""  # Ignore attachments macro, see issue #8
             if "columnLayout" in str(el.get("class", "")):
                 return self.convert_column_layout(el, text, parent_tags)
 
@@ -778,8 +787,10 @@ class Page(Document):
         def convert_attachment_link(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
-            attachment_id = el.get("data-media-id")
-            attachment = self.page.get_attachment_by_file_id(str(attachment_id))
+            if attachment_file_id := el.get("data-media-id"):
+                attachment = self.page.get_attachment_by_file_id(str(attachment_file_id))
+            elif attachment_id := el.get("data-linked-resource-id"):
+                attachment = self.page.get_attachment_by_id(str(attachment_id))
             relpath = os.path.relpath(attachment.export_path, self.page.export_path.parent)
             return f"[{attachment.title}]({relpath.replace(' ', '%20')})"
 
