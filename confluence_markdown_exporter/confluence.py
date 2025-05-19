@@ -157,15 +157,19 @@ class JiraIssue(BaseModel):
 
 
 class User(BaseModel):
+    account_id: str
     username: str
     display_name: str
+    public_name: str
     email: str
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "User":
         return cls(
+            account_id=data.get("accountId", ""),
             username=data.get("username", ""),
             display_name=data.get("displayName", ""),
+            public_name=data.get("publicName", ""),
             email=data.get("email", ""),
         )
 
@@ -181,9 +185,25 @@ class User(BaseModel):
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def from_accountid(cls, accountid: int) -> "User":
+    def from_accountid(cls, accountid: str) -> "User":
         return cls.from_json(
             cast(JsonResponse, confluence.get_user_details_by_accountid(accountid))
+        )
+
+
+class Version(BaseModel):
+    number: int
+    by: User
+    when: str
+    friendly_when: str
+
+    @classmethod
+    def from_json(cls, data: JsonResponse) -> "Version":
+        return cls(
+            number=data.get("number", 0),
+            by=User.from_json(data.get("by", {})),
+            when=data.get("when", ""),
+            friendly_when=data.get("friendlyWhen", ""),
         )
 
 
@@ -287,6 +307,7 @@ class Attachment(Document):
     collection_name: str
     download_link: str
     comment: str
+    version: Version
 
     @property
     def extension(self) -> str:
@@ -335,6 +356,7 @@ class Attachment(Document):
                 *[ancestor.get("id") for ancestor in container.get("ancestors", [])],
                 container.get("id"),
             ][1:],
+            version=Version.from_json(data.get("version", {})),
         )
 
     def export(self, export_path: StrPath) -> None:
@@ -479,7 +501,9 @@ class Page(Document):
         attachments = cast(
             JsonResponse,
             confluence.get_attachments_from_content(
-                data.get("id", 0), limit=1000, expand="container.ancestors"
+                data.get("id", 0),
+                limit=1000,
+                expand="container.ancestors,version",
             ),
         )
         return cls(
@@ -654,7 +678,7 @@ class Page(Document):
                 if el["data-macro-name"] == "jira":
                     return self.convert_jira_table(el, text, parent_tags)
                 if el["data-macro-name"] == "attachments":
-                    return ""  # Ignore attachments macro, see issue #8
+                    return self.convert_attachments(el, text, parent_tags)
             if "columnLayout" in str(el.get("class", "")):
                 return self.convert_column_layout(el, text, parent_tags)
 
@@ -666,6 +690,30 @@ class Page(Document):
                     return self.convert_jira_issue(el, text, parent_tags)
 
             return text
+
+        def convert_attachments(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            file_header = el.find("th", {"class": "filename-column"})
+            file_header_text = file_header.text.strip() if file_header else "File"
+
+            modified_header = el.find("th", {"class": "modified-column"})
+            modified_header_text = modified_header.text.strip() if modified_header else "Modified"
+
+            rows = [
+                {
+                    "file": f"[{att.title}]({os.path.relpath(att.export_path, self.page.export_path.parent).replace(' ', '%20')})",  # noqa: E501
+                    "modified": f"{att.version.friendly_when} by {self.convert_user(att.version.by)}",  # noqa: E501
+                }
+                for att in self.page.attachments
+            ]
+
+            html = f"""<table>
+            <tr><th>{file_header_text}</th><th>{modified_header_text}</th></tr>
+            {"".join(f"<tr><td>{row['file']}</td><td>{row['modified']}</td></tr>" for row in rows)}
+            </table>"""
+
+            return (
+                f"\n\n{self.convert_table(BeautifulSoup(html, 'html.parser'), text, parent_tags)}\n"
+            )
 
         def convert_column_layout(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
@@ -752,7 +800,7 @@ class Page(Document):
 
         def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
             if "user-mention" in str(el.get("class")):
-                return self.convert_user(el, text, parent_tags)
+                return self.convert_user_mention(el, text, parent_tags)
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
                 if fallback := BeautifulSoup(self.page.editor2, "html.parser").find(
                     "a", string=text
@@ -800,8 +848,17 @@ class Page(Document):
 
             return f"{text}"
 
-        def convert_user(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            return f"{text.removesuffix('(Unlicensed)').removesuffix('(Deactivated)').strip()}"
+        def convert_user_mention(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            if el.has_attr("data-account-id"):
+                return self.convert_user(User.from_accountid(str(el.get("data-account-id"))))
+
+            return self.convert_user_name(text)
+
+        def convert_user(self, user: User) -> str:
+            return self.convert_user_name(user.display_name)
+
+        def convert_user_name(self, name: str) -> str:
+            return name.removesuffix("(Unlicensed)").removesuffix("(Deactivated)").strip()
 
         def convert_li(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             md = super().convert_li(el, text, parent_tags)
