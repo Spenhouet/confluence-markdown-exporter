@@ -77,10 +77,16 @@ export ATLASSIAN_URL="https://company.atlassian.net"
 
 Run the exporter with the desired Confluence page ID or space key.
 
-Export a single Confluence page:
+Export a single Confluence page by id:
 
 ```sh
-confluence-markdown-exporter page <page-id e.g. 645208921> <output path e.g. ./output_path/>
+confluence-markdown-exporter page-id <page-id e.g. 645208921> <output path e.g. ./output_path/>
+```
+
+Export a single Confluence page by URL:
+
+```sh
+confluence-markdown-exporter page-url <page-url e.g. https://company.atlassian.net/Wiki/foo-bar> <output path e.g. ./output_path/>
 ```
 
 Export a Confluence page and all it's descendants:
@@ -127,37 +133,43 @@ By default the converter uses a GitHub Flavored Markdown (GFM). You can also cho
 export MARKDOWN_STYLE="Obsidian"
 ```
 
-Via `PAGE_PATH` and `ATTACHMENT_PATH` you can customize how pages and attachments are organized in the output directory. 
+Via `PAGE_PATH` and `ATTACHMENT_PATH` you can customize how pages and attachments are organized in the output directory.
 
 By default, pages are stored at:
+
 ```sh
 export PAGE_PATH="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md"
 ```
+
 Available variables:
-  - `{space_key}`: The key of the Confluence space.
-  - `{space_name}`: The name of the Confluence space.
-  - `{homepage_id}`: The ID of the homepage of the Confluence space.
-  - `{homepage_title}`: The title of the homepage of the Confluence space.
-  - `{ancestor_ids}`: A slash-separated list of ancestor page IDs.
-  - `{ancestor_titles}`: A slash-separated list of ancestor page titles.
-  - `{page_id}`: The unique ID of the Confluence page.
-  - `{page_title}`: The title of the Confluence page.
+
+- `{space_key}`: The key of the Confluence space.
+- `{space_name}`: The name of the Confluence space.
+- `{homepage_id}`: The ID of the homepage of the Confluence space.
+- `{homepage_title}`: The title of the homepage of the Confluence space.
+- `{ancestor_ids}`: A slash-separated list of ancestor page IDs.
+- `{ancestor_titles}`: A slash-separated list of ancestor page titles.
+- `{page_id}`: The unique ID of the Confluence page.
+- `{page_title}`: The title of the Confluence page.
 
 By default, attachments are stored at:
+
 ```sh
 export ATTACHMENT_PATH="{space_name}/attachments/{attachment_file_id}{attachment_extension}"
 ```
+
 Available variables:
-  - `{space_key}`: The key of the Confluence space.
-  - `{space_name}`: The name of the Confluence space.
-  - `{homepage_id}`: The ID of the homepage of the Confluence space.
-  - `{homepage_title}`: The title of the homepage of the Confluence space.
-  - `{ancestor_ids}`: A slash-separated list of ancestor page IDs.
-  - `{ancestor_titles}`: A slash-separated list of ancestor page titles.
-  - `{attachment_id}`: The unique ID of the attachment.
-  - `{attachment_title}`: The title of the attachment.
-  - `{attachment_file_id}`: The file ID of the attachment.
-  - `{attachment_extension}`: The file extension of the attachment, including the leading dot.
+
+- `{space_key}`: The key of the Confluence space.
+- `{space_name}`: The name of the Confluence space.
+- `{homepage_id}`: The ID of the homepage of the Confluence space.
+- `{homepage_title}`: The title of the homepage of the Confluence space.
+- `{ancestor_ids}`: A slash-separated list of ancestor page IDs.
+- `{ancestor_titles}`: A slash-separated list of ancestor page titles.
+- `{attachment_id}`: The unique ID of the attachment.
+- `{attachment_title}`: The title of the attachment.
+- `{attachment_file_id}`: The file ID of the attachment.
+- `{attachment_extension}`: The file extension of the attachment, including the leading dot.
 
 ## Contributing
 

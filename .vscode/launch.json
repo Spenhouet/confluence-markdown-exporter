@@ -17,12 +17,26 @@
       }
     },
     {
-      "name": "Python: Export Page",
+      "name": "Python: Export Page by ID",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["page", "<page-id>", "scratch"],
+      "args": ["page-id", "<page-id>", "scratch"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceRoot}",
+        "DEBUG": "true"
+      }
+    },
+    {
+      "name": "Python: Export Page by URL",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
+      "justMyCode": false,
+      "args": ["page-url", "<page-url>", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
