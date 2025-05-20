@@ -15,7 +15,17 @@ app = typer.Typer()
 
 
 @app.command()
-def page(
+def page_url(
+    page_url: Annotated[str, typer.Argument()],
+    output_path: Annotated[Path, typer.Argument()] = Path("."),
+) -> None:
+    with measure(f"Export page {page_url}"):
+        _page = page_from_url(page_url)
+        _page.export(output_path)
+
+
+@app.command()
+def page_id(
     page_id: Annotated[int, typer.Argument()],
     output_path: Annotated[Path, typer.Argument()] = Path("."),
 ) -> None:

@@ -33,6 +33,8 @@ from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
 from tqdm import tqdm
 
+import urllib.parse
+
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
@@ -502,7 +504,7 @@ class Page(Document):
             JsonResponse,
             confluence.get_attachments_from_content(
                 data.get("id", 0),
-                limit=1000,
+                limit=1,
                 expand="container.ancestors,version",
             ),
         )
@@ -958,3 +960,20 @@ def export_pages(page_ids: list[int], output_path: StrPath) -> None:
     for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
         pbar.set_postfix_str(f"Exporting page {page_id}")
         export_page(page_id, output_path)
+
+def page_from_url(url: str) -> Page:
+    """
+    Retrieve a Page object given a Confluence page URL.
+    """
+    try:
+        page_title = urllib.parse.unquote_plus(url.strip('/').split('/')[-1])
+        space_key = urllib.parse.unquote_plus(url.strip('/').split('/')[-2])
+    except (ValueError, IndexError):
+        raise ValueError("Could not parse space key and page title from URL.")
+
+    page_data = cast(
+        JsonResponse,
+        confluence.get_page_by_title(space=space_key, title=page_title, expand='version'),
+    )
+
+    return Page.from_id(page_data['id'])
