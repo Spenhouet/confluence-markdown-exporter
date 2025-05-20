@@ -143,7 +143,7 @@ Available variables:
   - `{page_id}`: The unique ID of the Confluence page.
   - `{page_title}`: The title of the Confluence page.
 
-By default, pages are stored at:
+By default, attachments are stored at:
 ```sh
 export ATTACHMENT_PATH="{space_name}/attachments/{attachment_file_id}{attachment_extension}"
 ```
