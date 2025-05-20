@@ -7,6 +7,7 @@ import typer
 from confluence_markdown_exporter.confluence import Organization
 from confluence_markdown_exporter.confluence import Page
 from confluence_markdown_exporter.confluence import Space
+from confluence_markdown_exporter.confluence import page_from_url
 from confluence_markdown_exporter.utils.measure_time import measure
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
