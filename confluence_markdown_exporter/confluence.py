@@ -49,6 +49,11 @@ class ApiSettings(BaseSettings):
     atlassian_api_token: str | None = Field(default=None)
     atlassian_pat: str | None = Field(default=None)
     atlassian_url: str = Field()
+    confluence_timeout: int = Field(
+        default=75,
+        description="Timeout (in seconds) for Confluence API requests.",
+        validation_alias="CONFLUENCE_TIMEOUT"
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -106,6 +111,10 @@ class ConverterSettings(BaseSettings):
             "  {attachment_extension} - Attachment file extension (including leading dot)"
         ),
     )
+    attachment_limit: int = Field(
+        default=100,
+        description="Maximum number of attachments to fetch per page. Default: 100.",
+    )
 
 
 try:
@@ -129,7 +138,7 @@ else:
         "password": api_settings.atlassian_api_token,
     }
 
-confluence = ConfluenceApi(url=api_settings.atlassian_url, **auth_args)
+confluence = ConfluenceApi(url=api_settings.atlassian_url, timeout=api_settings.confluence_timeout, **auth_args)
 jira = Jira(url=api_settings.atlassian_url, **auth_args)
 
 
@@ -368,7 +377,7 @@ class Attachment(Document):
             response = confluence._session.get(str(confluence.url + self.download_link))
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
-            print(f"There is no attachment with titel '{self.title}'. Skipping export.")
+            print(f"There is no attachment with title '{self.title}'. Skipping export.")
             return
 
         save_file(
@@ -502,7 +511,7 @@ class Page(Document):
             JsonResponse,
             confluence.get_attachments_from_content(
                 data.get("id", 0),
-                limit=1000,
+                limit=converter_settings.attachment_limit,
                 expand="container.ancestors,version",
             ),
         )
