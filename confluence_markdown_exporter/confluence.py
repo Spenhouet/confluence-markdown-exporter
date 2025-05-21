@@ -38,6 +38,11 @@ from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
 from confluence_markdown_exporter.utils.table_converter import TableConverter
 
+import requests
+import base64
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+
 JsonResponse: TypeAlias = dict
 StrPath: TypeAlias = str | PathLike[str]
 
@@ -121,15 +126,22 @@ except ValidationError:
 
 converter_settings = ConverterSettings()
 
+retries = Retry(total=10, backoff_factor=2, backoff_max=60, status_forcelist=[502, 503, 504])
+adapter = HTTPAdapter(max_retries=retries)
+confluenceSession = requests.Session()
+confluenceSession.mount('http://', adapter)
+confluenceSession.mount('https://', adapter)
 if api_settings.atlassian_pat:
+    confluenceSession.headers.update({"Authorization": f"Bearer {api_settings.atlassian_pat}"})
     auth_args = {"token": api_settings.atlassian_pat}
 else:
+    confluenceSession.headers.update({"Authorization": f"Basic {base64.b64encode(f'{api_settings.atlassian_username}:{api_settings.atlassian_api_token}'.encode()).decode()}"})
     auth_args = {
         "username": api_settings.atlassian_username,
         "password": api_settings.atlassian_api_token,
     }
 
-confluence = ConfluenceApi(url=api_settings.atlassian_url, **auth_args)
+confluence = ConfluenceApi(url=api_settings.atlassian_url, session=confluenceSession, timeout=360)
 jira = Jira(url=api_settings.atlassian_url, **auth_args)
 
 
