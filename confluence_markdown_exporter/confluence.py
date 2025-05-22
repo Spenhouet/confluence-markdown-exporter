@@ -113,7 +113,7 @@ try:
 except ValidationError:
     print(
         "Please set the required environment variables: "
-        "ATLASSIAN_URL and either both ATLASSIAN_USERNAME and ATLASSIAN_API_TOKEN"
+        "ATLASSIAN_URL and either both ATLASSIAN_USERNAME and ATLASSIAN_API_TOKEN "
         "or ATLASSIAN_PAT\n\n"
         "Read the README.md for more information."
     )
@@ -487,6 +487,21 @@ class Page(Document):
                 attachment.export(export_path)
                 continue
 
+    def get_attachment_from_element(self, el: Tag) -> Attachment:
+        file_id = el.get("data-media-id")
+        if file_id:
+            attachment = self.page.get_attachment_by_file_id(str(file_id))
+        else:
+            id = el.get("data-linked-resource-id")
+            container_id = el.get("data-linked-resource-container-id")
+            if not id or not container_id:
+                return ""
+            image_container_page = Page.from_id(str(container_id))
+            if not image_container_page:
+                return ""
+            attachment = image_container_page.get_attachment_by_id(str(id))
+        return attachment
+        
     def get_attachment_by_id(self, attachment_id: str) -> Attachment:
         return next(attachment for attachment in self.attachments if attachment_id in attachment.id)
 
@@ -872,18 +887,122 @@ class Page(Document):
             return md
 
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            file_id = el.get("data-media-id")
-            if not file_id:
-                return ""
+            # First try to get attachment from the element
+            attachment = self.page.get_attachment_from_element(el)
+            if attachment:
+                relpath = os.path.relpath(attachment.export_path, self.page.export_path.parent)
+                el["src"] = relpath.replace(" ", "%20")
+                if "_inline" in parent_tags:
+                    parent_tags.remove("_inline")  # Always show images.
+                return super().convert_img(el, text, parent_tags)
+            
+            # Handle direct image URLs (emoticons, etc.)
+            src = el.get("src", "")
+            if src:
+                # Get the global output path
+                output_path = Path(converter_settings.output_root_path)
 
-            attachment = self.page.get_attachment_by_file_id(str(file_id))
-            relpath = os.path.relpath(attachment.export_path, self.page.export_path.parent)
-            el["src"] = relpath.replace(" ", "%20")
-            if "_inline" in parent_tags:
-                parent_tags.remove("_inline")  # Always show images.
-            return super().convert_img(el, text, parent_tags)
-            # REPORT Wiki style image link has alignment issues
-            # return f"![[{attachment.export_path}]]"
+                assets_dir = output_path / "assets"
+                assets_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Check if this is an inline base64 image
+                if src.startswith("data:"):
+                    try:
+                        # Parse the mime type and base64 data
+                        mime_type_match = re.match(r"data:([^;]+);base64,(.+)", src)
+                        if mime_type_match:
+                            mime_type = mime_type_match.group(1)
+                            base64_data = mime_type_match.group(2)
+                            
+                            # Determine file extension from mime type
+                            extension = mimetypes.guess_extension(mime_type) or ".bin"
+                            
+                            # Hash the base64 data
+                            data_hash = hashlib.md5(base64_data.encode()).hexdigest()
+                            
+                            # Set the file path
+                            file_path = assets_dir / f"{data_hash}{extension}"
+                            
+                            # Save the file if it doesn't exist
+                            if not file_path.exists():
+                                try:
+                                    # Decode and save the file
+                                    image_data = base64.b64decode(base64_data)
+                                    save_file(file_path, image_data)
+                                except Exception as e:
+                                    if DEBUG:
+                                        print(f"Error saving base64 image: {e}")
+                                    return ""
+                            
+                            # Update src to point to local file - use relative path from page export location
+                            rel_img_path = os.path.relpath(file_path, output_path / self.page.export_path.parent)
+                            cloned_el = copy.copy(el)
+                            cloned_el["src"] = rel_img_path.replace(" ", "%20")
+                            if "_inline" in parent_tags:
+                                parent_tags.remove("_inline")  # Always show images.
+                            return super().convert_img(cloned_el, text, parent_tags)
+                    except Exception as e:
+                        if DEBUG:
+                            print(f"Error processing base64 image: {e}")
+                        return ""
+                
+                # Calculate a hash from the original src value
+                src_hash = hashlib.md5(src.encode()).hexdigest()
+                
+                # Look for existing files with this hash (any extension)
+                existing_files = list(assets_dir.glob(f"{src_hash}.*"))
+                
+                if existing_files:
+                    # Use the first existing file with this hash
+                    file_path = existing_files[0]
+                else:
+                    # File not found, download it
+                    try:
+                        # Download the file
+                        url = confluence.url + src if src.startswith("/") else src
+
+                        # Use existing confluence session for other URLs
+                        response = confluence._session.get(url)
+                        response.raise_for_status()
+                        
+                        # Determine file extension from response content type
+                        content_type = response.headers.get('Content-Type', '')
+                        extension = mimetypes.guess_extension(content_type) or '.bin'
+                        
+                        # If extension wasn't resolved, try to extract it from the URL
+                        if extension == '.bin':
+                            # Extract extension from URL if present
+                            url_path = urlparse(url).path
+                            url_extension = os.path.splitext(url_path)[1].lower()
+                            
+                            # List of known image extensions
+                            known_image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp', '.bmp', '.tiff', '.ico']
+                            
+                            if url_extension and url_extension in known_image_extensions:
+                                extension = url_extension
+                            else:
+                                # Log error if extension couldn't be resolved
+                                print(f"Error: Could not determine file extension for {url}. Using .bin")
+                        
+                        # Set file path with hash and extension
+                        file_path = assets_dir / f"{src_hash}{extension}"
+                        
+                        # Save the file
+                        save_file(file_path, response.content)
+                    except Exception as e:
+                        if DEBUG:
+                            print(f"Error downloading image from {src}: {e}")
+                        return ""
+                
+                # Update src to point to local file - use relative path from page export location
+                rel_img_path = os.path.relpath(file_path, output_path / self.page.export_path.parent)
+                cloned_el = copy.copy(el)
+                cloned_el["src"] = rel_img_path.replace(" ", "%20")
+                if "_inline" in parent_tags:
+                    parent_tags.remove("_inline")  # Always show images.
+                return super().convert_img(cloned_el, text, parent_tags)
+            
+            return ""
 
         def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
