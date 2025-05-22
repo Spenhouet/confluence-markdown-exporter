@@ -16,6 +16,10 @@ from typing import Literal
 from typing import TypeAlias
 from typing import cast
 
+import requests
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+
 import yaml
 from atlassian import Confluence as ConfluenceApi
 from atlassian import Jira
@@ -43,8 +47,7 @@ StrPath: TypeAlias = str | PathLike[str]
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
 
-
-class ApiSettings(BaseSettings):
+class ApiSettings(BaseSettings): 
     atlassian_username: str | None = Field(default=None)
     atlassian_api_token: str | None = Field(default=None)
     atlassian_pat: str | None = Field(default=None)
@@ -121,16 +124,28 @@ except ValidationError:
 
 converter_settings = ConverterSettings()
 
-if api_settings.atlassian_pat:
-    auth_args = {"token": api_settings.atlassian_pat}
-else:
-    auth_args = {
-        "username": api_settings.atlassian_username,
-        "password": api_settings.atlassian_api_token,
-    }
+def response_hook(response, *args, **kwargs):
+    """Log response headers when requests fail."""
+    if not response.ok and DEBUG:
+        print(f"Request to {response.url} failed with status {response.status_code}")
+        print(f"Response headers: {dict(response.headers)}")
+    return response
 
-confluence = ConfluenceApi(url=api_settings.atlassian_url, **auth_args)
-jira = Jira(url=api_settings.atlassian_url, **auth_args)
+retries = Retry(total=5, backoff_factor=2, backoff_max=60, status_forcelist=[502, 503, 504])
+adapter = HTTPAdapter(max_retries=retries)
+session = requests.Session()
+session.mount('http://', adapter)
+session.mount('https://', adapter)
+# Add response hook to log headers on failure
+session.hooks['response'] = [response_hook]
+if api_settings.atlassian_pat:
+    session.headers.update({"Authorization": f"Bearer {api_settings.atlassian_pat}"})
+else:
+    session.headers.update({"Authorization": f"Basic {base64.b64encode(f'{api_settings.atlassian_username}:{api_settings.atlassian_api_token}'.encode()).decode()}"})
+
+confluence = ConfluenceApi(url=api_settings.atlassian_url, session=session)
+
+jira = Jira(url=api_settings.atlassian_url, session=session)
 
 
 class JiraIssue(BaseModel):
