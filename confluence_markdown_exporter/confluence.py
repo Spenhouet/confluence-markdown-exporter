@@ -387,10 +387,32 @@ class Page(Document):
 
     @property
     def descendants(self) -> list[int]:
-        url = f"rest/api/content/{self.id}/descendant/page"
+        url = "rest/api/search"
+        cql_query = f"ancestor={self.id} AND type=page"
+        page_ids = []
+        start = 0
+        limit = 100
+
         try:
-            response = cast(JsonResponse, confluence.get(url, params={"limit": 10000}))
-            results = response.get("results", [])
+            while True:
+                response = cast(JsonResponse, confluence.get(
+                    url,
+                    params={"cql": cql_query, "limit": limit, "start": start}
+                ))
+
+                for page in response.get("results", []):
+                    page_id = page.get("content", {}).get("id")
+                    if page_id:
+                        page_ids.append(int(page_id))
+
+                size = response.get("size", 0)
+                total_size = response.get("totalSize", 0)
+
+                if (start + size) >= total_size:
+                    break
+
+                start += size
+
         except HTTPError as e:
             if e.response.status_code == 404:  # noqa: PLR2004
                 print(
@@ -404,7 +426,7 @@ class Page(Document):
             )
             return []
 
-        return [page.get("id") for page in results if "id" in page]
+        return page_ids
 
     @property
     def _template_vars(self) -> dict[str, str]:
