@@ -6,6 +6,7 @@ https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 import functools
 import mimetypes
 import os
+import base64
 import re
 import sys
 from collections.abc import Set
@@ -16,6 +17,7 @@ from typing import Literal
 from typing import TypeAlias
 from typing import cast
 
+import atlassian
 import requests
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
@@ -47,11 +49,15 @@ StrPath: TypeAlias = str | PathLike[str]
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
 
-class ApiSettings(BaseSettings): 
+class ApiSettings(BaseSettings):
     atlassian_username: str | None = Field(default=None)
     atlassian_api_token: str | None = Field(default=None)
     atlassian_pat: str | None = Field(default=None)
     atlassian_url: str = Field()
+    jira_username: str | None = Field(default=None)
+    jira_api_token: str | None = Field(default=None)
+    jira_pat: str | None = Field(default=None)
+    jira_url: str | None = Field(default=None)
 
     @model_validator(mode="before")
     @classmethod
@@ -133,19 +139,31 @@ def response_hook(response, *args, **kwargs):
 
 retries = Retry(total=5, backoff_factor=2, backoff_max=60, status_forcelist=[502, 503, 504])
 adapter = HTTPAdapter(max_retries=retries)
-session = requests.Session()
-session.mount('http://', adapter)
-session.mount('https://', adapter)
+confluenceSession = requests.Session()
+confluenceSession.mount('http://', adapter)
+confluenceSession.mount('https://', adapter)
 # Add response hook to log headers on failure
-session.hooks['response'] = [response_hook]
+confluenceSession.hooks['response'] = [response_hook]
 if api_settings.atlassian_pat:
-    session.headers.update({"Authorization": f"Bearer {api_settings.atlassian_pat}"})
+    confluenceSession.headers.update({"Authorization": f"Bearer {api_settings.atlassian_pat}"})
 else:
-    session.headers.update({"Authorization": f"Basic {base64.b64encode(f'{api_settings.atlassian_username}:{api_settings.atlassian_api_token}'.encode()).decode()}"})
+    confluenceSession.headers.update({"Authorization": f"Basic {base64.b64encode(f'{api_settings.atlassian_username}:{api_settings.atlassian_api_token}'.encode()).decode()}"})
 
-confluence = ConfluenceApi(url=api_settings.atlassian_url, session=session)
+confluence = ConfluenceApi(url=api_settings.atlassian_url, session=confluenceSession)
 
-jira = Jira(url=api_settings.atlassian_url, session=session)
+if (api_settings.jira_pat or api_settings.jira_username or api_settings.jira_api_token):
+    jiraSession = requests.Session()
+    jiraSession.mount('http://', adapter)
+    jiraSession.mount('https://', adapter)
+    jiraSession.hooks['response'] = [response_hook]
+    if api_settings.jira_pat:
+        jiraSession.headers.update({"Authorization": f"Bearer {api_settings.jira_pat}"})
+    elif api_settings.jira_username and api_settings.jira_api_token:
+        jiraSession.headers.update({"Authorization": f"Basic {base64.b64encode(f'{api_settings.jira_username}:{api_settings.jira_api_token}'.encode()).decode()}"})
+else:
+    jiraSession = confluenceSession
+
+jira = Jira(url=api_settings.jira_url or api_settings.atlassian_url, session=jiraSession)
 
 
 class JiraIssue(BaseModel):
