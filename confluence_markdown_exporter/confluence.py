@@ -157,15 +157,19 @@ class JiraIssue(BaseModel):
 
 
 class User(BaseModel):
+    account_id: str
     username: str
     display_name: str
+    public_name: str
     email: str
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "User":
         return cls(
+            account_id=data.get("accountId", ""),
             username=data.get("username", ""),
             display_name=data.get("displayName", ""),
+            public_name=data.get("publicName", ""),
             email=data.get("email", ""),
         )
 
@@ -181,9 +185,25 @@ class User(BaseModel):
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def from_accountid(cls, accountid: int) -> "User":
+    def from_accountid(cls, accountid: str) -> "User":
         return cls.from_json(
             cast(JsonResponse, confluence.get_user_details_by_accountid(accountid))
+        )
+
+
+class Version(BaseModel):
+    number: int
+    by: User
+    when: str
+    friendly_when: str
+
+    @classmethod
+    def from_json(cls, data: JsonResponse) -> "Version":
+        return cls(
+            number=data.get("number", 0),
+            by=User.from_json(data.get("by", {})),
+            when=data.get("when", ""),
+            friendly_when=data.get("friendlyWhen", ""),
         )
 
 
@@ -287,6 +307,7 @@ class Attachment(Document):
     collection_name: str
     download_link: str
     comment: str
+    version: Version
 
     @property
     def extension(self) -> str:
@@ -335,6 +356,7 @@ class Attachment(Document):
                 *[ancestor.get("id") for ancestor in container.get("ancestors", [])],
                 container.get("id"),
             ][1:],
+            version=Version.from_json(data.get("version", {})),
         )
 
     def export(self, export_path: StrPath) -> None:
@@ -370,37 +392,39 @@ class Page(Document):
         page_ids = []
         start = 0
         limit = 100
-        
+
         try:
             while True:
                 response = cast(JsonResponse, confluence.get(
-                    url, 
+                    url,
                     params={"cql": cql_query, "limit": limit, "start": start}
                 ))
-                
+
                 for page in response.get("results", []):
                     page_id = page.get("content", {}).get("id")
                     if page_id:
                         page_ids.append(int(page_id))
-                
+
                 size = response.get("size", 0)
                 total_size = response.get("totalSize", 0)
-                
+
                 if (start + size) >= total_size:
                     break
-                
+
                 start += size
-                
+
         except HTTPError as e:
             if e.response.status_code == 404:  # noqa: PLR2004
-                # Raise ApiError as the documented reason is ambiguous
-                msg = (
-                    "There is no content with the given id, "
-                    "or the calling user does not have permission to view the content"
+                print(
+                    f"WARNING: Content with ID {self.id} not found (404) when fetching descendants."
                 )
-                raise ApiError(msg, reason=e) from e
-
-            raise
+                return []
+            return []
+        except Exception as e:  # noqa: BLE001
+            print(
+                f"ERROR: Unexpected error when fetching descendants for content ID {self.id}: {e!s}"
+            )
+            return []
 
         return page_ids
 
@@ -485,6 +509,9 @@ class Page(Document):
                 attachment.export(export_path)
                 continue
 
+    def get_attachment_by_id(self, attachment_id: str) -> Attachment:
+        return next(attachment for attachment in self.attachments if attachment_id in attachment.id)
+
     def get_attachment_by_file_id(self, file_id: str) -> Attachment:
         return next(attachment for attachment in self.attachments if attachment.file_id == file_id)
 
@@ -496,7 +523,9 @@ class Page(Document):
         attachments = cast(
             JsonResponse,
             confluence.get_attachments_from_content(
-                data.get("id", 0), limit=1000, expand="container.ancestors"
+                data.get("id", 0),
+                limit=1000,
+                expand="container.ancestors,version",
             ),
         )
         return cls(
@@ -519,22 +548,37 @@ class Page(Document):
     @classmethod
     @functools.lru_cache(maxsize=1000)
     def from_id(cls, page_id: int) -> "Page":
-        return cls.from_json(
-            cast(
-                JsonResponse,
-                confluence.get_page_by_id(
-                    page_id,
-                    expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                    "metadata.properties,ancestors",
-                ),
+        try:
+            return cls.from_json(
+                cast(
+                    JsonResponse,
+                    confluence.get_page_by_id(
+                        page_id,
+                        expand="body.view,body.export_view,body.editor2,metadata.labels,"
+                        "metadata.properties,ancestors",
+                    ),
+                )
             )
-        )
+        except ApiError as e:
+            print(f"WARNING: Could not access page with ID {page_id}: {e!s}")
+            # Return a minimal page object with error information
+            return cls(
+                id=page_id,
+                title="[Error: Page not accessible]",
+                space=Space(key="", name="", description="", homepage=0),
+                body="",
+                body_export="",
+                editor2="",
+                labels=[],
+                attachments=[],
+                ancestors=[],
+            )
 
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
         # TODO Support table captions
-        # TODO Support figure captions (934379624)
+        # TODO Support figure captions
 
         # FIXME Potentially the REST API timesout - retry?
 
@@ -602,7 +646,7 @@ class Page(Document):
         def convert_page_properties(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> None:
-            # TODO can this be queries via REST API instead?
+            # TODO can this be queried via REST API instead?
 
             rows = [
                 cast(list[Tag], tr.find_all(["th", "td"]))
@@ -655,6 +699,8 @@ class Page(Document):
                     return self.convert_toc(el, text, parent_tags)
                 if el["data-macro-name"] == "jira":
                     return self.convert_jira_table(el, text, parent_tags)
+                if el["data-macro-name"] == "attachments":
+                    return self.convert_attachments(el, text, parent_tags)
             if "columnLayout" in str(el.get("class", "")):
                 return self.convert_column_layout(el, text, parent_tags)
 
@@ -666,6 +712,30 @@ class Page(Document):
                     return self.convert_jira_issue(el, text, parent_tags)
 
             return text
+
+        def convert_attachments(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            file_header = el.find("th", {"class": "filename-column"})
+            file_header_text = file_header.text.strip() if file_header else "File"
+
+            modified_header = el.find("th", {"class": "modified-column"})
+            modified_header_text = modified_header.text.strip() if modified_header else "Modified"
+
+            rows = [
+                {
+                    "file": f"[{att.title}]({os.path.relpath(att.export_path, self.page.export_path.parent).replace(' ', '%20')})",  # noqa: E501
+                    "modified": f"{att.version.friendly_when} by {self.convert_user(att.version.by)}",  # noqa: E501
+                }
+                for att in self.page.attachments
+            ]
+
+            html = f"""<table>
+            <tr><th>{file_header_text}</th><th>{modified_header_text}</th></tr>
+            {"".join(f"<tr><td>{row['file']}</td><td>{row['modified']}</td></tr>" for row in rows)}
+            </table>"""
+
+            return (
+                f"\n\n{self.convert_table(BeautifulSoup(html, 'html.parser'), text, parent_tags)}\n"
+            )
 
         def convert_column_layout(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
@@ -752,7 +822,7 @@ class Page(Document):
 
         def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
             if "user-mention" in str(el.get("class")):
-                return self.convert_user(el, text, parent_tags)
+                return self.convert_user_mention(el, text, parent_tags)
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
                 if fallback := BeautifulSoup(self.page.editor2, "html.parser").find(
                     "a", string=text
@@ -787,8 +857,10 @@ class Page(Document):
         def convert_attachment_link(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
-            attachment_id = el.get("data-media-id")
-            attachment = self.page.get_attachment_by_file_id(str(attachment_id))
+            if attachment_file_id := el.get("data-media-id"):
+                attachment = self.page.get_attachment_by_file_id(str(attachment_file_id))
+            elif attachment_id := el.get("data-linked-resource-id"):
+                attachment = self.page.get_attachment_by_id(str(attachment_id))
             relpath = os.path.relpath(attachment.export_path, self.page.export_path.parent)
             return f"[{attachment.title}]({relpath.replace(' ', '%20')})"
 
@@ -798,8 +870,17 @@ class Page(Document):
 
             return f"{text}"
 
-        def convert_user(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            return f"{text.removesuffix('(Unlicensed)').removesuffix('(Deactivated)').strip()}"
+        def convert_user_mention(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            if el.has_attr("data-account-id"):
+                return self.convert_user(User.from_accountid(str(el.get("data-account-id"))))
+
+            return self.convert_user_name(text)
+
+        def convert_user(self, user: User) -> str:
+            return self.convert_user_name(user.display_name)
+
+        def convert_user_name(self, name: str) -> str:
+            return name.removesuffix("(Unlicensed)").removesuffix("(Deactivated)").strip()
 
         def convert_li(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             md = super().convert_li(el, text, parent_tags)
