@@ -26,6 +26,7 @@ from markdownify import MarkdownConverter
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic_settings import BaseSettings
+from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
 from tqdm import tqdm
 
@@ -83,6 +84,8 @@ class ConverterSettings(BaseSettings):
             "  {attachment_extension} - Attachment file extension (including leading dot)"
         ),
     )
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 converter_settings = ConverterSettings()
