@@ -159,6 +159,13 @@ Available variables:
   - `{attachment_file_id}`: The file ID of the attachment.
   - `{attachment_extension}`: The file extension of the attachment, including the leading dot.
 
+## Compatibility
+
+This package is not tested extensively. Please check all output and report any issue [here](https://github.com/Spenhouet/confluence-markdown-exporter/issues).
+It generally was tested on:
+- Confluence Cloud 1000.0.0-b5426ab8524f (2025-05-28)
+- Confluence Server 8.5.20
+
 ## Contributing
 
 If you would like to contribute, please read [our contribution guideline](CONTRIBUTING.md).
