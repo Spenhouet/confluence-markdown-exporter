@@ -7,6 +7,7 @@ import functools
 import mimetypes
 import os
 import re
+import urllib.parse
 from collections.abc import Set
 from os import PathLike
 from pathlib import Path
@@ -477,7 +478,7 @@ class Page(Document):
             JsonResponse,
             confluence.get_attachments_from_content(
                 data.get("id", 0),
-                limit=1000,
+                limit=1,
                 expand="container.ancestors,version",
             ),
         )
@@ -526,6 +527,26 @@ class Page(Document):
                 attachments=[],
                 ancestors=[],
             )
+
+    @classmethod
+    def from_url(cls, page_url: str) -> "Page":
+        """Retrieve a Page object given a Confluence page URL."""
+        path = urllib.parse.urlparse(page_url).path.rstrip("/")
+        if match := re.search(r"/wiki/.+?/pages/(\d+)", path):
+            page_id = match.group(1)
+            return Page.from_id(int(page_id))
+
+        if match := re.search(r"^/([^/]+?)/([^/]+)$", path):
+            space_key = urllib.parse.unquote_plus(match.group(1))
+            page_title = urllib.parse.unquote_plus(match.group(2))
+            page_data = cast(
+                JsonResponse,
+                confluence.get_page_by_title(space=space_key, title=page_title, expand="version"),
+            )
+            return Page.from_id(page_data["id"])
+
+        msg = f"Could not parse page URL {page_url}."
+        raise ValueError(msg)
 
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
