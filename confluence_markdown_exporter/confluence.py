@@ -7,7 +7,6 @@ import functools
 import mimetypes
 import os
 import re
-import sys
 from collections.abc import Set
 from os import PathLike
 from pathlib import Path
@@ -16,9 +15,8 @@ from typing import Literal
 from typing import TypeAlias
 from typing import cast
 
+import jmespath
 import yaml
-from atlassian import Confluence as ConfluenceApi
-from atlassian import Jira
 from atlassian.errors import ApiError
 from bs4 import BeautifulSoup
 from bs4 import Tag
@@ -26,13 +24,12 @@ from markdownify import ATX
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
 from pydantic import Field
-from pydantic import ValidationError
-from pydantic import model_validator
 from pydantic_settings import BaseSettings
-from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
 from tqdm import tqdm
 
+from confluence_markdown_exporter.api_clients import confluence
+from confluence_markdown_exporter.api_clients import jira
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
@@ -42,27 +39,6 @@ JsonResponse: TypeAlias = dict
 StrPath: TypeAlias = str | PathLike[str]
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
-
-
-class ApiSettings(BaseSettings):
-    atlassian_username: str | None = Field(default=None)
-    atlassian_api_token: str | None = Field(default=None)
-    atlassian_pat: str | None = Field(default=None)
-    atlassian_url: str = Field()
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate_auth(cls, data: dict) -> dict:
-        if "atlassian_pat" in data:
-            return data
-
-        if "atlassian_username" in data and "atlassian_api_token" in data:
-            return data
-
-        msg = "Either ATLASSIAN_PAT or both ATLASSIAN_USERNAME and ATLASSIAN_API_TOKEN must be set."
-        raise ValueError(msg)
-
-    model_config = SettingsConfigDict(env_file=".env")
 
 
 class ConverterSettings(BaseSettings):
@@ -108,29 +84,7 @@ class ConverterSettings(BaseSettings):
     )
 
 
-try:
-    api_settings = ApiSettings()  # type: ignore reportCallIssue as the parameters are read via env file
-except ValidationError:
-    print(
-        "Please set the required environment variables: "
-        "ATLASSIAN_URL and either both ATLASSIAN_USERNAME and ATLASSIAN_API_TOKEN"
-        "or ATLASSIAN_PAT\n\n"
-        "Read the README.md for more information."
-    )
-    sys.exit(1)
-
 converter_settings = ConverterSettings()
-
-if api_settings.atlassian_pat:
-    auth_args = {"token": api_settings.atlassian_pat}
-else:
-    auth_args = {
-        "username": api_settings.atlassian_username,
-        "password": api_settings.atlassian_api_token,
-    }
-
-confluence = ConfluenceApi(url=api_settings.atlassian_url, **auth_args)
-jira = Jira(url=api_settings.atlassian_url, **auth_args)
 
 
 class JiraIssue(BaseModel):
@@ -387,10 +341,31 @@ class Page(Document):
 
     @property
     def descendants(self) -> list[int]:
-        url = f"rest/api/content/{self.id}/descendant/page"
+        cql_query = f"ancestor={self.id} AND type=page"
+        page_ids = []
+        start = 0
+        paging_limit = 100
+        total_size = paging_limit  # Initialize to limit to enter the loop
+
+        ids_exp = jmespath.compile("results[].content.id.to_number(@)")
+
         try:
-            response = cast(JsonResponse, confluence.get(url, params={"limit": 10000}))
-            results = response.get("results", [])
+            while start < total_size:
+                response = cast(
+                    JsonResponse,
+                    confluence.cql(cql_query, limit=paging_limit, start=start),
+                )
+
+                page_ids.extend(ids_exp.search(response))
+
+                size = response.get("size", 0)
+                total_size = response.get("totalSize", 0)
+
+                if size == 0:
+                    break
+
+                start += size
+
         except HTTPError as e:
             if e.response.status_code == 404:  # noqa: PLR2004
                 print(
@@ -404,7 +379,7 @@ class Page(Document):
             )
             return []
 
-        return [page.get("id") for page in results if "id" in page]
+        return page_ids
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -555,19 +530,6 @@ class Page(Document):
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
-        # TODO Support table captions
-        # TODO Support figure captions
-
-        # FIXME Potentially the REST API timesout - retry?
-
-        # Advanced/Future features:
-        # TODO Support badges via https://shields.io/badges/static-badge
-        # TODO Read version by version and commit in git using change comment and user info
-
-        # TODO what to do with page comments?
-        # Insert using CriticMarkup: https://github.com/CriticMarkup/CriticMarkup-toolkit
-        # There is also a plugin for Obsidian supporting CriticMarkup: https://github.com/Fevol/obsidian-criticmarkup/tree/main
-
         class Options(MarkdownConverter.DefaultOptions):
             bullets = "-"
             heading_style = ATX
@@ -624,8 +586,6 @@ class Page(Document):
         def convert_page_properties(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> None:
-            # TODO can this be queried via REST API instead?
-
             rows = [
                 cast(list[Tag], tr.find_all(["th", "td"]))
                 for tr in cast(list[Tag], el.find_all("tr"))
@@ -660,25 +620,28 @@ class Page(Document):
             blockquote = super().convert_blockquote(el, text, parent_tags)
             return f"\n> [!{alert_type}]{blockquote}"
 
-        def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
+        def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             # Handle Confluence macros
             if el.has_attr("data-macro-name"):
-                if el["data-macro-name"] in self.options["macros_to_ignore"]:
+                macro_name = str(el["data-macro-name"])
+                if macro_name in self.options["macros_to_ignore"]:
                     return ""
-                if el["data-macro-name"] in ["panel", "info", "note", "tip", "warning"]:
-                    return self.convert_alert(el, text, parent_tags)
-                if el["data-macro-name"] == "details":
-                    self.convert_page_properties(el, text, parent_tags)
-                if el["data-macro-name"] == "drawio":
-                    return self.convert_drawio(el, text, parent_tags)
-                if el["data-macro-name"] == "scroll-ignore":
-                    return self.convert_hidden_content(el, text, parent_tags)
-                if el["data-macro-name"] == "toc":
-                    return self.convert_toc(el, text, parent_tags)
-                if el["data-macro-name"] == "jira":
-                    return self.convert_jira_table(el, text, parent_tags)
-                if el["data-macro-name"] == "attachments":
-                    return self.convert_attachments(el, text, parent_tags)
+
+                macro_handlers = {
+                    "panel": self.convert_alert,
+                    "info": self.convert_alert,
+                    "note": self.convert_alert,
+                    "tip": self.convert_alert,
+                    "warning": self.convert_alert,
+                    "details": self.convert_page_properties,
+                    "drawio": self.convert_drawio,
+                    "scroll-ignore": self.convert_hidden_content,
+                    "toc": self.convert_toc,
+                    "jira": self.convert_jira_table,
+                    "attachments": self.convert_attachments,
+                }
+                if macro_name in macro_handlers:
+                    return macro_handlers[macro_name](el, text, parent_tags)
 
             # Handle expand-container divs
             if "expand-container" in str(el.get("class", "")):
@@ -689,11 +652,15 @@ class Page(Document):
 
             return super().convert_div(el, text, parent_tags)
 
-        def convert_expand_container(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_expand_container(
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+        ) -> str:
             """Convert expand-container div to HTML details element."""
             # Extract summary text from expand-control-text
             summary_element = el.find("span", class_="expand-control-text")
-            summary_text = summary_element.get_text().strip() if summary_element else "Click here to expand..."
+            summary_text = (
+                summary_element.get_text().strip() if summary_element else "Click here to expand..."
+            )
 
             # Extract content from expand-content
             content_element = el.find("div", class_="expand-content")
@@ -866,7 +833,7 @@ class Page(Document):
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
-                return f"{el['datetime']}"  # TODO convert to date format?
+                return f"{el['datetime']}"
 
             return f"{text}"
 
@@ -904,8 +871,6 @@ class Page(Document):
             if "_inline" in parent_tags:
                 parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
-            # REPORT Wiki style image link has alignment issues
-            # return f"![[{attachment.export_path}]]"
 
         def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
@@ -941,14 +906,6 @@ class Page(Document):
         def convert_page_properties_report(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
-            # TODO can this be queries via REST API instead?
-            # api.cql('label = "curated-dataset" and space = STRUCT and parent = 688816133', expand='metadata.properties')
-            # data-macro-id="5836d104-f9e9-44cf-9d05-e332b86275c0"
-            # https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content---macro-body/#api-wiki-rest-api-content-id-history-version-macro-id-macroid-get
-            # Find out how to fetch the macro content
-
-            # TODO instead use markdown integrated front matter properties query
-
             data_cql = el.get("data-cql")
             if not data_cql:
                 return ""
