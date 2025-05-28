@@ -3,6 +3,7 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+import base64
 import functools
 import mimetypes
 import os
@@ -17,6 +18,7 @@ from typing import TypeAlias
 from typing import cast
 
 import jmespath
+import requests
 import yaml
 from atlassian import Confluence as ConfluenceApi
 from atlassian import Jira
@@ -32,7 +34,9 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
+from requests.adapters import HTTPAdapter
 from tqdm import tqdm
+from urllib3.util.retry import Retry
 
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
@@ -122,16 +126,41 @@ except ValidationError:
 
 converter_settings = ConverterSettings()
 
-if api_settings.atlassian_pat:
-    auth_args = {"token": api_settings.atlassian_pat}
-else:
-    auth_args = {
-        "username": api_settings.atlassian_username,
-        "password": api_settings.atlassian_api_token,
-    }
 
-confluence = ConfluenceApi(url=api_settings.atlassian_url, **auth_args)
-jira = Jira(url=api_settings.atlassian_url, **auth_args)
+def response_hook(
+    response: requests.Response, *args: object, **kwargs: object
+) -> requests.Response:
+    """Log response headers when requests fail."""
+    if not response.ok and DEBUG:
+        print(f"Request to {response.url} failed with status {response.status_code}")
+        print(f"Response headers: {dict(response.headers)}")
+    return response
+
+
+retries = Retry(total=5, backoff_factor=2, backoff_max=60, status_forcelist=[502, 503, 504])
+adapter = HTTPAdapter(max_retries=retries)
+session = requests.Session()
+session.mount("http://", adapter)
+session.mount("https://", adapter)
+# Add response hook to log headers on failure
+session.hooks["response"] = [response_hook]
+if api_settings.atlassian_pat:
+    session.headers.update({"Authorization": f"Bearer {api_settings.atlassian_pat}"})
+else:
+    session.headers.update(
+        {
+            "Authorization": (
+                "Basic "
+                + base64.b64encode(
+                    f"{api_settings.atlassian_username}:{api_settings.atlassian_api_token}".encode()
+                ).decode()
+            )
+        }
+    )
+
+confluence = ConfluenceApi(url=api_settings.atlassian_url, session=session)
+
+jira = Jira(url=api_settings.atlassian_url, session=session)
 
 
 class JiraIssue(BaseModel):
