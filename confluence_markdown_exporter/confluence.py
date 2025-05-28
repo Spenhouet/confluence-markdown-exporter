@@ -481,7 +481,7 @@ class Page(Document):
             JsonResponse,
             confluence.get_attachments_from_content(
                 data.get("id", 0),
-                limit=converter_settings.attachment_limit,
+                limit=1000,
                 expand="container.ancestors,version",
             ),
         )
