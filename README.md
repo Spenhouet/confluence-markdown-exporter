@@ -73,20 +73,22 @@ export ATLASSIAN_API_TOKEN="API token Test"
 export ATLASSIAN_URL="https://company.atlassian.net"
 ```
 
+If you have separate Confluence and Jira instances or authentication, you can provide them via `CONFLUENCE_` or `JIRA_` prefixed environment variables.
+
 ### 3. Exporting
 
 Run the exporter with the desired Confluence page ID or space key.
 
-Export a single Confluence page:
+Export a single Confluence page by ID or URL:
 
 ```sh
-confluence-markdown-exporter page <page-id e.g. 645208921> <output path e.g. ./output_path/>
+confluence-markdown-exporter page <page-id e.g. 645208921 or page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
 ```
 
 Export a Confluence page and all it's descendants:
 
 ```sh
-confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
+confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921 or page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
 ```
 
 Export all Confluence pages of a single Space:
@@ -176,6 +178,13 @@ By default, the Confluence API timeout is set to 75 seconds. You can choose to c
 ```sh
 export CONFLUENCE_TIMEOUT=200
 ```
+
+## Compatibility
+
+This package is not tested extensively. Please check all output and report any issue [here](https://github.com/Spenhouet/confluence-markdown-exporter/issues).
+It generally was tested on:
+- Confluence Cloud 1000.0.0-b5426ab8524f (2025-05-28)
+- Confluence Server 8.5.20
 
 ## Contributing
 

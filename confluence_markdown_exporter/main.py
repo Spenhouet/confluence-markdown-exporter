@@ -16,21 +16,21 @@ app = typer.Typer()
 
 @app.command()
 def page(
-    page_id: Annotated[int, typer.Argument()],
+    page: Annotated[str, typer.Argument(help="Page ID or URL")],
     output_path: Annotated[Path, typer.Argument()] = Path("."),
 ) -> None:
-    with measure(f"Export page {page_id}"):
-        _page = Page.from_id(page_id)
+    with measure(f"Export page {page}"):
+        _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
         _page.export(output_path)
 
 
 @app.command()
 def page_with_descendants(
-    page_id: Annotated[int, typer.Argument()],
+    page: Annotated[str, typer.Argument(help="Page ID or URL")],
     output_path: Annotated[Path, typer.Argument()] = Path("."),
 ) -> None:
-    with measure(f"Export page {page_id} with descendants"):
-        _page = Page.from_id(page_id)
+    with measure(f"Export page {page} with descendants"):
+        _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
         _page.export_with_descendants(output_path)
 
 
