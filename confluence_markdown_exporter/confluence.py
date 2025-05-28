@@ -127,7 +127,9 @@ except ValidationError:
 converter_settings = ConverterSettings()
 
 
-def response_hook(response, *args, **kwargs):
+def response_hook(
+    response: requests.Response, *args: object, **kwargs: object
+) -> requests.Response:
     """Log response headers when requests fail."""
     if not response.ok and DEBUG:
         print(f"Request to {response.url} failed with status {response.status_code}")
@@ -147,7 +149,12 @@ if api_settings.atlassian_pat:
 else:
     session.headers.update(
         {
-            "Authorization": f"Basic {base64.b64encode(f'{api_settings.atlassian_username}:{api_settings.atlassian_api_token}'.encode()).decode()}"
+            "Authorization": (
+                "Basic "
+                + base64.b64encode(
+                    f"{api_settings.atlassian_username}:{api_settings.atlassian_api_token}".encode()
+                ).decode()
+            )
         }
     )
 
