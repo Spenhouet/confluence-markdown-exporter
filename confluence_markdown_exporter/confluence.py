@@ -679,10 +679,32 @@ class Page(Document):
                     return self.convert_jira_table(el, text, parent_tags)
                 if el["data-macro-name"] == "attachments":
                     return self.convert_attachments(el, text, parent_tags)
+
+            # Handle expand-container divs
+            if "expand-container" in str(el.get("class", "")):
+                return self.convert_expand_container(el, text, parent_tags)
+
             if "columnLayout" in str(el.get("class", "")):
                 return self.convert_column_layout(el, text, parent_tags)
 
             return super().convert_div(el, text, parent_tags)
+
+        def convert_expand_container(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert expand-container div to HTML details element."""
+            # Extract summary text from expand-control-text
+            summary_element = el.find("span", class_="expand-control-text")
+            summary_text = summary_element.get_text().strip() if summary_element else "Click here to expand..."
+
+            # Extract content from expand-content
+            content_element = el.find("div", class_="expand-content")
+            if content_element:
+                # Recursively convert the content
+                content = self.process_tag(content_element, parent_tags)
+            else:
+                content = ""
+
+            # Return as details element
+            return f"\n<details>\n<summary>{summary_text}</summary>\n\n{content}\n\n</details>\n"
 
         def convert_span(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("data-macro-name"):
