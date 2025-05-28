@@ -38,10 +38,14 @@ class ApiSettings(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
-    def ensure_confluence_and_jira(cls, data: dict[str, Any]) -> dict[str, Any]:
-        if "confluence" not in data:
+    def fallback_authentication(cls, data: dict[str, Any]) -> dict[str, Any]:
+        if "atlassian" not in data and "confluence" in data:
+            data["atlassian"] = data["confluence"]
+        if "atlassian" not in data and "jira" in data:
+            data["atlassian"] = data["jira"]
+        if "confluence" not in data and "atlassian" in data:
             data["confluence"] = data["atlassian"]
-        if "jira" not in data:
+        if "jira" not in data and "atlassian" in data:
             data["jira"] = data["atlassian"]
         return data
 
