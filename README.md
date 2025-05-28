@@ -79,22 +79,16 @@ If you have separate Confluence and Jira instances or authentication, you can pr
 
 Run the exporter with the desired Confluence page ID or space key.
 
-Export a single Confluence page by id:
+Export a single Confluence page by ID or URL:
 
 ```sh
-confluence-markdown-exporter page-id <page-id e.g. 645208921> <output path e.g. ./output_path/>
-```
-
-Export a single Confluence page by URL:
-
-```sh
-confluence-markdown-exporter page-url <page-url e.g. https://company.atlassian.net/Wiki/foo-bar> <output path e.g. ./output_path/>
+confluence-markdown-exporter page <page-id e.g. 645208921 or page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
 ```
 
 Export a Confluence page and all it's descendants:
 
 ```sh
-confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
+confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921 or page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
 ```
 
 Export all Confluence pages of a single Space:

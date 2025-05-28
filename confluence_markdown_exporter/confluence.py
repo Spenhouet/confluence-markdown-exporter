@@ -528,6 +528,26 @@ class Page(Document):
                 ancestors=[],
             )
 
+    @classmethod
+    def from_url(cls, page_url: str) -> "Page":
+        """Retrieve a Page object given a Confluence page URL."""
+        path = urllib.parse.urlparse(page_url).path.rstrip("/")
+        if match := re.search(r"/wiki/.+?/pages/(\d+)", path):
+            page_id = match.group(1)
+            return Page.from_id(int(page_id))
+
+        if match := re.search(r"^/([^/]+?)/([^/]+)$", path):
+            space_key = urllib.parse.unquote_plus(match.group(1))
+            page_title = urllib.parse.unquote_plus(match.group(2))
+            page_data = cast(
+                JsonResponse,
+                confluence.get_page_by_title(space=space_key, title=page_title, expand="version"),
+            )
+            return Page.from_id(page_data["id"])
+
+        msg = f"Could not parse page URL {page_url}."
+        raise ValueError(msg)
+
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
@@ -938,19 +958,3 @@ def export_pages(page_ids: list[int], output_path: StrPath) -> None:
     for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
         pbar.set_postfix_str(f"Exporting page {page_id}")
         export_page(page_id, output_path)
-
-
-def page_from_url(url: str) -> Page:
-    """Retrieve a Page object given a Confluence page URL."""
-    try:
-        page_title = urllib.parse.unquote_plus(url.strip("/").split("/")[-1])
-        space_key = urllib.parse.unquote_plus(url.strip("/").split("/")[-2])
-    except (ValueError, IndexError):
-        raise ValueError("Could not parse space key and page title from URL.")
-
-    page_data = cast(
-        JsonResponse,
-        confluence.get_page_by_title(space=space_key, title=page_title, expand="version"),
-    )
-
-    return Page.from_id(page_data["id"])
