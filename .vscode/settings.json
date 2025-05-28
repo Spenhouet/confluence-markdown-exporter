@@ -54,29 +54,8 @@
     "editor.tabSize": 2,
     "editor.wordBasedSuggestions": "off",
     "files.autoSave": "onFocusChange",
-    "files.insertFinalNewline": true
+    "files.insertFinalNewline": true,
   },
-  "markdown.styles": [".vscode/custom-tag-style.css"],
-  "foam.edit.linkReferenceDefinitions": "withoutExtensions",
-  "git.enableSmartCommit": true,
-  "git.postCommitCommand": "sync",
-  "files.exclude": {
-    "_site/**": true
-  },
-  "breadcrumbs.enabled": false,
-  "explorer.decorations.badges": false,
-  "explorer.decorations.colors": false,
-  // "explorer.sortOrder": "modified",
   "markdown.updateLinksOnFileMove.enabled": "prompt",
   "markdown.validate.enabled": true,
-  "window.commandCenter": true,
-  "workbench.colorTheme": "Default Light Modern",
-  "workbench.editor.empty.hint": "hidden",
-  "workbench.startupEditor": "none",
-  // open files as tabs
-  "workbench.editor.enablePreview": false,
-  // reveal existing files if they are open (avoids tons of tabs)
-  "workbench.editor.revealIfOpen": true,
-  // open files from quick open as tabs
-  "workbench.editor.enablePreviewFromQuickOpen": false
 }
