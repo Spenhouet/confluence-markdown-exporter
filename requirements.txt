@@ -7,4 +7,3 @@ pyyaml
 tabulate
 tqdm
 typer
-urllib3

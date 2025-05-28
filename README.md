@@ -73,6 +73,8 @@ export ATLASSIAN_API_TOKEN="API token Test"
 export ATLASSIAN_URL="https://company.atlassian.net"
 ```
 
+If you have separate Confluence and Jira instances or authentication, you can provide them via `CONFLUENCE_` or `JIRA_` prefixed environment variables.
+
 ### 3. Exporting
 
 Run the exporter with the desired Confluence page ID or space key.
