@@ -16,6 +16,7 @@ from typing import Literal
 from typing import TypeAlias
 from typing import cast
 
+import jmespath
 import yaml
 from atlassian import Confluence as ConfluenceApi
 from atlassian import Jira
@@ -387,28 +388,27 @@ class Page(Document):
 
     @property
     def descendants(self) -> list[int]:
-        url = "rest/api/search"
         cql_query = f"ancestor={self.id} AND type=page"
         page_ids = []
         start = 0
-        limit = 100
+        paging_limit = 100
+        total_size = paging_limit  # Initialize to limit to enter the loop
+
+        ids_exp = jmespath.compile("results[].content.id.to_number(@)")
 
         try:
-            while True:
-                response = cast(JsonResponse, confluence.get(
-                    url,
-                    params={"cql": cql_query, "limit": limit, "start": start}
-                ))
+            while start < total_size:
+                response = cast(
+                    JsonResponse,
+                    confluence.cql(cql_query, limit=paging_limit, start=start),
+                )
 
-                for page in response.get("results", []):
-                    page_id = page.get("content", {}).get("id")
-                    if page_id:
-                        page_ids.append(int(page_id))
+                page_ids.extend(ids_exp.search(response))
 
                 size = response.get("size", 0)
                 total_size = response.get("totalSize", 0)
 
-                if (start + size) >= total_size:
+                if size == 0:
                     break
 
                 start += size
@@ -577,19 +577,6 @@ class Page(Document):
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
-        # TODO Support table captions
-        # TODO Support figure captions
-
-        # FIXME Potentially the REST API timesout - retry?
-
-        # Advanced/Future features:
-        # TODO Support badges via https://shields.io/badges/static-badge
-        # TODO Read version by version and commit in git using change comment and user info
-
-        # TODO what to do with page comments?
-        # Insert using CriticMarkup: https://github.com/CriticMarkup/CriticMarkup-toolkit
-        # There is also a plugin for Obsidian supporting CriticMarkup: https://github.com/Fevol/obsidian-criticmarkup/tree/main
-
         class Options(MarkdownConverter.DefaultOptions):
             bullets = "-"
             heading_style = ATX
@@ -646,8 +633,6 @@ class Page(Document):
         def convert_page_properties(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> None:
-            # TODO can this be queried via REST API instead?
-
             rows = [
                 cast(list[Tag], tr.find_all(["th", "td"]))
                 for tr in cast(list[Tag], el.find_all("tr"))
@@ -866,7 +851,7 @@ class Page(Document):
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
-                return f"{el['datetime']}"  # TODO convert to date format?
+                return f"{el['datetime']}"
 
             return f"{text}"
 
@@ -904,8 +889,6 @@ class Page(Document):
             if "_inline" in parent_tags:
                 parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
-            # REPORT Wiki style image link has alignment issues
-            # return f"![[{attachment.export_path}]]"
 
         def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
@@ -941,14 +924,6 @@ class Page(Document):
         def convert_page_properties_report(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
-            # TODO can this be queries via REST API instead?
-            # api.cql('label = "curated-dataset" and space = STRUCT and parent = 688816133', expand='metadata.properties')
-            # data-macro-id="5836d104-f9e9-44cf-9d05-e332b86275c0"
-            # https://developer.atlassian.com/cloud/confluence/rest/v1/api-group-content---macro-body/#api-wiki-rest-api-content-id-history-version-macro-id-macroid-get
-            # Find out how to fetch the macro content
-
-            # TODO instead use markdown integrated front matter properties query
-
             data_cql = el.get("data-cql")
             if not data_cql:
                 return ""
