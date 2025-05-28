@@ -3,6 +3,7 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+import base64
 import functools
 import mimetypes
 import os
@@ -16,11 +17,8 @@ from typing import Literal
 from typing import TypeAlias
 from typing import cast
 
-
-import requests
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
 import jmespath
+import requests
 import yaml
 from atlassian import Confluence as ConfluenceApi
 from atlassian import Jira
@@ -36,7 +34,9 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
+from requests.adapters import HTTPAdapter
 from tqdm import tqdm
+from urllib3.util.retry import Retry
 
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
@@ -48,7 +48,8 @@ StrPath: TypeAlias = str | PathLike[str]
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
 
-class ApiSettings(BaseSettings): 
+
+class ApiSettings(BaseSettings):
     atlassian_username: str | None = Field(default=None)
     atlassian_api_token: str | None = Field(default=None)
     atlassian_pat: str | None = Field(default=None)
@@ -125,6 +126,7 @@ except ValidationError:
 
 converter_settings = ConverterSettings()
 
+
 def response_hook(response, *args, **kwargs):
     """Log response headers when requests fail."""
     if not response.ok and DEBUG:
@@ -132,17 +134,22 @@ def response_hook(response, *args, **kwargs):
         print(f"Response headers: {dict(response.headers)}")
     return response
 
+
 retries = Retry(total=5, backoff_factor=2, backoff_max=60, status_forcelist=[502, 503, 504])
 adapter = HTTPAdapter(max_retries=retries)
 session = requests.Session()
-session.mount('http://', adapter)
-session.mount('https://', adapter)
+session.mount("http://", adapter)
+session.mount("https://", adapter)
 # Add response hook to log headers on failure
-session.hooks['response'] = [response_hook]
+session.hooks["response"] = [response_hook]
 if api_settings.atlassian_pat:
     session.headers.update({"Authorization": f"Bearer {api_settings.atlassian_pat}"})
 else:
-    session.headers.update({"Authorization": f"Basic {base64.b64encode(f'{api_settings.atlassian_username}:{api_settings.atlassian_api_token}'.encode()).decode()}"})
+    session.headers.update(
+        {
+            "Authorization": f"Basic {base64.b64encode(f'{api_settings.atlassian_username}:{api_settings.atlassian_api_token}'.encode()).decode()}"
+        }
+    )
 
 confluence = ConfluenceApi(url=api_settings.atlassian_url, session=session)
 
