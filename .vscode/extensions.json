@@ -9,16 +9,6 @@
     "njpwerner.autodocstring",
     "visualstudioexptteam.vscodeintellicode",
     "charliermarsh.ruff",
-    "bierner.markdown-preview-github-styles",
-    "bierner.markdown-emoji",
-    "bierner.markdown-checkbox",
-    "bierner.markdown-footnotes",
-    "bierner.markdown-mermaid",
-    "yahyabatulu.vscode-markdown-alert",
-    // Check out the foam template: https://github.com/foambubble/foam-template
-    "foam.foam-vscode",
-    "yzhang.markdown-all-in-one",
-    "hediet.vscode-drawio"
   ],
   // List of extensions recommended by VS Code that should not be recommended for users of this workspace.
   "unwantedRecommendations": []
