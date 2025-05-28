@@ -317,6 +317,31 @@ class Attachment(Document):
             version=Version.from_json(data.get("version", {})),
         )
 
+    @classmethod
+    def from_page_id(cls, page_id: int) -> list["Attachment"]:
+        attachments = []
+        start = 0
+        paging_limit = 50
+        size = paging_limit  # Initialize to limit to enter the loop
+
+        while size >= paging_limit:
+            response = cast(
+                JsonResponse,
+                confluence.get_attachments_from_content(
+                    page_id,
+                    start=start,
+                    limit=paging_limit,
+                    expand="container.ancestors,version",
+                ),
+            )
+
+            attachments.extend([cls.from_json(att) for att in response.get("results", [])])
+
+            size = response.get("size", 0)
+            start += size
+
+        return attachments
+
     def export(self, export_path: StrPath) -> None:
         filepath = Path(export_path) / self.export_path
         if filepath.exists():
@@ -477,14 +502,6 @@ class Page(Document):
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Page":
-        attachments = cast(
-            JsonResponse,
-            confluence.get_attachments_from_content(
-                data.get("id", 0),
-                limit=1000,
-                expand="container.ancestors,version",
-            ),
-        )
         return cls(
             id=data.get("id", 0),
             title=data.get("title", ""),
@@ -496,9 +513,7 @@ class Page(Document):
                 Label.from_json(label)
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
-            attachments=[
-                Attachment.from_json(attachment) for attachment in attachments.get("results", [])
-            ],
+            attachments=Attachment.from_page_id(data.get("id", 0)),
             ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
         )
 
