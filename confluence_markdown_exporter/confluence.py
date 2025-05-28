@@ -620,25 +620,29 @@ class Page(Document):
             blockquote = super().convert_blockquote(el, text, parent_tags)
             return f"\n> [!{alert_type}]{blockquote}"
 
-        def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
+        def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             # Handle Confluence macros
             if el.has_attr("data-macro-name"):
-                if el["data-macro-name"] in self.options["macros_to_ignore"]:
+                macro_name = str(el["data-macro-name"])
+                if macro_name in self.options["macros_to_ignore"]:
                     return ""
-                if el["data-macro-name"] in ["panel", "info", "note", "tip", "warning"]:
-                    return self.convert_alert(el, text, parent_tags)
-                if el["data-macro-name"] == "details":
-                    self.convert_page_properties(el, text, parent_tags)
-                if el["data-macro-name"] == "drawio":
-                    return self.convert_drawio(el, text, parent_tags)
-                if el["data-macro-name"] == "scroll-ignore":
-                    return self.convert_hidden_content(el, text, parent_tags)
-                if el["data-macro-name"] == "toc":
-                    return self.convert_toc(el, text, parent_tags)
-                if el["data-macro-name"] == "jira":
-                    return self.convert_jira_table(el, text, parent_tags)
-                if el["data-macro-name"] == "attachments":
-                    return self.convert_attachments(el, text, parent_tags)
+
+                macro_handlers = {
+                    "panel": self.convert_alert,
+                    "info": self.convert_alert,
+                    "note": self.convert_alert,
+                    "tip": self.convert_alert,
+                    "warning": self.convert_alert,
+                    "details": self.convert_page_properties,
+                    "drawio": self.convert_drawio,
+                    "scroll-ignore": self.convert_hidden_content,
+                    "toc": self.convert_toc,
+                    "jira": self.convert_jira_table,
+                    "attachments": self.convert_attachments,
+                }
+                if macro_name in macro_handlers:
+                    return macro_handlers[macro_name](el, text, parent_tags)
+
             if "columnLayout" in str(el.get("class", "")):
                 return self.convert_column_layout(el, text, parent_tags)
 
