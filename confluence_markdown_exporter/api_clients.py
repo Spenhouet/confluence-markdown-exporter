@@ -21,14 +21,24 @@ class ApiDetails(BaseModel):
 
     @model_validator(mode="after")
     def validate_atlassian_auth(self) -> Self:
-        if (self.username and self.api_token) or self.pat:
-            return self
+        if self.username is None != self.api_token is None:
+            msg = "When username is provided, API token must also be provided."
+            raise ValueError(msg)
 
-        msg = (
-            "Either Personal Access Token (PAT) or basis authentication via username and API token "
-            "must be provided via environment variables. See README.md for more information."
-        )
-        raise ValueError(msg)
+        if self.api_token and self.pat:
+            msg = (
+                "Both Personal Access Token (PAT) and API token are provided. "
+                "Please use only one method of authentication."
+            )
+            raise ValueError(msg)
+
+        if not self.api_token and not self.pat:
+            print(
+                "Warning: No API token or Personal Access Token (PAT) provided. "
+                "Only pages not requiring authentication will be accessible."
+            )
+
+        return self
 
 
 class ApiSettings(BaseSettings):
