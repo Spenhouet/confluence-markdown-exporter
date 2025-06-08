@@ -21,7 +21,7 @@ class ApiDetails(BaseModel):
 
     @model_validator(mode="after")
     def validate_atlassian_auth(self) -> Self:
-        if self.username is None != self.api_token is None:
+        if (self.username is None) != (self.api_token is None):
             msg = "When username is provided, API token must also be provided."
             raise ValueError(msg)
 
