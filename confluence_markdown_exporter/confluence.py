@@ -50,6 +50,10 @@ class ConverterSettings(BaseSettings):
         default="GFM",
         description="Markdown style to use for conversion. Options: GFM, Obsidian.",
     )
+    attachment_href: Literal["absolute", "relative"] = Field(
+        default="absolute",
+        description="How to generate attachment href paths. Options: absolute, relative.",
+    )
     page_path: str = Field(
         default="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md",
         description=(
@@ -728,8 +732,8 @@ class Page(Document):
 
             rows = [
                 {
-                    "file": f"[{att.title}]({os.path.relpath(att.export_path, self.page.export_path.parent).replace(' ', '%20')})",  # noqa: E501
-                    "modified": f"{att.version.friendly_when} by {self.convert_user(att.version.by)}",  # noqa: E501
+                    "file": f"[{att.title}]({self._get_path_for_href(att.export_path).replace(' ', '%20')})",
+                    "modified": f"{att.version.friendly_when} by {self.convert_user(att.version.by)}",
                 }
                 for att in self.page.attachments
             ]
@@ -867,8 +871,8 @@ class Page(Document):
                 attachment = self.page.get_attachment_by_file_id(str(attachment_file_id))
             elif attachment_id := el.get("data-linked-resource-id"):
                 attachment = self.page.get_attachment_by_id(str(attachment_id))
-            relpath = os.path.relpath(attachment.export_path, self.page.export_path.parent)
-            return f"[{attachment.title}]({relpath.replace(' ', '%20')})"
+            path = self._get_path_for_href(attachment.export_path)
+            return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
@@ -905,8 +909,8 @@ class Page(Document):
                 return ""
 
             attachment = self.page.get_attachment_by_file_id(str(file_id))
-            relpath = os.path.relpath(attachment.export_path, self.page.export_path.parent)
-            el["src"] = relpath.replace(" ", "%20")
+            path = self._get_path_for_href(attachment.export_path)
+            el["src"] = path.replace(" ", "%20")
             if "_inline" in parent_tags:
                 parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
@@ -953,6 +957,14 @@ class Page(Document):
             if not table:
                 return ""
             return super().convert_table(table, "", parent_tags)  # type: ignore -
+
+        def _get_path_for_href(self, path: Path) -> str:
+            """Get the path to use in href attributes based on settings."""
+            if converter_settings.attachment_href == "absolute":
+                result = "/" + str(path).split("/", 1)[1]
+            else:
+                result = os.path.relpath(path, self.page.export_path.parent)
+            return result
 
 
 def export_page(page_id: int, output_path: StrPath) -> None:
