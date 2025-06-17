@@ -84,6 +84,10 @@ class ConverterSettings(BaseSettings):
             "  {attachment_extension} - Attachment file extension (including leading dot)"
         ),
     )
+    PAGE_FILENAME_ADO: bool = Field(
+        default=False,
+        description="If true, the export filename will be page_title URL encoded to ADO standards."
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -412,10 +416,16 @@ class Page(Document):
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        base_vars = super()._template_vars
+        page_title = self.title
+        if converter_settings.PAGE_FILENAME_ADO:
+            page_title = ado_page_filename(page_title)
+        else:
+            page_title = sanitize_filename(page_title)
         return {
-            **super()._template_vars,
+            **base_vars,
             "page_id": str(self.id),
-            "page_title": sanitize_filename(self.title),
+            "page_title": page_title,
         }
 
     @property
@@ -976,3 +986,21 @@ def export_pages(page_ids: list[int], output_path: StrPath) -> None:
     for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
         pbar.set_postfix_str(f"Exporting page {page_id}")
         export_page(page_id, output_path)
+
+# Helper for ADO filename formatting
+def ado_page_filename(title: str) -> str:
+    # 1. /, \\, # to underscores 
+    s = re.sub(r"[\\/#]", "_", title)
+    # 2. URL encode special chars :<>*?|"-
+    def encode_special(m):
+        if m.group(0) == '-':
+            return '%2D'
+        return urllib.parse.quote(m.group(0), safe="")
+    s = re.sub(r"[&:<>*?|\"-]", encode_special, s)
+    # 3. Remove leading/trailing dots
+    s = s.strip(".")
+    # 4. Spaces to hyphens
+    s = s.replace(" ", "-")
+    # 5. Limit length to 200 chars
+    s = s[:200]
+    return s
