@@ -84,9 +84,10 @@ class ConverterSettings(BaseSettings):
             "  {attachment_extension} - Attachment file extension (including leading dot)"
         ),
     )
-    PAGE_FILENAME_ADO: bool = Field(
+    page_filename_ado: bool = Field(
         default=False,
-        description="If true, the export filename will be page_title URL encoded to ADO standards."
+        description="If true, the export filename will be page_title URL encoded to ADO standards.",
+        env="PAGE_FILENAME_ADO",
     )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -418,7 +419,7 @@ class Page(Document):
     def _template_vars(self) -> dict[str, str]:
         base_vars = super()._template_vars
         page_title = self.title
-        if converter_settings.PAGE_FILENAME_ADO:
+        if converter_settings.page_filename_ado:
             page_title = ado_page_filename(page_title)
         else:
             page_title = sanitize_filename(page_title)
