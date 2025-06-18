@@ -84,6 +84,11 @@ class ConverterSettings(BaseSettings):
             "  {attachment_extension} - Attachment file extension (including leading dot)"
         ),
     )
+    page_breadcrumbs: bool = Field(
+        default=True,
+        description="Whether to include breadcrumb links at the top of the page.",
+        env="PAGE_BREADCRUMBS",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -585,7 +590,8 @@ class Page(Document):
             md_body = self.convert(self.page.html)
             match converter_settings.markdown_style:
                 case "GFM":
-                    return f"{self.front_matter}\n{self.breadcrumbs}\n{md_body}\n"
+                    breadcrumbs = self.breadcrumbs if converter_settings.page_breadcrumbs else ""
+                    return f"{self.front_matter}\n{breadcrumbs}\n{md_body}\n"
                 case "Obsidian":
                     return f"{self.front_matter}\n{md_body}\n"
                 case _:
