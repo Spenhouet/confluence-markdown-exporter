@@ -4,6 +4,7 @@ markdownify
 pandas
 pydantic-settings
 pyyaml
+rich
 tabulate
 tqdm
 typer
