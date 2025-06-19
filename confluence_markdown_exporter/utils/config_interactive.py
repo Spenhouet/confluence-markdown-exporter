@@ -3,8 +3,10 @@ from pathlib import Path
 from typing import Any
 from typing import get_args
 
+import jmespath
 import questionary
 from pydantic import BaseModel
+from pydantic import SecretStr
 from pydantic import ValidationError
 from questionary import Choice
 from questionary import Style
@@ -12,7 +14,6 @@ from questionary import Style
 from confluence_markdown_exporter.utils.app_data_store import ConfigModel
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import reset_settings
-from confluence_markdown_exporter.utils.app_data_store import set_nested_setting
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 
 custom_style = Style(
@@ -186,20 +187,45 @@ def _edit_dict_config(config_dict: dict, parent_key: str, model: type[BaseModel]
     while True:
         choices = []
         for k, v in config_dict.items():
+            if v is None:
+                continue
             meta = _get_field_metadata(model, k)
             display_title = meta["title"] if meta and meta["title"] else k
-            choices.append(
-                Choice(title=[("class:key", str(display_title)), ("class:value", f"  {v}")], value=k)
-            )
+            if isinstance(v, dict):
+                choices.append(
+                    Choice(
+                        title=[("class:key", str(display_title)), ("class:value", "  [submenu]")],
+                        value=k,
+                    )
+                )
+            else:
+                display_val = "Not set" if isinstance(v, str | SecretStr) and str(v) == "" else v
+                choices.append(
+                    Choice(
+                        title=[
+                            ("class:key", str(display_title)),
+                            ("class:value", f"  {display_val}"),
+                        ],
+                        value=k,
+                    )
+                )
+        # Add submenu reset option
+        choices.append(Choice(title="[Reset this group to defaults]", value="__reset_section__"))
         choices.append(Choice(title="[Back]", value="__back__"))
         key = questionary.select(
             f"Edit options for '{parent_key}':", choices=choices, style=custom_style
         ).ask()
         if key == "__back__" or key is None:
             break
+        if key == "__reset_section__":
+            # Reset this section to defaults
+            default_obj = model()  # new instance with defaults
+            for k in list(config_dict.keys()):
+                config_dict[k] = default_obj.dict()[k]
+            questionary.print(f"Section '{parent_key}' reset to defaults.")
+            continue
         current_value = config_dict[key]
         submodel = _get_submodel(model, key)
-        # Only recurse if current_value is a dict and submodel is a BaseModel
         if isinstance(current_value, dict) and submodel is not None:
             _edit_dict_config(current_value, f"{parent_key}.{key}", submodel)
         else:
@@ -207,7 +233,8 @@ def _edit_dict_config(config_dict: dict, parent_key: str, model: type[BaseModel]
                 value_cast = _prompt_for_new_value(key, current_value, model, parent_key=key)
                 if value_cast is not None:
                     try:
-                        set_nested_setting(parent_key, key, value_cast)
+                        settings = get_settings().dict()
+                        set_setting(f"{parent_key}.{key}", value_cast)
                         config_dict[key] = value_cast
                         questionary.print(f"{parent_key}.{key} updated to {value_cast}.")
                         break
@@ -220,13 +247,36 @@ def _edit_dict_config(config_dict: dict, parent_key: str, model: type[BaseModel]
                     break
 
 
-def interactive_config_menu() -> None:
-    """Directly show change config view with reset as last option."""
+def get_model_by_path(model: type[BaseModel], path: str) -> type[BaseModel]:
+    """Traverse a Pydantic model class using a dot-separated path and return the submodel class."""
+    keys = path.split(".")
+    for key in keys:
+        sub = _get_submodel(model, key)
+        if sub is not None:
+            model = sub
+        else:
+            break
+    return model
+
+
+def interactive_config_menu(jump_to: str | None = None) -> None:
+    """Directly show change config view with reset as last option. Optionally jump to a submenu."""
+    settings = get_settings().dict()
+    if jump_to:
+        submenu = jmespath.search(jump_to, settings)
+        model = get_model_by_path(ConfigModel, jump_to)
+        # Use the field's title from the parent model for the last key
+        parent_path, _, last_key = jump_to.rpartition(".")
+        parent_model = get_model_by_path(ConfigModel, parent_path) if parent_path else ConfigModel
+        meta = _get_field_metadata(parent_model, last_key)
+        title = meta["title"] if meta and meta["title"] else last_key
+        _edit_dict_config(submenu, title, model)
+        return
     while True:
         settings = get_settings().dict()
         choices = []
+        # Add config fields
         for k, v in settings.items():
-            # Get title from Pydantic metadata, fallback to key
             meta = _get_field_metadata(ConfigModel, k)
             display_title = meta["title"] if meta and meta["title"] else k
             if isinstance(v, dict):
@@ -237,9 +287,14 @@ def interactive_config_menu() -> None:
                     )
                 )
             else:
+                display_val = "Not set" if isinstance(v, str | SecretStr) and str(v) == "" else v
                 choices.append(
                     Choice(
-                        title=[("class:key", str(display_title)), ("class:value", f"  {v}")], value=(k, False)
+                        title=[
+                            ("class:key", str(display_title)),
+                            ("class:value", f"  {display_val}"),
+                        ],
+                        value=(k, False),
                     )
                 )
         choices.append(Choice(title="[Reset config to defaults]", value=("__reset__", False)))
@@ -264,7 +319,7 @@ def interactive_config_menu() -> None:
                     # User cancelled or made no change: do not update config
                     break
                 try:
-                    set_setting(key, value_cast)
+                    set_setting(key, value_cast)  # key is now a jmespath path
                     questionary.print(f"{display_title} updated to {value_cast}.")
                     break
                 except Exception as e:

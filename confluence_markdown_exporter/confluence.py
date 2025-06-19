@@ -30,8 +30,7 @@ from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
 from tqdm import tqdm
 
-from confluence_markdown_exporter.api_clients import confluence
-from confluence_markdown_exporter.api_clients import jira
+from confluence_markdown_exporter.api_clients import get_authenticated_clients
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
@@ -110,6 +109,7 @@ class JiraIssue(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_key(cls, issue_key: str) -> "JiraIssue":
+        confluence, jira = get_authenticated_clients()
         issue_data = cast(JsonResponse, jira.get_issue(issue_key))
         return cls.from_json(issue_data)
 
@@ -134,16 +134,19 @@ class User(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_username(cls, username: str) -> "User":
+        confluence, jira = get_authenticated_clients()
         return cls.from_json(cast(JsonResponse, confluence.get_user_details_by_username(username)))
 
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_userkey(cls, userkey: str) -> "User":
+        confluence, jira = get_authenticated_clients()
         return cls.from_json(cast(JsonResponse, confluence.get_user_details_by_userkey(userkey)))
 
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_accountid(cls, accountid: str) -> "User":
+        confluence, jira = get_authenticated_clients()
         return cls.from_json(
             cast(JsonResponse, confluence.get_user_details_by_accountid(accountid))
         )
@@ -184,6 +187,7 @@ class Organization(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_api(cls) -> "Organization":
+        confluence, jira = get_authenticated_clients()
         return cls.from_json(
             cast(
                 JsonResponse,
@@ -220,6 +224,7 @@ class Space(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_key(cls, space_key: str) -> "Space":
+        confluence, jira = get_authenticated_clients()
         return cls.from_json(cast(JsonResponse, confluence.get_space(space_key, expand="homepage")))
 
 
@@ -319,6 +324,7 @@ class Attachment(Document):
 
     @classmethod
     def from_page_id(cls, page_id: int) -> list["Attachment"]:
+        confluence, jira = get_authenticated_clients()
         attachments = []
         start = 0
         paging_limit = 50
@@ -343,6 +349,7 @@ class Attachment(Document):
         return attachments
 
     def export(self, export_path: StrPath) -> None:
+        confluence, jira = get_authenticated_clients()
         filepath = Path(export_path) / self.export_path
         if filepath.exists():
             return
@@ -380,6 +387,7 @@ class Page(Document):
 
         try:
             while start < total_size:
+                confluence, jira = get_authenticated_clients()
                 response = cast(
                     JsonResponse,
                     confluence.cql(cql_query, limit=paging_limit, start=start),
@@ -520,6 +528,7 @@ class Page(Document):
     @classmethod
     @functools.lru_cache(maxsize=1000)
     def from_id(cls, page_id: int) -> "Page":
+        confluence, jira = get_authenticated_clients()
         try:
             return cls.from_json(
                 cast(
@@ -548,6 +557,7 @@ class Page(Document):
 
     @classmethod
     def from_url(cls, page_url: str) -> "Page":
+        confluence, jira = get_authenticated_clients()
         """Retrieve a Page object given a Confluence page URL."""
         path = urllib.parse.urlparse(page_url).path.rstrip("/")
         if match := re.search(r"/wiki/.+?/pages/(\d+)", path):

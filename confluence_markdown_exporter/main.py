@@ -1,24 +1,13 @@
-import logging
 import os
 from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.logging import RichHandler
 
 from confluence_markdown_exporter.utils.config_interactive import interactive_config_menu
 from confluence_markdown_exporter.utils.measure_time import measure
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
-
-rich_handler = RichHandler(show_path=False, markup=True)
-
-logging.basicConfig(
-    level="NOTSET" if DEBUG else "INFO",
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[rich_handler],
-)
 
 app = typer.Typer()
 
@@ -71,17 +60,13 @@ def all_spaces(
 
 
 @app.command()
-def logout_command() -> None:
-    """Remove stored login credentials (log out)."""
-    from confluence_markdown_exporter.api_clients import logout
-
-    logout()
-
-
-@app.command()
-def config() -> None:
+def config(
+    jump_to: str = typer.Option(
+        None, help="Jump directly to a config submenu, e.g. 'auth.confluence'"
+    ),
+) -> None:
     """Interactive configuration menu."""
-    interactive_config_menu()
+    interactive_config_menu(jump_to)
 
 
 if __name__ == "__main__":

@@ -121,46 +121,6 @@ output_path/
             └── Another one.md
 ```
 
-## Configuration Options
-
-By default the converter uses a GitHub Flavored Markdown (GFM). You can also choose an Obsidian flavored markdown by setting:
-
-```sh
-export MARKDOWN_STYLE="Obsidian"
-```
-
-Via `PAGE_PATH` and `ATTACHMENT_PATH` you can customize how pages and attachments are organized in the output directory. 
-
-By default, pages are stored at:
-```sh
-export PAGE_PATH="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md"
-```
-Available variables:
-  - `{space_key}`: The key of the Confluence space.
-  - `{space_name}`: The name of the Confluence space.
-  - `{homepage_id}`: The ID of the homepage of the Confluence space.
-  - `{homepage_title}`: The title of the homepage of the Confluence space.
-  - `{ancestor_ids}`: A slash-separated list of ancestor page IDs.
-  - `{ancestor_titles}`: A slash-separated list of ancestor page titles.
-  - `{page_id}`: The unique ID of the Confluence page.
-  - `{page_title}`: The title of the Confluence page.
-
-By default, attachments are stored at:
-```sh
-export ATTACHMENT_PATH="{space_name}/attachments/{attachment_file_id}{attachment_extension}"
-```
-Available variables:
-  - `{space_key}`: The key of the Confluence space.
-  - `{space_name}`: The name of the Confluence space.
-  - `{homepage_id}`: The ID of the homepage of the Confluence space.
-  - `{homepage_title}`: The title of the homepage of the Confluence space.
-  - `{ancestor_ids}`: A slash-separated list of ancestor page IDs.
-  - `{ancestor_titles}`: A slash-separated list of ancestor page titles.
-  - `{attachment_id}`: The unique ID of the attachment.
-  - `{attachment_title}`: The title of the attachment.
-  - `{attachment_file_id}`: The file ID of the attachment.
-  - `{attachment_extension}`: The file extension of the attachment, including the leading dot.
-
 ## Configuration
 
 All configuration and authentication is stored in a single JSON file managed by the application. You do not need to manually edit this file.
@@ -175,18 +135,32 @@ confluence-markdown-exporter config
 
 This will open a menu where you can:
 - See all config options and their current values
-- Select a config to change
+- Select a config to change (including authentication)
 - Reset all config to defaults
+- Navigate directly to any config section (e.g. `auth.confluence`)
 
-#### Available configuration keys
+### Available configuration keys
 
-| Key               | Description                                      | Default Value                                                        |
-|-------------------|--------------------------------------------------|---------------------------------------------------------------------|
-| output_directory  | Output directory for markdown exports            | ~/confluence_exports                                                 |
-| markdown_style    | Markdown style: GFM or Obsidian                  | GFM                                                                 |
-| page_path         | Path template for exported pages                  | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md      |
-| attachment_path   | Path template for attachments                     | {space_name}/attachments/{attachment_file_id}{attachment_extension}  |
-| include_attachments | Whether to include attachments in export        | True                                                                |
+| Key | Description | Default |
+|-----|-------------|---------|
+| output_directory | Output directory for markdown exports | ~/confluence_exports |
+| markdown_style | Markdown style: GFM or Obsidian | GFM |
+| page_path | Path template for exported pages | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md |
+| attachment_path | Path template for attachments | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
+| include_attachments | Whether to include attachments in export | True |
+| retry_config.backoff_and_retry | Enable automatic retry with exponential backoff | True |
+| retry_config.backoff_factor | Multiplier for exponential backoff | 2 |
+| retry_config.max_backoff_seconds | Maximum seconds to wait between retries | 60 |
+| retry_config.max_backoff_retries | Maximum number of retry attempts | 5 |
+| retry_config.retry_status_codes | HTTP status codes that trigger a retry | \[413, 429, 502, 503, 504\] |
+| auth.confluence.url | Confluence instance URL | "" |
+| auth.confluence.username | Confluence username/email | "" |
+| auth.confluence.api_token | Confluence API token | "" |
+| auth.confluence.pat | Confluence Personal Access Token | "" |
+| auth.jira.url | Jira instance URL | "" |
+| auth.jira.username | Jira username/email | "" |
+| auth.jira.api_token | Jira API token | "" |
+| auth.jira.pat | Jira Personal Access Token | "" |
 
 You can always view and change the current config with the interactive menu above.
 

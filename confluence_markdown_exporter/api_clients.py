@@ -1,59 +1,16 @@
 import os
 
+import questionary
 import requests
 from atlassian import Confluence as ConfluenceApiSdk
 from atlassian import Jira as JiraApiSdk
-from pydantic import AnyHttpUrl
-from pydantic import BaseModel
-from pydantic import SecretStr
-from pydantic import ValidationError
-from pydantic import model_validator
-from rich.console import Console
-from rich.prompt import Confirm
-from rich.prompt import Prompt
-from typing_extensions import Self
 
-from confluence_markdown_exporter.utils.app_data_store import delete_auth as delete_credentials
-from confluence_markdown_exporter.utils.app_data_store import get_auth as load_credentials
+from confluence_markdown_exporter.utils.app_data_store import ApiDetails
 from confluence_markdown_exporter.utils.app_data_store import get_settings
-from confluence_markdown_exporter.utils.app_data_store import set_auth as save_credentials
+from confluence_markdown_exporter.utils.app_data_store import set_setting
+from confluence_markdown_exporter.utils.config_interactive import interactive_config_menu
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
-
-console = Console()
-
-
-class ApiDetails(BaseModel):
-    url: AnyHttpUrl
-    username: str | None = None
-    api_token: SecretStr | None = None
-    pat: SecretStr | None = None
-
-    @model_validator(mode="after")
-    def validate_atlassian_auth(self) -> Self:
-        if (self.username is None) != (self.api_token is None):
-            msg = "When username is provided, API token must also be provided."
-            raise ValueError(msg)
-
-        if self.api_token and self.pat:
-            msg = (
-                "Both Personal Access Token (PAT) and API token are provided. "
-                "Please use only one method of authentication."
-            )
-            raise ValueError(msg)
-
-        return self
-
-
-class ApiSettings(BaseModel):
-    confluence: ApiDetails
-    jira: ApiDetails
-
-
-# --- Credential Management ---
-def logout() -> None:
-    delete_credentials()
-    console.print("[yellow]Logged out. Credentials removed from app data store.[/yellow]")
 
 
 class ApiClientFactory:
@@ -93,72 +50,47 @@ class ApiClientFactory:
 
 # Debugging response hooks
 def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
+    settings = get_settings()
+    auth = settings.auth
+    retry_config = settings.retry_config.dict()
+    # Retry loop for confluence
     while True:
-        auth_data = load_credentials()
-        retry_config = get_settings()["retry_config"]
-        factory = ApiClientFactory(retry_config)
-        if auth_data is None:
-            auth_data = prompt_for_auth()
         try:
-            settings = ApiSettings.model_validate(auth_data)
-            confluence = factory.create_confluence(settings.confluence)
-            jira = factory.create_jira(settings.jira)
-        except ValidationError as e:
-            console.print("[red]Authentication validation failed:[/red]")
-            for err in e.errors():
-                loc = " -> ".join(str(x) for x in err["loc"])
-                msg = err["msg"]
-                console.print(f"[red]  {loc}: {msg}[/red]")
-            delete_credentials()
-            continue
-        except ConnectionError as e:
-            console.print(f"[red]{e}[/red]")
-            delete_credentials()
-            continue
-        save_credentials(auth_data)
-        console.print("[green]Authentication saved to app data store.[/green]")
-        return confluence, jira
-
-
-def prompt_for_service_auth(service_name: str) -> dict:
-    console.print(f"[bold cyan]Enter {service_name} authentication:[/bold cyan]")
-    url = Prompt.ask(f"{service_name} URL (e.g. https://company.atlassian.net)")
-    method = Prompt.ask(
-        "Authentication method",
-        choices=["api_token", "pat", "none"],
-        default="api_token",
-    )
-    if method == "api_token":
-        username = Prompt.ask(f"{service_name} Username (email)")
-        api_token = Prompt.ask("API Token", password=True)
-        pat = None
-    elif method == "pat":
-        username = None
-        api_token = None
-        pat = Prompt.ask("Personal Access Token (PAT)", password=True)
-    else:  # none
-        username = None
-        api_token = None
-        pat = None
-        console.print(
-            "[yellow]Only content not requiring authentication will be accessible.[/yellow]"
-        )
-        if not Confirm.ask("Are you sure you want to continue without authentication?"):
-            return prompt_for_service_auth(service_name)
-    return {"url": url, "username": username, "api_token": api_token, "pat": pat}
-
-
-def prompt_for_auth() -> dict:
-    console.print("[blue]Please provide authentication details for Confluence and Jira.[/blue]")
-    if Confirm.ask("[bold cyan]Do you want to use the same authentication for both?[/bold cyan]"):
-        auth = prompt_for_service_auth("Atlassian")
-        return {"confluence": auth, "jira": auth}
-    confluence = prompt_for_service_auth("Confluence")
-    jira = prompt_for_service_auth("Jira")
-    return {"confluence": confluence, "jira": jira}
-
-
-confluence, jira = get_api_instances()
+            confluence = ApiClientFactory(retry_config).create_confluence(auth.confluence)
+            break
+        except ConnectionError:
+            questionary.print(
+                "Confluence connection failed: Redirecting to Confluence authentication config...",
+                style="fg:red bold",
+            )
+            interactive_config_menu("auth.confluence")
+            settings = get_settings()
+            auth = settings.auth
+    # Retry loop for jira
+    while True:
+        try:
+            jira = ApiClientFactory(retry_config).create_jira(auth.jira)
+            break
+        except ConnectionError:
+            # Ask if user wants to use Confluence credentials for Jira
+            use_confluence = questionary.confirm(
+                "Jira connection failed. Use the same authentication as for Confluence?",
+                default=False,
+                style="fg:yellow",
+            ).ask()
+            if use_confluence:
+                set_setting("auth.jira", auth.confluence.dict())
+                settings = get_settings()
+                auth = settings.auth
+                continue
+            questionary.print(
+                "Redirecting to Jira authentication config...",
+                style="fg:red bold",
+            )
+            interactive_config_menu("auth.jira")
+            settings = get_settings()
+            auth = settings.auth
+    return confluence, jira
 
 
 def response_hook(
@@ -171,6 +103,12 @@ def response_hook(
     return response
 
 
-if DEBUG:
-    confluence.session.hooks["response"] = [response_hook]
-    jira.session.hooks["response"] = [response_hook]
+def get_authenticated_clients() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
+    """Call this function when you need authenticated Confluence/Jira clients."""
+    confluence, jira = get_api_instances()
+
+    if DEBUG:
+        confluence.session.hooks["response"] = [response_hook]
+        jira.session.hooks["response"] = [response_hook]
+
+    return confluence, jira

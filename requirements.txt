@@ -5,7 +5,6 @@ pandas
 pydantic-settings
 pyyaml
 questionary
-rich
 tabulate
 tqdm
 typer
