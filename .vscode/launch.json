@@ -22,14 +22,12 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["page", "1127153675", "scratch"],
+      "args": ["page", "<page-id> or <page-url>", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
-        "DEBUG": "true",
-        "PAGE_PATH": "{space_name}/{ancestor_titles}/{page_title}.md",
-        "ATTACHMENT_PATH": "Extras/Attachments/{attachment_file_id}{attachment_extension}"
+        "DEBUG": "true"
       }
     },
     {
@@ -38,7 +36,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["page-with-descendants", "383647753", "scratch"],
+      "args": ["page-with-descendants", "<page-id> or <page-url>", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -52,14 +50,12 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["space", "STRUCT", "scratch"],
+      "args": ["space", "<space-key>", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
-        "DEBUG": "true",
-        "PAGE_PATH": "{space_name}/{ancestor_titles}/{page_title}.md",
-        "ATTACHMENT_PATH": "Extras/Attachments/{attachment_file_id}{attachment_extension}"
+        "DEBUG": "true"
       }
     },
     {
@@ -69,6 +65,20 @@
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
       "args": ["all-spaces", "scratch"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceRoot}",
+        "DEBUG": "true"
+      }
+    },
+    {
+      "name": "Python: Config (Interactive)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
+      "justMyCode": false,
+      "args": ["config"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {

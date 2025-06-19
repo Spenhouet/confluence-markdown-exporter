@@ -13,9 +13,10 @@ from rich.prompt import Confirm
 from rich.prompt import Prompt
 from typing_extensions import Self
 
-from confluence_markdown_exporter.utils.credentials_store import delete_credentials
-from confluence_markdown_exporter.utils.credentials_store import load_credentials
-from confluence_markdown_exporter.utils.credentials_store import save_credentials
+from confluence_markdown_exporter.utils.app_data_store import delete_auth as delete_credentials
+from confluence_markdown_exporter.utils.app_data_store import get_auth as load_credentials
+from confluence_markdown_exporter.utils.app_data_store import get_settings
+from confluence_markdown_exporter.utils.app_data_store import set_auth as save_credentials
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
 
@@ -47,15 +48,6 @@ class ApiDetails(BaseModel):
 class ApiSettings(BaseModel):
     confluence: ApiDetails
     jira: ApiDetails
-
-
-retry_config = {
-    "backoff_and_retry": True,
-    "backoff_factor": 2,
-    "max_backoff_seconds": 60,
-    "max_backoff_retries": 5,
-    "retry_status_codes": [413, 429, 502, 503, 504],
-}
 
 
 # --- Credential Management ---
@@ -103,13 +95,7 @@ class ApiClientFactory:
 def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
     while True:
         auth_data = load_credentials()
-        retry_config = {
-            "backoff_and_retry": True,
-            "backoff_factor": 2,
-            "max_backoff_seconds": 60,
-            "max_backoff_retries": 5,
-            "retry_status_codes": [413, 429, 502, 503, 504],
-        }
+        retry_config = get_settings()["retry_config"]
         factory = ApiClientFactory(retry_config)
         if auth_data is None:
             auth_data = prompt_for_auth()

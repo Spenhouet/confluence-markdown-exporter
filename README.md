@@ -161,6 +161,35 @@ Available variables:
   - `{attachment_file_id}`: The file ID of the attachment.
   - `{attachment_extension}`: The file extension of the attachment, including the leading dot.
 
+## Configuration
+
+All configuration and authentication is stored in a single JSON file managed by the application. You do not need to manually edit this file.
+
+### Interactive Configuration
+
+To interactively view and change configuration, run:
+
+```sh
+confluence-markdown-exporter config
+```
+
+This will open a menu where you can:
+- See all config options and their current values
+- Select a config to change
+- Reset all config to defaults
+
+#### Available configuration keys
+
+| Key               | Description                                      | Default Value                                                        |
+|-------------------|--------------------------------------------------|---------------------------------------------------------------------|
+| output_directory  | Output directory for markdown exports            | ~/confluence_exports                                                 |
+| markdown_style    | Markdown style: GFM or Obsidian                  | GFM                                                                 |
+| page_path         | Path template for exported pages                  | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md      |
+| attachment_path   | Path template for attachments                     | {space_name}/attachments/{attachment_file_id}{attachment_extension}  |
+| include_attachments | Whether to include attachments in export        | True                                                                |
+
+You can always view and change the current config with the interactive menu above.
+
 ## Compatibility
 
 This package is not tested extensively. Please check all output and report any issue [here](https://github.com/Spenhouet/confluence-markdown-exporter/issues).
