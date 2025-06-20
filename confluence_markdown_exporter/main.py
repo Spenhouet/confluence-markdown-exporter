@@ -12,7 +12,7 @@ DEBUG: bool = bool(os.getenv("DEBUG"))
 app = typer.Typer()
 
 
-@app.command()
+@app.command(help="Export a single Confluence page by ID or URL to Markdown.")
 def page(
     page: Annotated[str, typer.Argument(help="Page ID or URL")],
     output_path: Annotated[Path, typer.Argument()] = Path("."),
@@ -24,7 +24,7 @@ def page(
         _page.export(output_path)
 
 
-@app.command()
+@app.command(help="Export a Confluence page and all its descendant pages by ID or URL to Markdown.")
 def page_with_descendants(
     page: Annotated[str, typer.Argument(help="Page ID or URL")],
     output_path: Annotated[Path, typer.Argument()] = Path("."),
@@ -36,7 +36,7 @@ def page_with_descendants(
         _page.export_with_descendants(output_path)
 
 
-@app.command()
+@app.command(help="Export all Confluence pages of a single space to Markdown.")
 def space(
     space_key: Annotated[str, typer.Argument()],
     output_path: Annotated[Path, typer.Argument()] = Path("."),
@@ -48,7 +48,7 @@ def space(
         space.export(output_path)
 
 
-@app.command()
+@app.command(help="Export all Confluence pages across all spaces to Markdown.")
 def all_spaces(
     output_path: Annotated[Path, typer.Argument()] = Path("."),
 ) -> None:
@@ -59,7 +59,7 @@ def all_spaces(
         org.export(output_path)
 
 
-@app.command()
+@app.command(help="Open the interactive configuration menu.")
 def config(
     jump_to: str = typer.Option(
         None, help="Jump directly to a config submenu, e.g. 'auth.confluence'"
