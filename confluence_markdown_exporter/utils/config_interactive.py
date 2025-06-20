@@ -244,7 +244,7 @@ def _main_config_menu(settings: dict, default: tuple[str, bool] | None = None) -
     ).ask() or (None, False)
 
 
-def _prompt_for_new_value(
+def _prompt_for_new_value(  # noqa: PLR0911
     key_name: str, current_value: object, model: type[BaseModel], parent_key: str | None = None
 ) -> object:
     field_type = _get_field_type(model, key_name)
@@ -324,7 +324,7 @@ def _get_choices(config_dict: dict, model: type[BaseModel]) -> list:
     return choices
 
 
-def _edit_dict_config_loop(
+def _edit_dict_config_loop(  # noqa: C901, PLR0912
     config_dict: dict,
     model: type[BaseModel],
     parent_key: str,
@@ -406,7 +406,7 @@ def _edit_dict_config(
     return _edit_dict_config_loop(config_dict, model, parent_key, parent_model, last_selected)
 
 
-def main_config_menu_loop(jump_to: str | None = None) -> None:
+def main_config_menu_loop(jump_to: str | None = None) -> None:  # noqa: C901
     settings = get_settings().model_dump()
     if jump_to:
         submenu = jmespath.search(jump_to, settings)
