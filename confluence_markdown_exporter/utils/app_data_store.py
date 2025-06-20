@@ -237,7 +237,7 @@ def set_setting(path: str, value: object) -> None:
 
 
 def get_default_value_by_path(path: str | None = None) -> object:
-    """Get the default value for a given config path (dot notation), or the whole config if path is None."""
+    """Get the default value for a given config path, or the whole config if path is None."""
     model = ConfigModel()
     if not path:
         return model.model_dump()

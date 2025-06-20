@@ -70,7 +70,7 @@ confluence-markdown-exporter page <page-url e.g. https://company.atlassian.net/M
 
 #### 2.2. Export Page with Descendants
 
-Export a Confluence page and all it's descendant pages by page ID:
+Export a Confluence page and all its descendant pages by page ID:
 
 ```sh
 confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
