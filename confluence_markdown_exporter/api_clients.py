@@ -4,6 +4,7 @@ import questionary
 import requests
 from atlassian import Confluence as ConfluenceApiSdk
 from atlassian import Jira as JiraApiSdk
+from questionary import Style
 
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
 from confluence_markdown_exporter.utils.app_data_store import get_settings
@@ -76,7 +77,7 @@ def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
             use_confluence = questionary.confirm(
                 "Jira connection failed. Use the same authentication as for Confluence?",
                 default=False,
-                style="fg:yellow",
+                style=Style([("question", "fg:yellow")]),
             ).ask()
             if use_confluence:
                 set_setting("auth.jira", auth.confluence.dict())

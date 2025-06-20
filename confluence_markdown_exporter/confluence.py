@@ -12,7 +12,6 @@ from collections.abc import Set
 from os import PathLike
 from pathlib import Path
 from string import Template
-from typing import Literal
 from typing import TypeAlias
 from typing import cast
 
@@ -24,13 +23,11 @@ from bs4 import Tag
 from markdownify import ATX
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
-from pydantic import Field
-from pydantic_settings import BaseSettings
-from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
 from tqdm import tqdm
 
 from confluence_markdown_exporter.api_clients import get_authenticated_clients
+from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
@@ -41,53 +38,8 @@ StrPath: TypeAlias = str | PathLike[str]
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
 
-
-class ConverterSettings(BaseSettings):
-    """Settings for the Markdown converter."""
-
-    markdown_style: Literal["GFM", "Obsidian"] = Field(
-        default="GFM",
-        description="Markdown style to use for conversion. Options: GFM, Obsidian.",
-    )
-    page_path: str = Field(
-        default="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md",
-        description=(
-            "Path to store pages. Default: \n"
-            "  {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md\n"
-            "Variables:\n"
-            "  {space_key}       - Space key\n"
-            "  {space_name}      - Space name\n"
-            "  {homepage_id}     - Homepage ID\n"
-            "  {homepage_title}  - Homepage title\n"
-            "  {ancestor_ids}    - Ancestor IDs (separated by '/')\n"
-            "  {ancestor_titles} - Ancestor titles (separated by '/')\n"
-            "  {page_id}         - Page ID\n"
-            "  {page_title}      - Page title"
-        ),
-    )
-    attachment_path: str = Field(
-        default="{space_name}/attachments/{attachment_file_id}{attachment_extension}",
-        description=(
-            "Path to store attachments. Default: \n"
-            "  {space_name}/attachments/{attachment_file_id}{attachment_extension}\n"
-            "Variables:\n"
-            "  {space_key}           - Space key\n"
-            "  {space_name}          - Space name\n"
-            "  {homepage_id}         - Homepage ID\n"
-            "  {homepage_title}      - Homepage title\n"
-            "  {ancestor_ids}        - Ancestor IDs (separated by '/')\n"
-            "  {ancestor_titles}     - Ancestor titles (separated by '/')\n"
-            "  {attachment_id}       - Attachment ID\n"
-            "  {attachment_title}    - Attachment title\n"
-            "  {attachment_file_id}  - Attachment file ID\n"
-            "  {attachment_extension} - Attachment file extension (including leading dot)"
-        ),
-    )
-
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
-
-converter_settings = ConverterSettings()
+settings = get_settings()
+confluence, jira = get_authenticated_clients()
 
 
 class JiraIssue(BaseModel):
@@ -109,7 +61,6 @@ class JiraIssue(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_key(cls, issue_key: str) -> "JiraIssue":
-        confluence, jira = get_authenticated_clients()
         issue_data = cast(JsonResponse, jira.get_issue(issue_key))
         return cls.from_json(issue_data)
 
@@ -134,19 +85,16 @@ class User(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_username(cls, username: str) -> "User":
-        confluence, jira = get_authenticated_clients()
         return cls.from_json(cast(JsonResponse, confluence.get_user_details_by_username(username)))
 
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_userkey(cls, userkey: str) -> "User":
-        confluence, jira = get_authenticated_clients()
         return cls.from_json(cast(JsonResponse, confluence.get_user_details_by_userkey(userkey)))
 
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_accountid(cls, accountid: str) -> "User":
-        confluence, jira = get_authenticated_clients()
         return cls.from_json(
             cast(JsonResponse, confluence.get_user_details_by_accountid(accountid))
         )
@@ -187,7 +135,6 @@ class Organization(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_api(cls) -> "Organization":
-        confluence, jira = get_authenticated_clients()
         return cls.from_json(
             cast(
                 JsonResponse,
@@ -224,7 +171,6 @@ class Space(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_key(cls, space_key: str) -> "Space":
-        confluence, jira = get_authenticated_clients()
         return cls.from_json(cast(JsonResponse, confluence.get_space(space_key, expand="homepage")))
 
 
@@ -297,7 +243,7 @@ class Attachment(Document):
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(converter_settings.attachment_path.replace("{", "${"))
+        filepath_template = Template(settings.export.attachment_path.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
@@ -324,7 +270,6 @@ class Attachment(Document):
 
     @classmethod
     def from_page_id(cls, page_id: int) -> list["Attachment"]:
-        confluence, jira = get_authenticated_clients()
         attachments = []
         start = 0
         paging_limit = 50
@@ -349,7 +294,6 @@ class Attachment(Document):
         return attachments
 
     def export(self, export_path: StrPath) -> None:
-        confluence, jira = get_authenticated_clients()
         filepath = Path(export_path) / self.export_path
         if filepath.exists():
             return
@@ -387,7 +331,6 @@ class Page(Document):
 
         try:
             while start < total_size:
-                confluence, jira = get_authenticated_clients()
                 response = cast(
                     JsonResponse,
                     confluence.cql(cql_query, limit=paging_limit, start=start),
@@ -428,18 +371,18 @@ class Page(Document):
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(converter_settings.page_path.replace("{", "${"))
+        filepath_template = Template(settings.export.page_path.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @property
     def html(self) -> str:
-        match converter_settings.markdown_style:
+        match settings.export.markdown_style:
             case "GFM":
                 return f"<h1>{self.title}</h1>{self.body}"
             case "Obsidian":
                 return self.body
             case _:
-                msg = f"Invalid markdown style: {converter_settings.markdown_style}"
+                msg = f"Invalid markdown style: {settings.export.markdown_style}"
                 raise ValueError(msg)
 
     @property
@@ -528,7 +471,6 @@ class Page(Document):
     @classmethod
     @functools.lru_cache(maxsize=1000)
     def from_id(cls, page_id: int) -> "Page":
-        confluence, jira = get_authenticated_clients()
         try:
             return cls.from_json(
                 cast(
@@ -557,7 +499,6 @@ class Page(Document):
 
     @classmethod
     def from_url(cls, page_url: str) -> "Page":
-        confluence, jira = get_authenticated_clients()
         """Retrieve a Page object given a Confluence page URL."""
         path = urllib.parse.urlparse(page_url).path.rstrip("/")
         if match := re.search(r"/wiki/.+?/pages/(\d+)", path):
@@ -593,13 +534,13 @@ class Page(Document):
         @property
         def markdown(self) -> str:
             md_body = self.convert(self.page.html)
-            match converter_settings.markdown_style:
+            match settings.export.markdown_style:
                 case "GFM":
                     return f"{self.front_matter}\n{self.breadcrumbs}\n{md_body}\n"
                 case "Obsidian":
                     return f"{self.front_matter}\n{md_body}\n"
                 case _:
-                    msg = f"Invalid markdown style: {converter_settings.markdown_style}"
+                    msg = f"Invalid markdown style: {settings.export.markdown_style}"
                     raise ValueError(msg)
             return None
 

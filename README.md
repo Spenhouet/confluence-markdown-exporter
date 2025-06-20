@@ -143,16 +143,14 @@ This will open a menu where you can:
 
 | Key | Description | Default |
 |-----|-------------|---------|
-| output_directory | Output directory for markdown exports | ~/confluence_exports |
-| markdown_style | Markdown style: GFM or Obsidian | GFM |
-| page_path | Path template for exported pages | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md |
-| attachment_path | Path template for attachments | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
-| include_attachments | Whether to include attachments in export | True |
+| export.markdown_style | Markdown style: GFM or Obsidian | GFM |
+| export.page_path | Path template for exported pages | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md |
+| export.attachment_path | Path template for attachments | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
 | retry_config.backoff_and_retry | Enable automatic retry with exponential backoff | True |
 | retry_config.backoff_factor | Multiplier for exponential backoff | 2 |
 | retry_config.max_backoff_seconds | Maximum seconds to wait between retries | 60 |
 | retry_config.max_backoff_retries | Maximum number of retry attempts | 5 |
-| retry_config.retry_status_codes | HTTP status codes that trigger a retry | \[413, 429, 502, 503, 504\] |
+| retry_config.retry_status_codes | HTTP status codes that trigger a retry | [413, 429, 502, 503, 504] |
 | auth.confluence.url | Confluence instance URL | "" |
 | auth.confluence.username | Confluence username/email | "" |
 | auth.confluence.api_token | Confluence API token | "" |

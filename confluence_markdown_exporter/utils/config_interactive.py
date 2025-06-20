@@ -50,6 +50,11 @@ def _get_submodel(model: type[BaseModel], key: str):
 
 
 def _get_field_metadata(model: type[BaseModel], key: str):
+    # Support jmespath-style dot-separated paths for nested fields
+    if "." in key:
+        keys = key.split(".")
+        key = keys[-1]
+
     # Returns dict with title, description, examples for a field
     if hasattr(model, "model_fields"):  # Pydantic v2
         field = model.model_fields[key]
@@ -183,7 +188,10 @@ def _handle_reset():
         questionary.text("Press Enter to continue...", style=custom_style).ask()
 
 
-def _edit_dict_config(config_dict: dict, parent_key: str, model: type[BaseModel]):
+def _edit_dict_config(
+    config_dict: dict, model: type[BaseModel], parent_key: str, parent_model: type[BaseModel]
+):
+    # parent_key is always the config key path (e.g. 'auth.confluence'), not the display title
     while True:
         choices = []
         for k, v in config_dict.items():
@@ -212,8 +220,13 @@ def _edit_dict_config(config_dict: dict, parent_key: str, model: type[BaseModel]
         # Add submenu reset option
         choices.append(Choice(title="[Reset this group to defaults]", value="__reset_section__"))
         choices.append(Choice(title="[Back]", value="__back__"))
+        # Show the display title to the user, but use parent_key internally
+        meta = None
+        if hasattr(parent_model, "model_fields") and parent_key:
+            meta = _get_field_metadata(parent_model, parent_key)
+        display_title = meta["title"] if meta and meta["title"] else parent_key
         key = questionary.select(
-            f"Edit options for '{parent_key}':", choices=choices, style=custom_style
+            f"Edit options for '{display_title}':", choices=choices, style=custom_style
         ).ask()
         if key == "__back__" or key is None:
             break
@@ -222,19 +235,21 @@ def _edit_dict_config(config_dict: dict, parent_key: str, model: type[BaseModel]
             default_obj = model()  # new instance with defaults
             for k in list(config_dict.keys()):
                 config_dict[k] = default_obj.dict()[k]
-            questionary.print(f"Section '{parent_key}' reset to defaults.")
+            questionary.print(f"Section '{display_title}' reset to defaults.")
             continue
         current_value = config_dict[key]
         submodel = _get_submodel(model, key)
         if isinstance(current_value, dict) and submodel is not None:
-            _edit_dict_config(current_value, f"{parent_key}.{key}", submodel)
+            # Pass the full key path for parent_key
+            _edit_dict_config(
+                current_value, submodel, f"{parent_key}.{key}" if parent_key else key, model
+            )
         else:
             while True:
                 value_cast = _prompt_for_new_value(key, current_value, model, parent_key=key)
                 if value_cast is not None:
                     try:
-                        settings = get_settings().dict()
-                        set_setting(f"{parent_key}.{key}", value_cast)
+                        set_setting(f"{parent_key}.{key}" if parent_key else key, value_cast)
                         config_dict[key] = value_cast
                         questionary.print(f"{parent_key}.{key} updated to {value_cast}.")
                         break
@@ -264,13 +279,8 @@ def interactive_config_menu(jump_to: str | None = None) -> None:
     settings = get_settings().dict()
     if jump_to:
         submenu = jmespath.search(jump_to, settings)
-        model = get_model_by_path(ConfigModel, jump_to)
-        # Use the field's title from the parent model for the last key
-        parent_path, _, last_key = jump_to.rpartition(".")
-        parent_model = get_model_by_path(ConfigModel, parent_path) if parent_path else ConfigModel
-        meta = _get_field_metadata(parent_model, last_key)
-        title = meta["title"] if meta and meta["title"] else last_key
-        _edit_dict_config(submenu, title, model)
+        submodel = get_model_by_path(ConfigModel, jump_to)
+        _edit_dict_config(submenu, submodel, jump_to, ConfigModel)
         return
     while True:
         settings = get_settings().dict()
@@ -311,7 +321,7 @@ def interactive_config_menu(jump_to: str | None = None) -> None:
         if is_dict:
             submodel = _get_submodel(ConfigModel, key)
             if submodel is not None:
-                _edit_dict_config(current_value, key, submodel)
+                _edit_dict_config(current_value, submodel, key, ConfigModel)
         else:
             while True:
                 value_cast = _prompt_for_new_value(key, current_value, ConfigModel)
@@ -319,7 +329,7 @@ def interactive_config_menu(jump_to: str | None = None) -> None:
                     # User cancelled or made no change: do not update config
                     break
                 try:
-                    set_setting(key, value_cast)  # key is now a jmespath path
+                    set_setting(key, value_cast)
                     questionary.print(f"{display_title} updated to {value_cast}.")
                     break
                 except Exception as e:

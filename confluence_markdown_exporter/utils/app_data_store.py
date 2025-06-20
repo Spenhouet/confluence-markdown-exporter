@@ -56,12 +56,22 @@ class ApiDetails(BaseModel):
         "", title="Username (email)", description="Username or email for API authentication."
     )
     api_token: SecretStr = Field(
-        SecretStr(""), title="API Token", description="API token for authentication (if required)."
+        SecretStr(""),
+        title="API Token",
+        description=(
+            "API token for authentication (if required). "
+            "Create an Atlassian API token at https://id.atlassian.com/manage-profile/security/api-tokens. "
+            "See Atlassian documentation for details."
+        ),
     )
     pat: SecretStr = Field(
         SecretStr(""),
         title="Personal Access Token (PAT)",
-        description="Personal Access Token (if required).",
+        description=(
+            "Personal Access Token for authentication. "
+            "Set this if you use a PAT instead of username+API token. "
+            "See your Atlassian instance documentation for how to create a PAT."
+        ),
     )
 
 
@@ -78,13 +88,7 @@ class AuthConfig(BaseModel):
     )
 
 
-class ConfigModel(BaseModel):
-    output_directory: Path = Field(
-        Path.home() / "confluence_exports",
-        title="Output Directory",
-        description="Directory where exported markdown and attachments will be saved.",
-        examples=["/home/user/confluence_exports", "./exports"],
-    )
+class ExportConfig(BaseModel):
     markdown_style: Literal["GFM", "Obsidian"] = Field(
         "GFM",
         title="Markdown Style",
@@ -131,11 +135,13 @@ class ConfigModel(BaseModel):
         ),
         examples=["{space_name}/attachments/{attachment_file_id}{attachment_extension}"],
     )
-    include_attachments: bool = Field(
-        True,
-        title="Include Attachments",
-        description="Whether to download and include attachments in the export.",
-        examples=[True, False],
+
+
+class ConfigModel(BaseModel):
+    export: ExportConfig = Field(
+        default_factory=ExportConfig,
+        title="Export Settings",
+        description="Settings for export paths, markdown style, and attachments.",
     )
     retry_config: RetryConfig = Field(
         default_factory=RetryConfig,
@@ -159,12 +165,12 @@ def load_app_data() -> dict:
     # Ensure config is valid
     try:
         data = ConfigModel(**data).dict()
-    except Exception:
+    except ValidationError:
         data = ConfigModel().dict()
     return data
 
 
-def _convert_paths_to_str(obj):
+def _convert_paths_to_str(obj: object) -> object:
     if isinstance(obj, dict):
         return {k: _convert_paths_to_str(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -173,12 +179,17 @@ def _convert_paths_to_str(obj):
         return str(obj)
     if isinstance(obj, SecretStr):
         return obj.get_secret_value()
+    if isinstance(obj, AnyHttpUrl):
+        return str(obj)
     return obj
 
 
 def save_app_data(data: dict) -> None:
     # Convert all Path objects and SecretStr to str before saving
     data = _convert_paths_to_str(data)
+    if not isinstance(data, dict):
+        msg = "Data must be a dict after conversion"
+        raise TypeError(msg)
     with open(STORE_PATH, "w") as f:
         json.dump(data, f, indent=2)
 
@@ -195,14 +206,14 @@ def set_by_path(obj: dict, path: str, value: object) -> None:
     current[keys[-1]] = value
 
 
-def set_setting(path: str, value) -> None:
+def set_setting(path: str, value: object) -> None:
     data = load_app_data()
     set_by_path(data, path, value)
     # Validate after setting
     try:
         settings = ConfigModel.parse_obj(data)
     except ValidationError as e:
-        raise ValueError(str(e))
+        raise ValueError(str(e)) from e
     save_app_data(settings.dict())
 
 

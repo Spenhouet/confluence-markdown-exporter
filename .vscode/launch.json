@@ -22,7 +22,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["page", "<page-id> or <page-url>", "scratch"],
+      "args": ["page", "1127153675", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
