@@ -13,6 +13,8 @@ P = ParamSpec("P")
 
 
 def measure_time(func: Callable[P, T]) -> Callable[P, T]:
+    """Decorator to measure and print the execution time of a function."""
+
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         start_time = time.time()
         result = func(*args, **kwargs)
@@ -56,7 +58,6 @@ def measure(step: str) -> Generator[None, None, None]:
 
     Args:
         step: The step name.
-        logger: The logger instance.
 
     Raises:
         e: Reraised exception from execution

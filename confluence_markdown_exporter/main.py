@@ -4,7 +4,7 @@ from typing import Annotated
 
 import typer
 
-from confluence_markdown_exporter.utils.config_interactive import interactive_config_menu
+from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 from confluence_markdown_exporter.utils.measure_time import measure
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
@@ -66,7 +66,7 @@ def config(
     ),
 ) -> None:
     """Interactive configuration menu."""
-    interactive_config_menu(jump_to)
+    main_config_menu_loop(jump_to)
 
 
 if __name__ == "__main__":

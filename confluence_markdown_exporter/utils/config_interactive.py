@@ -13,7 +13,7 @@ from questionary import Style
 
 from confluence_markdown_exporter.utils.app_data_store import ConfigModel
 from confluence_markdown_exporter.utils.app_data_store import get_settings
-from confluence_markdown_exporter.utils.app_data_store import reset_settings
+from confluence_markdown_exporter.utils.app_data_store import reset_to_defaults
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 
 custom_style = Style(
@@ -267,14 +267,31 @@ def _prompt_for_new_value(
     return _prompt_str(prompt_message, current_value, model, key_name)
 
 
-def _handle_reset() -> None:
-    confirm = questionary.confirm(
-        "Are you sure you want to reset all config to defaults?", style=custom_style
-    ).ask()
-    if confirm:
-        reset_settings()
+def _reset_and_reload(parent_key: str | None, display_title: str | None = None) -> None:
+    """Reset config (whole or section) and reload config_dict from disk, with confirmation."""
+    if parent_key is None:
+        confirm_msg = "Are you sure you want to reset all config to defaults?"
+    else:
+        confirm_msg = f"Are you sure you want to reset section '{display_title}' to defaults?"
+    confirm = questionary.confirm(confirm_msg, style=custom_style).ask()
+    if not confirm:
+        return
+    reset_to_defaults(parent_key if parent_key else None)
+    updated = get_settings().model_dump()
+    if parent_key:
+        # Traverse to the correct nested dict for jmespath/dot-paths
+        keys = parent_key.split(".")
+        sub = updated
+        for k in keys:
+            sub = sub[k]
+        # Optionally, update sub in place if needed (here, just to trigger reload/print)
+    else:
+        for k in list(updated.keys()):
+            updated[k] = updated[k]
+    if display_title:
+        questionary.print(f"Section '{display_title}' reset to defaults.")
+    else:
         questionary.print("Config reset to defaults.")
-        questionary.text("Press Enter to continue...", style=custom_style).ask()
 
 
 def _get_choices(config_dict: dict, model: type[BaseModel]) -> list:
@@ -330,14 +347,23 @@ def _edit_dict_config_loop(
         if key == "__back__" or key is None:
             return selected_key
         if key == "__reset_section__":
-            # Reset this section to defaults
-            default_obj = model()  # new instance with defaults
-            for k in list(config_dict.keys()):
-                config_dict[k] = default_obj.dict()[k]
-            questionary.print(f"Section '{display_title}' reset to defaults.")
+            _reset_and_reload(parent_key, display_title)
+            # Reload the updated config_dict for this section from disk
+            updated = get_settings().model_dump()
+            if parent_key:
+                # Traverse to the correct nested dict for jmespath/dot-paths
+                keys = parent_key.split(".")
+                sub = updated
+                for k in keys:
+                    sub = sub[k]
+                config_dict.clear()
+                config_dict.update(sub)
+            else:
+                config_dict.clear()
+                config_dict.update(updated)
             selected_key = None
             continue
-        current_value = config_dict[key]
+        current_value = config_dict[key] if key else None
         submodel = _get_submodel(model, key)
         if isinstance(current_value, dict) and submodel is not None:
             # Always set selected_key to the submenu key after returning
@@ -380,13 +406,21 @@ def _edit_dict_config(
     return _edit_dict_config_loop(config_dict, model, parent_key, parent_model, last_selected)
 
 
-def _main_config_menu_loop() -> None:
+def main_config_menu_loop(jump_to: str | None = None) -> None:
+    settings = get_settings().model_dump()
+    if jump_to:
+        submenu = jmespath.search(jump_to, settings)
+        submodel = get_model_by_path(ConfigModel, jump_to)
+        parent_path = jump_to.rsplit(".", 1)[0] if "." in jump_to else None
+        parent_model = get_model_by_path(ConfigModel, parent_path) if parent_path else ConfigModel
+        _edit_dict_config(submenu, submodel, jump_to, parent_model)
+        return
     last_selected = None
     while True:
-        settings = get_settings().dict()
+        settings = get_settings().model_dump()
         key, is_dict = _main_config_menu(settings, default=last_selected)
         if key == "__reset__":
-            _handle_reset()
+            _reset_and_reload(None)
             last_selected = None
             continue
         if key == "__exit__" or key is None:
@@ -416,14 +450,3 @@ def _main_config_menu_loop() -> None:
                     retry = questionary.confirm("Try again?", style=custom_style).ask()
                     if not retry:
                         break
-
-
-def interactive_config_menu(jump_to: str | None = None) -> None:
-    """Directly show change config view with reset as last option. Optionally jump to a submenu."""
-    settings = get_settings().model_dump()
-    if jump_to:
-        submenu = jmespath.search(jump_to, settings)
-        submodel = get_model_by_path(ConfigModel, jump_to)
-        _edit_dict_config(submenu, submodel, jump_to, ConfigModel)
-        return
-    _main_config_menu_loop()

@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 import questionary
 import requests
@@ -9,13 +10,25 @@ from questionary import Style
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
-from confluence_markdown_exporter.utils.config_interactive import interactive_config_menu
+from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
 
 
+def response_hook(
+    response: requests.Response, *args: object, **kwargs: object
+) -> requests.Response:
+    """Log response headers when requests fail."""
+    if not response.ok:
+        print(f"Request to {response.url} failed with status {response.status_code}")
+        print(f"Response headers: {dict(response.headers)}")
+    return response
+
+
 class ApiClientFactory:
-    def __init__(self, retry_config: dict) -> None:
+    """Factory for creating authenticated Confluence and Jira API clients with retry config."""
+
+    def __init__(self, retry_config: dict[str, Any]) -> None:
         self.retry_config = retry_config
 
     def create_confluence(self, auth: ApiDetails) -> ConfluenceApiSdk:
@@ -49,12 +62,11 @@ class ApiClientFactory:
         return instance
 
 
-# Debugging response hooks
 def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
+    """Get authenticated Confluence and Jira API clients using current settings."""
     settings = get_settings()
     auth = settings.auth
-    retry_config = settings.retry_config.dict()
-    # Retry loop for confluence
+    retry_config = settings.retry_config.model_dump()
     while True:
         try:
             confluence = ApiClientFactory(retry_config).create_confluence(auth.confluence)
@@ -64,7 +76,7 @@ def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
                 "Confluence connection failed: Redirecting to Confluence authentication config...",
                 style="fg:red bold",
             )
-            interactive_config_menu("auth.confluence")
+            main_config_menu_loop("auth.confluence")
             settings = get_settings()
             auth = settings.auth
     # Retry loop for jira
@@ -80,7 +92,7 @@ def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
                 style=Style([("question", "fg:yellow")]),
             ).ask()
             if use_confluence:
-                set_setting("auth.jira", auth.confluence.dict())
+                set_setting("auth.jira", auth.confluence.model_dump())
                 settings = get_settings()
                 auth = settings.auth
                 continue
@@ -88,25 +100,9 @@ def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
                 "Redirecting to Jira authentication config...",
                 style="fg:red bold",
             )
-            interactive_config_menu("auth.jira")
+            main_config_menu_loop("auth.jira")
             settings = get_settings()
             auth = settings.auth
-    return confluence, jira
-
-
-def response_hook(
-    response: requests.Response, *args: object, **kwargs: object
-) -> requests.Response:
-    """Log response headers when requests fail."""
-    if not response.ok:
-        print(f"Request to {response.url} failed with status {response.status_code}")
-        print(f"Response headers: {dict(response.headers)}")
-    return response
-
-
-def get_authenticated_clients() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
-    """Call this function when you need authenticated Confluence/Jira clients."""
-    confluence, jira = get_api_instances()
 
     if DEBUG:
         confluence.session.hooks["response"] = [response_hook]

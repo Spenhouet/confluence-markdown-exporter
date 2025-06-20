@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from requests import HTTPError
 from tqdm import tqdm
 
-from confluence_markdown_exporter.api_clients import get_authenticated_clients
+from confluence_markdown_exporter.api_clients import get_api_instances
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
@@ -39,7 +39,7 @@ StrPath: TypeAlias = str | PathLike[str]
 DEBUG: bool = bool(os.getenv("DEBUG"))
 
 settings = get_settings()
-confluence, jira = get_authenticated_clients()
+confluence, jira = get_api_instances()
 
 
 class JiraIssue(BaseModel):
