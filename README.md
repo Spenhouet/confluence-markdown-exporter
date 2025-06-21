@@ -47,49 +47,42 @@ Install python package via pip.
 pip install confluence-markdown-exporter
 ```
 
-### 2. Configure Authentication
+### 2. Exporting
 
-You must set environment variables for **one** of the following authentication options:
+Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `page`, `page-with-descendants`, `space`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information. 
 
-1. Username + API Token
+> [!TIP]
+> Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
 
-   - `ATLASSIAN_USERNAME`: Your Atlassian account email address
-   - `ATLASSIAN_API_TOKEN`: An API token created at  
-      https://id.atlassian.com/manage-profile/security/api-tokens
+#### 2.1. Export Page
 
-2. Personal Access Token (PAT)
-
-   - `ATLASSIAN_PAT`: A Personal Access Token (used instead of username+token)
-
-In all cases, you must also set:
-
-- `ATLASSIAN_URL`: Your Atlassian instance URL (e.g. `https://company.atlassian.net`)
-
-Here an example setting the environment variables for the Username + API Token authentication for the current terminal session.
+Export a single Confluence page by ID:
 
 ```sh
-export ATLASSIAN_USERNAME="work mail address"
-export ATLASSIAN_API_TOKEN="API token Test"
-export ATLASSIAN_URL="https://company.atlassian.net"
+confluence-markdown-exporter page <page-id e.g. 645208921> <output path e.g. ./output_path/>
 ```
 
-If you have separate Confluence and Jira instances or authentication, you can provide them via `CONFLUENCE_` or `JIRA_` prefixed environment variables.
-
-### 3. Exporting
-
-Run the exporter with the desired Confluence page ID or space key.
-
-Export a single Confluence page by ID or URL:
+or by URL:
 
 ```sh
-confluence-markdown-exporter page <page-id e.g. 645208921 or page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
+confluence-markdown-exporter page <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
 ```
 
-Export a Confluence page and all it's descendants:
+#### 2.2. Export Page with Descendants
+
+Export a Confluence page and all its descendant pages by page ID:
 
 ```sh
-confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921 or page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
+confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
 ```
+
+or by URL:
+
+```sh
+confluence-markdown-exporter page-with-descendants <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
+```
+
+#### 2.3. Export Space
 
 Export all Confluence pages of a single Space:
 
@@ -97,16 +90,15 @@ Export all Confluence pages of a single Space:
 confluence-markdown-exporter space <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
 ```
 
+#### 2.3. Export all Spaces
+
 Export all Confluence pages across all spaces:
 
 ```sh
 confluence-markdown-exporter all-spaces <output path e.g. ./output_path/>
 ```
 
-> [!TIP]
-> Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
-
-### 4. Output
+### 3. Output
 
 The exported Markdown file(s) will be saved in the specified `output` directory e.g.:
 
@@ -121,45 +113,67 @@ output_path/
             └── Another one.md
 ```
 
-## Configuration Options
+## Configuration
 
-By default the converter uses a GitHub Flavored Markdown (GFM). You can also choose an Obsidian flavored markdown by setting:
+All configuration and authentication is stored in a single JSON file managed by the application. You do not need to manually edit this file.
+
+### Interactive Configuration
+
+To interactively view and change configuration, run:
 
 ```sh
-export MARKDOWN_STYLE="Obsidian"
+confluence-markdown-exporter config
 ```
 
-Via `PAGE_PATH` and `ATTACHMENT_PATH` you can customize how pages and attachments are organized in the output directory. 
+This will open a menu where you can:
+- See all config options and their current values
+- Select a config to change (including authentication)
+- Reset all config to defaults
+- Navigate directly to any config section (e.g. `auth.confluence`)
 
-By default, pages are stored at:
+### Available Configuration Options
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| export.output_path | The directory where all exported files and folders will be written. Used as the base for relative and absolute links. | ./ (current working directory) |
+| export.markdown_style | Markdown style: GFM or Obsidian | GFM |
+| export.page_href | How to generate links to pages in Markdown. Options: "relative" (default) or "absolute". "relative" links are relative to the page, "absolute" links start from the configured output path. | relative |
+| export.page_path | Path template for exported pages | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md |
+| export.attachment_href | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute". "relative" links are relative to the page, "absolute" links start from the configured output path. | relative |
+| export.attachment_path | Path template for attachments | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
+| retry_config.backoff_and_retry | Enable automatic retry with exponential backoff | True |
+| retry_config.backoff_factor | Multiplier for exponential backoff | 2 |
+| retry_config.max_backoff_seconds | Maximum seconds to wait between retries | 60 |
+| retry_config.max_backoff_retries | Maximum number of retry attempts | 5 |
+| retry_config.retry_status_codes | HTTP status codes that trigger a retry | [413, 429, 502, 503, 504] |
+| auth.confluence.url | Confluence instance URL | "" |
+| auth.confluence.username | Confluence username/email | "" |
+| auth.confluence.api_token | Confluence API token | "" |
+| auth.confluence.pat | Confluence Personal Access Token | "" |
+| auth.jira.url | Jira instance URL | "" |
+| auth.jira.username | Jira username/email | "" |
+| auth.jira.api_token | Jira API token | "" |
+| auth.jira.pat | Jira Personal Access Token | "" |
+
+You can always view and change the current config with the interactive menu above.
+
+### Custom Config File Location
+
+By default, configuration is stored in a platform-specific application directory. You can override the config file location by setting the `CME_CONFIG_PATH` environment variable to the desired file path. If set, the application will read and write config from this file instead. Example:
+
 ```sh
-export PAGE_PATH="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md"
+export CME_CONFIG_PATH=/path/to/your/custom_config.json
 ```
-Available variables:
-  - `{space_key}`: The key of the Confluence space.
-  - `{space_name}`: The name of the Confluence space.
-  - `{homepage_id}`: The ID of the homepage of the Confluence space.
-  - `{homepage_title}`: The title of the homepage of the Confluence space.
-  - `{ancestor_ids}`: A slash-separated list of ancestor page IDs.
-  - `{ancestor_titles}`: A slash-separated list of ancestor page titles.
-  - `{page_id}`: The unique ID of the Confluence page.
-  - `{page_title}`: The title of the Confluence page.
 
-By default, attachments are stored at:
+This is useful for using different configs for different environments or for scripting.
+
+## Update
+
+Update python package via pip.
+
 ```sh
-export ATTACHMENT_PATH="{space_name}/attachments/{attachment_file_id}{attachment_extension}"
+pip install confluence-markdown-exporter --upgrade
 ```
-Available variables:
-  - `{space_key}`: The key of the Confluence space.
-  - `{space_name}`: The name of the Confluence space.
-  - `{homepage_id}`: The ID of the homepage of the Confluence space.
-  - `{homepage_title}`: The title of the homepage of the Confluence space.
-  - `{ancestor_ids}`: A slash-separated list of ancestor page IDs.
-  - `{ancestor_titles}`: A slash-separated list of ancestor page titles.
-  - `{attachment_id}`: The unique ID of the attachment.
-  - `{attachment_title}`: The title of the attachment.
-  - `{attachment_file_id}`: The file ID of the attachment.
-  - `{attachment_extension}`: The file extension of the attachment, including the leading dot.
 
 ## Compatibility
 
@@ -167,6 +181,10 @@ This package is not tested extensively. Please check all output and report any i
 It generally was tested on:
 - Confluence Cloud 1000.0.0-b5426ab8524f (2025-05-28)
 - Confluence Server 8.5.20
+
+## Known Issues
+1. **Missing Attachment File ID on Server**: For some Confluence Server version/configuration the attachment file ID might not be provided (https://github.com/Spenhouet/confluence-markdown-exporter/issues/39). In the default configuration, this is used for the export path. Solution: Adjust the attachment path in the export config and use the `{attachment_id}` or `{attachment_title}` instead.
+2. **Connection Issues when behind Proxy or VPN**: There might be connection issues if your Confluence Server is behind a proxy or VPN (https://github.com/Spenhouet/confluence-markdown-exporter/issues/38). If you experience issues, help to fix this is appreciated.
 
 ## Contributing
 
