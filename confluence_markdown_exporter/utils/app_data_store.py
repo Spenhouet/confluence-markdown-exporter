@@ -127,16 +127,6 @@ class ExportConfig(BaseModel):
             "`/path/to/export`: Output will be saved in the specified absolute path.",
         ],
     )
-    markdown_style: Literal["GFM", "Obsidian"] = Field(
-        default="GFM",
-        title="Markdown Style",
-        description=(
-            "Markdown style to use for export. Options: GFM or Obsidian.\n"
-            "Available styles:\n"
-            "  - GFM: GitHub Flavored Markdown\n"
-            "  - Obsidian: Markdown style used by Obsidian.md"
-        ),
-    )
     page_href: Literal["absolute", "relative"] = Field(
         default="relative",
         title="Page Href Style",
@@ -191,6 +181,19 @@ class ExportConfig(BaseModel):
             "including the leading dot."
         ),
         examples=["{space_name}/attachments/{attachment_file_id}{attachment_extension}"],
+    )
+    page_breadcrumbs: bool = Field(
+        default=True,
+        title="Page Breadcrumbs",
+        description="Whether to include breadcrumb links at the top of the page.",
+    )
+    include_document_title: bool = Field(
+        default=True,
+        title="Include Document Title",
+        description=(
+            "Whether to include the document title in the exported markdown file. "
+            "If enabled, the title will be added as a top-level heading."
+        ),
     )
 
 

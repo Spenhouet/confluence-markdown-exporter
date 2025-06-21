@@ -377,14 +377,9 @@ class Page(Document):
 
     @property
     def html(self) -> str:
-        match settings.export.markdown_style:
-            case "GFM":
-                return f"<h1>{self.title}</h1>{self.body}"
-            case "Obsidian":
-                return self.body
-            case _:
-                msg = f"Invalid markdown style: {settings.export.markdown_style}"
-                raise ValueError(msg)
+        if settings.export.include_document_title:
+            return f"<h1>{self.title}</h1>{self.body}"
+        return self.body
 
     @property
     def markdown(self) -> str:
@@ -537,15 +532,11 @@ class Page(Document):
         @property
         def markdown(self) -> str:
             md_body = self.convert(self.page.html)
-            match settings.export.markdown_style:
-                case "GFM":
-                    return f"{self.front_matter}\n{self.breadcrumbs}\n{md_body}\n"
-                case "Obsidian":
-                    return f"{self.front_matter}\n{md_body}\n"
-                case _:
-                    msg = f"Invalid markdown style: {settings.export.markdown_style}"
-                    raise ValueError(msg)
-            return None
+            markdown = f"{self.front_matter}\n"
+            if settings.export.page_breadcrumbs:
+                markdown += f"{self.breadcrumbs}\n"
+            markdown += f"{md_body}\n"
+            return markdown
 
         @property
         def front_matter(self) -> str:
