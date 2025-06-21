@@ -12,6 +12,7 @@ from collections.abc import Set
 from os import PathLike
 from pathlib import Path
 from string import Template
+from typing import Literal
 from typing import TypeAlias
 from typing import cast
 
@@ -123,8 +124,8 @@ class Organization(BaseModel):
     def pages(self) -> list[int]:
         return [page for space in self.spaces for page in space.pages]
 
-    def export(self, export_path: StrPath) -> None:
-        export_pages(self.pages, export_path)
+    def export(self) -> None:
+        export_pages(self.pages)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Organization":
@@ -156,8 +157,8 @@ class Space(BaseModel):
         homepage = Page.from_id(self.homepage)
         return [self.homepage, *homepage.descendants]
 
-    def export(self, export_path: StrPath) -> None:
-        export_pages(self.pages, export_path)
+    def export(self) -> None:
+        export_pages(self.pages)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Space":
@@ -293,8 +294,8 @@ class Attachment(Document):
 
         return attachments
 
-    def export(self, export_path: StrPath) -> None:
-        filepath = Path(export_path) / self.export_path
+    def export(self) -> None:
+        filepath = settings.export.output_path / self.export_path
         if filepath.exists():
             return
 
@@ -389,57 +390,59 @@ class Page(Document):
     def markdown(self) -> str:
         return self.Converter(self).markdown
 
-    def export(self, export_path: StrPath) -> None:
+    def export(self) -> None:
         if DEBUG:
-            self.export_body(export_path)
-        self.export_markdown(export_path)
-        self.export_attachments(export_path)
+            self.export_body()
+        self.export_markdown()
+        self.export_attachments()
 
-    def export_with_descendants(self, export_path: StrPath) -> None:
-        export_pages([self.id, *self.descendants], export_path)
+    def export_with_descendants(self) -> None:
+        export_pages([self.id, *self.descendants])
 
-    def export_body(self, export_path: StrPath) -> None:
+    def export_body(self) -> None:
         soup = BeautifulSoup(self.html, "html.parser")
         save_file(
-            Path(export_path) / self.export_path.parent / f"{self.export_path.stem}_body_view.html",
+            settings.export.output_path
+            / self.export_path.parent
+            / f"{self.export_path.stem}_body_view.html",
             str(soup.prettify()),
         )
         soup = BeautifulSoup(self.body_export, "html.parser")
         save_file(
-            Path(export_path)
+            settings.export.output_path
             / self.export_path.parent
             / f"{self.export_path.stem}_body_export_view.html",
             str(soup.prettify()),
         )
         save_file(
-            Path(export_path)
+            settings.export.output_path
             / self.export_path.parent
             / f"{self.export_path.stem}_body_editor2.xml",
             str(self.editor2),
         )
 
-    def export_markdown(self, export_path: StrPath) -> None:
+    def export_markdown(self) -> None:
         save_file(
-            Path(export_path) / self.export_path,
+            settings.export.output_path / self.export_path,
             self.markdown,
         )
 
-    def export_attachments(self, export_path: StrPath) -> None:
+    def export_attachments(self) -> None:
         for attachment in self.attachments:
             if (
                 attachment.filename.endswith(".drawio")
                 and f"diagramName={attachment.title}" in self.body
             ):
-                attachment.export(export_path)
+                attachment.export()
                 continue
             if (
                 attachment.filename.endswith(".drawio.png")
                 and attachment.title.replace(" ", "%20") in self.body_export
             ):
-                attachment.export(export_path)
+                attachment.export()
                 continue
             if attachment.file_id in self.body:
-                attachment.export(export_path)
+                attachment.export()
                 continue
 
     def get_attachment_by_id(self, attachment_id: str) -> Attachment:
@@ -677,10 +680,14 @@ class Page(Document):
             modified_header = el.find("th", {"class": "modified-column"})
             modified_header_text = modified_header.text.strip() if modified_header else "Modified"
 
+            def _get_path(p: Path) -> str:
+                attachment_path = self._get_path_for_href(p, settings.export.attachment_href)
+                return attachment_path.replace(" ", "%20")
+
             rows = [
                 {
-                    "file": f"[{att.title}]({self._get_path_for_href(att.export_path).replace(' ', '%20')})",
-                    "modified": f"{att.version.friendly_when} by {self.convert_user(att.version.by)}",
+                    "file": f"[{att.title}]({_get_path(att.export_path)})",
+                    "modified": f"{att.version.friendly_when} by {self.convert_user(att.version.by)}",  # noqa: E501
                 }
                 for att in self.page.attachments
             ]
@@ -807,9 +814,9 @@ class Page(Document):
                 raise ValueError(msg)
 
             page = Page.from_id(page_id)
-            relpath = os.path.relpath(page.export_path, self.page.export_path.parent)
+            page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
 
-            return f"[{page.title}]({relpath.replace(' ', '%20')})"
+            return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
         def convert_attachment_link(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
@@ -818,7 +825,7 @@ class Page(Document):
                 attachment = self.page.get_attachment_by_file_id(str(attachment_file_id))
             elif attachment_id := el.get("data-linked-resource-id"):
                 attachment = self.page.get_attachment_by_id(str(attachment_id))
-            path = self._get_path_for_href(attachment.export_path)
+            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
@@ -856,7 +863,7 @@ class Page(Document):
                 return ""
 
             attachment = self.page.get_attachment_by_file_id(str(file_id))
-            path = self._get_path_for_href(attachment.export_path)
+            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             el["src"] = path.replace(" ", "%20")
             if "_inline" in parent_tags:
                 parent_tags.remove("_inline")  # Always show images.
@@ -872,17 +879,15 @@ class Page(Document):
                 if not drawio_attachments or not preview_attachments:
                     return f"\n<!-- Drawio diagram `{drawio_name}` not found -->\n\n"
 
-                drawio_relpath = os.path.relpath(
-                    drawio_attachments[0].export_path,
-                    self.page.export_path.parent,
+                drawio_path = self._get_path_for_href(
+                    drawio_attachments[0].export_path, settings.export.attachment_href
                 )
-                preview_relpath = os.path.relpath(
-                    preview_attachments[0].export_path,
-                    self.page.export_path.parent,
+                preview_path = self._get_path_for_href(
+                    preview_attachments[0].export_path, settings.export.attachment_href
                 )
 
-                drawio_image_embedding = f"![{drawio_name}]({preview_relpath.replace(' ', '%20')})"
-                drawio_link = f"[{drawio_image_embedding}]({drawio_relpath.replace(' ', '%20')})"
+                drawio_image_embedding = f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
+                drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
                 return f"\n{drawio_link}\n\n"
 
             return ""
@@ -905,16 +910,20 @@ class Page(Document):
                 return ""
             return super().convert_table(table, "", parent_tags)  # type: ignore -
 
-        def _get_path_for_href(self, path: Path) -> str:
+        def _get_path_for_href(self, path: Path, style: Literal["absolute", "relative"]) -> str:
             """Get the path to use in href attributes based on settings."""
-            if settings.export.attachment_href == "absolute":
+            if style == "absolute":
+                # Note that usually absolute would be
+                # something like this: (settings.export.output_path / path).absolute()
+                # In this case the URL will be "absolute" to the export path.
+                # This is useful for local file links.
                 result = "/" + str(path).lstrip("/")
             else:
                 result = os.path.relpath(path, self.page.export_path.parent)
             return result
 
 
-def export_page(page_id: int, output_path: StrPath) -> None:
+def export_page(page_id: int) -> None:
     """Export a Confluence page to Markdown.
 
     Args:
@@ -922,10 +931,10 @@ def export_page(page_id: int, output_path: StrPath) -> None:
         output_path: The output path.
     """
     page = Page.from_id(page_id)
-    page.export(output_path)
+    page.export()
 
 
-def export_pages(page_ids: list[int], output_path: StrPath) -> None:
+def export_pages(page_ids: list[int]) -> None:
     """Export a list of Confluence pages to Markdown.
 
     Args:
@@ -934,4 +943,4 @@ def export_pages(page_ids: list[int], output_path: StrPath) -> None:
     """
     for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
         pbar.set_postfix_str(f"Exporting page {page_id}")
-        export_page(page_id, output_path)
+        export_page(page_id)

@@ -114,6 +114,19 @@ class AuthConfig(BaseModel):
 class ExportConfig(BaseModel):
     """Export settings for markdown and attachments."""
 
+    output_path: Path = Field(
+        default=Path("."),
+        title="Output Path",
+        description=("Directory where exported pages and attachments will be saved."),
+        examples=[
+            "`.`: Output will be saved relative to the current working directory.",
+            (
+                "`./confluence_export`: Output will be saved in a folder `confluence_export` "
+                "relative to the current working directory."
+            ),
+            "`/path/to/export`: Output will be saved in the specified absolute path.",
+        ],
+    )
     markdown_style: Literal["GFM", "Obsidian"] = Field(
         default="GFM",
         title="Markdown Style",
@@ -122,6 +135,15 @@ class ExportConfig(BaseModel):
             "Available styles:\n"
             "  - GFM: GitHub Flavored Markdown\n"
             "  - Obsidian: Markdown style used by Obsidian.md"
+        ),
+    )
+    page_href: Literal["absolute", "relative"] = Field(
+        default="relative",
+        title="Page Href Style",
+        description=(
+            "How to generate page href paths. Options: absolute, relative.\n"
+            "  - `relative` links are relative to the page"
+            "  - `absolute` links start from the configured output path"
         ),
     )
     page_path: str = Field(
@@ -147,7 +169,7 @@ class ExportConfig(BaseModel):
         description=(
             "How to generate attachment href paths. Options: absolute, relative.\n"
             "  - `relative` links are relative to the page"
-            "  - `absolute` links start from the output root"
+            "  - `absolute` links start from the configured output path"
         ),
     )
     attachment_path: str = Field(
@@ -223,7 +245,7 @@ def get_settings() -> ConfigModel:
     )
 
 
-def set_by_path(obj: dict, path: str, value: object) -> None:
+def _set_by_path(obj: dict, path: str, value: object) -> None:
     """Set a value in a nested dict using dot notation path."""
     keys = path.split(".")
     current = obj
@@ -237,7 +259,7 @@ def set_by_path(obj: dict, path: str, value: object) -> None:
 def set_setting(path: str, value: object) -> None:
     """Set a setting by dot-path and save to config file."""
     data = load_app_data()
-    set_by_path(data, path, value)
+    _set_by_path(data, path, value)
     try:
         settings = ConfigModel.model_validate(data)
     except ValidationError as e:
@@ -275,5 +297,5 @@ def reset_to_defaults(path: str | None = None) -> None:
         return
     data = load_app_data()
     default_value = get_default_value_by_path(path)
-    set_by_path(data, path, default_value)
+    _set_by_path(data, path, default_value)
     save_app_data(data)
