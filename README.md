@@ -2,7 +2,7 @@
   <a href="https://github.com/Spenhouet/confluence-markdown-exporter"><img src="https://raw.githubusercontent.com/Spenhouet/confluence-markdown-exporter/b8caaba935eea7e7017b887c86a740cb7bf99708/logo.png" alt="confluence-markdown-exporter"></a>
 </p>
 <p align="center">
-    <em>The confluence-markdown-exporter exports Confluence pages in Markdown format. This exporter helps in migrating content from Confluence to platforms that support Markdown e.g. Obsidian, Gollum, Azure DevOps, Foam, Dendron and more.</em>
+    <em>The confluence-markdown-exporter exports Confluence pages in Markdown format. This exporter helps in migrating content from Confluence to platforms that support Markdown e.g. Obsidian, Gollum, Azure DevOps (ADO), Foam, Dendron and more.</em>
 </p>
 <p align="center">
   <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/publish.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/publish.yml/badge.svg" alt="Build and publish to PyPI"></a>
@@ -136,16 +136,17 @@ This will open a menu where you can:
 | Key | Description | Default |
 |-----|-------------|---------|
 | export.output_path | The directory where all exported files and folders will be written. Used as the base for relative and absolute links. | ./ (current working directory) |
-| export.markdown_style | Markdown style: GFM or Obsidian | GFM |
 | export.page_href | How to generate links to pages in Markdown. Options: "relative" (default) or "absolute". "relative" links are relative to the page, "absolute" links start from the configured output path. | relative |
 | export.page_path | Path template for exported pages | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md |
 | export.attachment_href | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute". "relative" links are relative to the page, "absolute" links start from the configured output path. | relative |
 | export.attachment_path | Path template for attachments | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
+| export.page_breadcrumbs | Whether to include breadcrumb links at the top of the page. | True |
+| export.include_document_title | Whether to include the document title in the exported markdown file. | True |
 | retry_config.backoff_and_retry | Enable automatic retry with exponential backoff | True |
 | retry_config.backoff_factor | Multiplier for exponential backoff | 2 |
 | retry_config.max_backoff_seconds | Maximum seconds to wait between retries | 60 |
 | retry_config.max_backoff_retries | Maximum number of retry attempts | 5 |
-| retry_config.retry_status_codes | HTTP status codes that trigger a retry | [413, 429, 502, 503, 504] |
+| retry_config.retry_status_codes | HTTP status codes that trigger a retry | \[413, 429, 502, 503, 504\] |
 | auth.confluence.url | Confluence instance URL | "" |
 | auth.confluence.username | Confluence username/email | "" |
 | auth.confluence.api_token | Confluence API token | "" |
@@ -156,6 +157,19 @@ This will open a menu where you can:
 | auth.jira.pat | Jira Personal Access Token | "" |
 
 You can always view and change the current config with the interactive menu above.
+
+### Configuration for Target Systems
+
+Some platforms have specific requirements for Markdown formatting, file structure, or metadata. You can adjust the export configuration to optimize output for your target system. Below are some common examples:
+
+#### Obsidian
+
+- **Document Titel**: Obsidian already displays the document title. Ensure `export.include_document_title` is `False` so the documented title is not redundant.
+- **Breadcrumbs**: Obsidian already displays page breadcrumbs. Ensure `export.breadcrumbs` is `False` so the breadcrumbs are not redundant.
+
+#### Azure DevOps (ADO) Wikis
+
+- **Absolute Attachment Links**: Ensure `export.attachment_href` is set to `absolute`.
 
 ### Custom Config File Location
 
