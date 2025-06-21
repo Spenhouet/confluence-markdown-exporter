@@ -138,6 +138,7 @@ This will open a menu where you can:
 | export.markdown_style | Markdown style: GFM or Obsidian | GFM |
 | export.page_path | Path template for exported pages | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md |
 | export.attachment_path | Path template for attachments | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
+| export.attachment_href | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute". "relative" links are relative to the page, "absolute" links start from the output root. | relative |
 | retry_config.backoff_and_retry | Enable automatic retry with exponential backoff | True |
 | retry_config.backoff_factor | Multiplier for exponential backoff | 2 |
 | retry_config.max_backoff_seconds | Maximum seconds to wait between retries | 60 |

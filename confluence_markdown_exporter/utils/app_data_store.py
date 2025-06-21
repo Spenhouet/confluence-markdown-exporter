@@ -124,10 +124,6 @@ class ExportConfig(BaseModel):
             "  - Obsidian: Markdown style used by Obsidian.md"
         ),
     )
-    attachment_href: Literal["absolute", "relative"] = Field(
-        default="absolute",
-        description="How to generate attachment href paths. Options: absolute, relative.",
-    )
     page_path: str = Field(
         default="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md",
         title="Page Path Template",
@@ -144,6 +140,15 @@ class ExportConfig(BaseModel):
             "  - {page_title}: The title of the Confluence page."
         ),
         examples=["{space_name}/{page_title}.md"],
+    )
+    attachment_href: Literal["absolute", "relative"] = Field(
+        default="relative",
+        title="Attachment Href Style",
+        description=(
+            "How to generate attachment href paths. Options: absolute, relative.\n"
+            "  - `relative` links are relative to the page"
+            "  - `absolute` links start from the output root"
+        ),
     )
     attachment_path: str = Field(
         default="{space_name}/attachments/{attachment_file_id}{attachment_extension}",

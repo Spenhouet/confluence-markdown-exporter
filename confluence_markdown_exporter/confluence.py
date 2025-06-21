@@ -908,7 +908,7 @@ class Page(Document):
         def _get_path_for_href(self, path: Path) -> str:
             """Get the path to use in href attributes based on settings."""
             if settings.export.attachment_href == "absolute":
-                result = "/" + str(path).split("/", 1)[1]
+                result = "/" + str(path).lstrip("/")
             else:
                 result = os.path.relpath(path, self.page.export_path.parent)
             return result
