@@ -6,7 +6,18 @@ from markdownify import MarkdownConverter
 from tabulate import tabulate
 
 
+def _get_int_attr(cell: Tag, attr: str, default: str = "1") -> int:
+    val = cell.get(attr, default)
+    if isinstance(val, list):
+        val = val[0] if val else default
+    try:
+        return int(str(val))
+    except (ValueError, TypeError):
+        return int(default)
+
+
 def pad(rows: list[list[Tag]]) -> list[list[Tag]]:
+    """Pad table rows to handle rowspan and colspan for markdown conversion."""
     padded: list[list[Tag]] = []
     occ: dict[tuple[int, int], Tag] = {}
     for r, row in enumerate(rows):
@@ -18,8 +29,8 @@ def pad(rows: list[list[Tag]]) -> list[list[Tag]]:
             while (r, c) in occ:
                 cur.append(occ.pop((r, c)))
                 c += 1
-            rs = int(cell.get("rowspan", 1))  # type: ignore -
-            cs = int(cell.get("colspan", 1))  # type: ignore -
+            rs = _get_int_attr(cell, "rowspan", "1")
+            cs = _get_int_attr(cell, "colspan", "1")
             cur.append(cell)
             # Append extra cells for colspan
             for _ in range(1, cs):
@@ -43,6 +54,8 @@ def make_empty_cell() -> Tag:
 
 
 class TableConverter(MarkdownConverter):
+    """Custom MarkdownConverter for converting HTML tables to markdown tables."""
+
     def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         rows = [
             cast(list[Tag], tr.find_all(["td", "th"]))

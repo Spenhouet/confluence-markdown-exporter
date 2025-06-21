@@ -3,6 +3,7 @@ from pathlib import Path
 
 
 def save_file(file_path: Path, content: str | bytes) -> None:
+    """Save content to a file, creating parent directories as needed."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(content, bytes):
         with file_path.open("wb") as file:
