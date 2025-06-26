@@ -997,7 +997,7 @@ def ado_page_filename(title: str) -> str:
         if m.group(0) == '-':
             return '%2D'
         return urllib.parse.quote(m.group(0), safe="")
-    s = re.sub(r"[&:<>*?|\"-]", encode_special, s)
+    s = re.sub(r"[:<>*?|\"-]", encode_special, s)
     # 3. Remove leading/trailing dots
     s = s.strip(".")
     # 4. Spaces to hyphens
