@@ -71,6 +71,20 @@
         "PYTHONPATH": "${workspaceRoot}",
         "DEBUG": "true"
       }
+    },
+    {
+      "name": "Python: Config (Interactive)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
+      "justMyCode": false,
+      "args": ["config"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceRoot}",
+        "DEBUG": "true"
+      }
     }
   ]
 }

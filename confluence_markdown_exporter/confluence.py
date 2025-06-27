@@ -24,14 +24,11 @@ from bs4 import Tag
 from markdownify import ATX
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
-from pydantic import Field
-from pydantic_settings import BaseSettings
-from pydantic_settings import SettingsConfigDict
 from requests import HTTPError
 from tqdm import tqdm
 
-from confluence_markdown_exporter.api_clients import confluence
-from confluence_markdown_exporter.api_clients import jira
+from confluence_markdown_exporter.api_clients import get_api_instances
+from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
@@ -42,58 +39,8 @@ StrPath: TypeAlias = str | PathLike[str]
 
 DEBUG: bool = bool(os.getenv("DEBUG"))
 
-
-class ConverterSettings(BaseSettings):
-    """Settings for the Markdown converter."""
-
-    markdown_style: Literal["GFM", "Obsidian"] = Field(
-        default="GFM",
-        description="Markdown style to use for conversion. Options: GFM, Obsidian.",
-    )
-    page_path: str = Field(
-        default="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md",
-        description=(
-            "Path to store pages. Default: \n"
-            "  {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md\n"
-            "Variables:\n"
-            "  {space_key}       - Space key\n"
-            "  {space_name}      - Space name\n"
-            "  {homepage_id}     - Homepage ID\n"
-            "  {homepage_title}  - Homepage title\n"
-            "  {ancestor_ids}    - Ancestor IDs (separated by '/')\n"
-            "  {ancestor_titles} - Ancestor titles (separated by '/')\n"
-            "  {page_id}         - Page ID\n"
-            "  {page_title}      - Page title"
-        ),
-    )
-    attachment_path: str = Field(
-        default="{space_name}/attachments/{attachment_file_id}{attachment_extension}",
-        description=(
-            "Path to store attachments. Default: \n"
-            "  {space_name}/attachments/{attachment_file_id}{attachment_extension}\n"
-            "Variables:\n"
-            "  {space_key}           - Space key\n"
-            "  {space_name}          - Space name\n"
-            "  {homepage_id}         - Homepage ID\n"
-            "  {homepage_title}      - Homepage title\n"
-            "  {ancestor_ids}        - Ancestor IDs (separated by '/')\n"
-            "  {ancestor_titles}     - Ancestor titles (separated by '/')\n"
-            "  {attachment_id}       - Attachment ID\n"
-            "  {attachment_title}    - Attachment title\n"
-            "  {attachment_file_id}  - Attachment file ID\n"
-            "  {attachment_extension} - Attachment file extension (including leading dot)"
-        ),
-    )
-    page_filename_ado: bool = Field(
-        default=False,
-        description="If true, the export filename will be page_title URL encoded to ADO standards.",
-        env="PAGE_FILENAME_ADO",
-    )
-
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
-
-
-converter_settings = ConverterSettings()
+settings = get_settings()
+confluence, jira = get_api_instances()
 
 
 class JiraIssue(BaseModel):
@@ -177,8 +124,8 @@ class Organization(BaseModel):
     def pages(self) -> list[int]:
         return [page for space in self.spaces for page in space.pages]
 
-    def export(self, export_path: StrPath) -> None:
-        export_pages(self.pages, export_path)
+    def export(self) -> None:
+        export_pages(self.pages)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Organization":
@@ -210,8 +157,8 @@ class Space(BaseModel):
         homepage = Page.from_id(self.homepage)
         return [self.homepage, *homepage.descendants]
 
-    def export(self, export_path: StrPath) -> None:
-        export_pages(self.pages, export_path)
+    def export(self) -> None:
+        export_pages(self.pages)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Space":
@@ -297,7 +244,7 @@ class Attachment(Document):
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(converter_settings.attachment_path.replace("{", "${"))
+        filepath_template = Template(settings.export.attachment_path.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
@@ -347,8 +294,8 @@ class Attachment(Document):
 
         return attachments
 
-    def export(self, export_path: StrPath) -> None:
-        filepath = Path(export_path) / self.export_path
+    def export(self) -> None:
+        filepath = settings.export.output_path / self.export_path
         if filepath.exists():
             return
 
@@ -418,88 +365,83 @@ class Page(Document):
     @property
     def _template_vars(self) -> dict[str, str]:
         base_vars = super()._template_vars
-        page_title = self.title
-        if converter_settings.page_filename_ado:
-            page_title = ado_page_filename(page_title)
-        else:
-            page_title = sanitize_filename(page_title)
+        page_title = sanitize_filename(self.title)
+        ado_page_title = ado_page_filename(self.title)
         return {
             **base_vars,
             "page_id": str(self.id),
             "page_title": page_title,
+            "ado_page_title": ado_page_title
         }
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(converter_settings.page_path.replace("{", "${"))
+        filepath_template = Template(settings.export.page_path.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @property
     def html(self) -> str:
-        match converter_settings.markdown_style:
-            case "GFM":
-                return f"<h1>{self.title}</h1>{self.body}"
-            case "Obsidian":
-                return self.body
-            case _:
-                msg = f"Invalid markdown style: {converter_settings.markdown_style}"
-                raise ValueError(msg)
+        if settings.export.include_document_title:
+            return f"<h1>{self.title}</h1>{self.body}"
+        return self.body
 
     @property
     def markdown(self) -> str:
         return self.Converter(self).markdown
 
-    def export(self, export_path: StrPath) -> None:
+    def export(self) -> None:
         if DEBUG:
-            self.export_body(export_path)
-        self.export_markdown(export_path)
-        self.export_attachments(export_path)
+            self.export_body()
+        self.export_markdown()
+        self.export_attachments()
 
-    def export_with_descendants(self, export_path: StrPath) -> None:
-        export_pages([self.id, *self.descendants], export_path)
+    def export_with_descendants(self) -> None:
+        export_pages([self.id, *self.descendants])
 
-    def export_body(self, export_path: StrPath) -> None:
+    def export_body(self) -> None:
         soup = BeautifulSoup(self.html, "html.parser")
         save_file(
-            Path(export_path) / self.export_path.parent / f"{self.export_path.stem}_body_view.html",
+            settings.export.output_path
+            / self.export_path.parent
+            / f"{self.export_path.stem}_body_view.html",
             str(soup.prettify()),
         )
         soup = BeautifulSoup(self.body_export, "html.parser")
         save_file(
-            Path(export_path)
+            settings.export.output_path
             / self.export_path.parent
             / f"{self.export_path.stem}_body_export_view.html",
             str(soup.prettify()),
         )
         save_file(
-            Path(export_path)
+            settings.export.output_path
             / self.export_path.parent
             / f"{self.export_path.stem}_body_editor2.xml",
             str(self.editor2),
         )
 
-    def export_markdown(self, export_path: StrPath) -> None:
+    def export_markdown(self) -> None:
         save_file(
-            Path(export_path) / self.export_path,
+            settings.export.output_path / self.export_path,
             self.markdown,
         )
 
-    def export_attachments(self, export_path: StrPath) -> None:
+    def export_attachments(self) -> None:
         for attachment in self.attachments:
             if (
                 attachment.filename.endswith(".drawio")
                 and f"diagramName={attachment.title}" in self.body
             ):
-                attachment.export(export_path)
+                attachment.export()
                 continue
             if (
                 attachment.filename.endswith(".drawio.png")
                 and attachment.title.replace(" ", "%20") in self.body_export
             ):
-                attachment.export(export_path)
+                attachment.export()
                 continue
             if attachment.file_id in self.body:
-                attachment.export(export_path)
+                attachment.export()
                 continue
 
     def get_attachment_by_id(self, attachment_id: str) -> Attachment:
@@ -594,15 +536,11 @@ class Page(Document):
         @property
         def markdown(self) -> str:
             md_body = self.convert(self.page.html)
-            match converter_settings.markdown_style:
-                case "GFM":
-                    return f"{self.front_matter}\n{self.breadcrumbs}\n{md_body}\n"
-                case "Obsidian":
-                    return f"{self.front_matter}\n{md_body}\n"
-                case _:
-                    msg = f"Invalid markdown style: {converter_settings.markdown_style}"
-                    raise ValueError(msg)
-            return None
+            markdown = f"{self.front_matter}\n"
+            if settings.export.page_breadcrumbs:
+                markdown += f"{self.breadcrumbs}\n"
+            markdown += f"{md_body}\n"
+            return markdown
 
         @property
         def front_matter(self) -> str:
@@ -721,7 +659,7 @@ class Page(Document):
             )
 
             # Return as details element
-            return f"\n<details>\n<summary>{summary_text}</summary>\n{content}\n</details>\n"
+            return f"\n<details>\n<summary>{summary_text}</summary>\n\n{content}\n\n</details>\n\n"
 
         def convert_span(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("data-macro-name"):
@@ -737,9 +675,13 @@ class Page(Document):
             modified_header = el.find("th", {"class": "modified-column"})
             modified_header_text = modified_header.text.strip() if modified_header else "Modified"
 
+            def _get_path(p: Path) -> str:
+                attachment_path = self._get_path_for_href(p, settings.export.attachment_href)
+                return attachment_path.replace(" ", "%20")
+
             rows = [
                 {
-                    "file": f"[{att.title}]({os.path.relpath(att.export_path, self.page.export_path.parent).replace(' ', '%20')})",  # noqa: E501
+                    "file": f"[{att.title}]({_get_path(att.export_path)})",
                     "modified": f"{att.version.friendly_when} by {self.convert_user(att.version.by)}",  # noqa: E501
                 }
                 for att in self.page.attachments
@@ -867,9 +809,9 @@ class Page(Document):
                 raise ValueError(msg)
 
             page = Page.from_id(page_id)
-            relpath = os.path.relpath(page.export_path, self.page.export_path.parent)
+            page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
 
-            return f"[{page.title}]({relpath.replace(' ', '%20')})"
+            return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
         def convert_attachment_link(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
@@ -878,8 +820,8 @@ class Page(Document):
                 attachment = self.page.get_attachment_by_file_id(str(attachment_file_id))
             elif attachment_id := el.get("data-linked-resource-id"):
                 attachment = self.page.get_attachment_by_id(str(attachment_id))
-            relpath = os.path.relpath(attachment.export_path, self.page.export_path.parent)
-            return f"[{attachment.title}]({relpath.replace(' ', '%20')})"
+            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
+            return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
@@ -916,8 +858,8 @@ class Page(Document):
                 return ""
 
             attachment = self.page.get_attachment_by_file_id(str(file_id))
-            relpath = os.path.relpath(attachment.export_path, self.page.export_path.parent)
-            el["src"] = relpath.replace(" ", "%20")
+            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
+            el["src"] = path.replace(" ", "%20")
             if "_inline" in parent_tags:
                 parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
@@ -932,17 +874,15 @@ class Page(Document):
                 if not drawio_attachments or not preview_attachments:
                     return f"\n<!-- Drawio diagram `{drawio_name}` not found -->\n\n"
 
-                drawio_relpath = os.path.relpath(
-                    drawio_attachments[0].export_path,
-                    self.page.export_path.parent,
+                drawio_path = self._get_path_for_href(
+                    drawio_attachments[0].export_path, settings.export.attachment_href
                 )
-                preview_relpath = os.path.relpath(
-                    preview_attachments[0].export_path,
-                    self.page.export_path.parent,
+                preview_path = self._get_path_for_href(
+                    preview_attachments[0].export_path, settings.export.attachment_href
                 )
 
-                drawio_image_embedding = f"![{drawio_name}]({preview_relpath.replace(' ', '%20')})"
-                drawio_link = f"[{drawio_image_embedding}]({drawio_relpath.replace(' ', '%20')})"
+                drawio_image_embedding = f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
+                drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
                 return f"\n{drawio_link}\n\n"
 
             return ""
@@ -965,8 +905,20 @@ class Page(Document):
                 return ""
             return super().convert_table(table, "", parent_tags)  # type: ignore -
 
+        def _get_path_for_href(self, path: Path, style: Literal["absolute", "relative"]) -> str:
+            """Get the path to use in href attributes based on settings."""
+            if style == "absolute":
+                # Note that usually absolute would be
+                # something like this: (settings.export.output_path / path).absolute()
+                # In this case the URL will be "absolute" to the export path.
+                # This is useful for local file links.
+                result = "/" + str(path).lstrip("/")
+            else:
+                result = os.path.relpath(path, self.page.export_path.parent)
+            return result
 
-def export_page(page_id: int, output_path: StrPath) -> None:
+
+def export_page(page_id: int) -> None:
     """Export a Confluence page to Markdown.
 
     Args:
@@ -974,10 +926,10 @@ def export_page(page_id: int, output_path: StrPath) -> None:
         output_path: The output path.
     """
     page = Page.from_id(page_id)
-    page.export(output_path)
+    page.export()
 
 
-def export_pages(page_ids: list[int], output_path: StrPath) -> None:
+def export_pages(page_ids: list[int]) -> None:
     """Export a list of Confluence pages to Markdown.
 
     Args:
@@ -986,7 +938,7 @@ def export_pages(page_ids: list[int], output_path: StrPath) -> None:
     """
     for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
         pbar.set_postfix_str(f"Exporting page {page_id}")
-        export_page(page_id, output_path)
+        export_page(page_id)
 
 # Helper for ADO filename formatting
 def ado_page_filename(title: str) -> str:
