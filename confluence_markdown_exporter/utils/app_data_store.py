@@ -148,7 +148,7 @@ class ExportConfig(BaseModel):
             "  - {homepage_title}: The title of the homepage of the Confluence space.\n"
             "  - {ancestor_ids}: A slash-separated list of ancestor page IDs.\n"
             "  - {ancestor_titles}: A slash-separated list of ancestor page titles.\n"
-            "  - {ado_ancestor_titles}: Same as ancestor_titles, but follows ADO filename restrictions.\n"
+            "  - {ado_ancestor_titles}: Same as ancestor_titles, but follows ADO restrictions.\n"
             "  - {page_id}: The unique ID of the Confluence page.\n"
             "  - {page_title}: The title of the Confluence page.\n"
             "  - {ado_page_title}: Same as page_title, but follows ADO filename restrictions.\n"
