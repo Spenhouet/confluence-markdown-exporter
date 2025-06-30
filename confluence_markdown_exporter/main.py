@@ -19,17 +19,31 @@ def override_output_path_config(value: Path | None) -> None:
         set_setting("export.output_path", value)
 
 
-@app.command(help="Export a single Confluence page by ID or URL to Markdown.")
-def page(
-    page: Annotated[str, typer.Argument(help="Page ID or URL")],
-    output_path: Annotated[Path | None, typer.Argument()] = None,
-) -> None:
+def _export_page(page: str, output_path: Path | None) -> None:
+    """Export a single page."""
     from confluence_markdown_exporter.confluence import Page
 
     with measure(f"Export page {page}"):
         override_output_path_config(output_path)
         _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
         _page.export()
+
+
+@app.command(help="Export a single Confluence page by ID or URL to Markdown.")
+def page(
+    page: Annotated[str, typer.Argument(help="Page ID or URL")],
+    output_path: Annotated[Path | None, typer.Argument()] = None,
+) -> None:
+    _export_page(page, output_path)
+
+
+@app.command(help="Export multiple Confluence pages by ID or URL to Markdown.")
+def pages(
+    pages_list: Annotated[list[str], typer.Argument(help="Page IDs or URLs")],
+    output_path: Annotated[Path | None, typer.Argument()] = None,
+) -> None:
+    for page in pages_list:
+        _export_page(page, output_path)
 
 
 @app.command(help="Export a Confluence page and all its descendant pages by ID or URL to Markdown.")
