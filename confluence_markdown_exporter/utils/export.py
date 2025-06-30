@@ -70,3 +70,20 @@ def sanitize_key(s: str, connector: str = "_") -> str:
     if not re.match(r"^[a-z]", s):
         s = f"key{connector}{s}"
     return s
+
+# Helper for ADO filename formatting
+def ado_sanitize_filename(title: str) -> str:
+    # 1. /, \\, # to underscores
+    s = re.sub(r"[\\/#]", "_", title)
+    # 2. URL encode special chars :<>*?|"-
+    def encode_special(m: re.Match[str]) -> str:
+        if m.group(0) == '-':
+            return '%2D'
+        return urllib.parse.quote(m.group(0), safe="")
+    s = re.sub(r"[:<>*?|\"-]", encode_special, s)
+    # 3. Remove leading/trailing dots
+    s = s.strip(".")
+    # 4. Spaces to hyphens
+    s = s.replace(" ", "-")
+    # 5. Limit length to 200 chars
+    return s[:200]

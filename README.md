@@ -164,12 +164,14 @@ Some platforms have specific requirements for Markdown formatting, file structur
 
 #### Obsidian
 
-- **Document Titel**: Obsidian already displays the document title. Ensure `export.include_document_title` is `False` so the documented title is not redundant.
+- **Document Title**: Obsidian already displays the document title. Ensure `export.include_document_title` is `False` so the documented title is not redundant.
 - **Breadcrumbs**: Obsidian already displays page breadcrumbs. Ensure `export.breadcrumbs` is `False` so the breadcrumbs are not redundant.
 
 #### Azure DevOps (ADO) Wikis
 
 - **Absolute Attachment Links**: Ensure `export.attachment_href` is set to `absolute`.
+- **Attachment Path Template**: Set `export.attachment_path` to  `.attachments/{attachment_file_id}{attachment_extension}` so ADO Wiki can find attachments.
+- **Page Path Template**: Set `export.page_path` to `{ado_ancestor_titles}/{ado_page_title}.md` so that generated files follow ADO Wiki file name restrictions. 
 
 ### Custom Config File Location
 

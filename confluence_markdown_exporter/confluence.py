@@ -29,6 +29,7 @@ from tqdm import tqdm
 
 from confluence_markdown_exporter.api_clients import get_api_instances
 from confluence_markdown_exporter.utils.app_data_store import get_settings
+from confluence_markdown_exporter.utils.export import ado_sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
@@ -205,6 +206,9 @@ class Document(BaseModel):
             "ancestor_titles": "/".join(
                 sanitize_filename(Page.from_id(a).title) for a in self.ancestors
             ),
+            "ado_ancestor_titles": "/".join(
+                ado_sanitize_filename(Page.from_id(a).title) for a in self.ancestors
+            ),
         }
 
 
@@ -366,7 +370,7 @@ class Page(Document):
     def _template_vars(self) -> dict[str, str]:
         base_vars = super()._template_vars
         page_title = sanitize_filename(self.title)
-        ado_page_title = ado_page_filename(self.title)
+        ado_page_title = ado_sanitize_filename(self.title)
         return {
             **base_vars,
             "page_id": str(self.id),
@@ -940,20 +944,3 @@ def export_pages(page_ids: list[int]) -> None:
         pbar.set_postfix_str(f"Exporting page {page_id}")
         export_page(page_id)
 
-# Helper for ADO filename formatting
-def ado_page_filename(title: str) -> str:
-    # 1. /, \\, # to underscores 
-    s = re.sub(r"[\\/#]", "_", title)
-    # 2. URL encode special chars :<>*?|"-
-    def encode_special(m):
-        if m.group(0) == '-':
-            return '%2D'
-        return urllib.parse.quote(m.group(0), safe="")
-    s = re.sub(r"[:<>*?|\"-]", encode_special, s)
-    # 3. Remove leading/trailing dots
-    s = s.strip(".")
-    # 4. Spaces to hyphens
-    s = s.replace(" ", "-")
-    # 5. Limit length to 200 chars
-    s = s[:200]
-    return s
