@@ -175,7 +175,6 @@ Some platforms have specific requirements for Markdown formatting, file structur
     - Set `export.filename_encode` to `:< >*?|\"-`
     - Set `export.filename_replace` to `\\/#` and `filename_replace_with` to `_`
     - Set `export.filename_length` to `200`
-- **Page Path Template**: Set `export.page_path` to `{ancestor_titles}/{page_title}.md` so that generated files follow ADO Wiki file name restrictions. 
 
 ### Custom Config File Location
 
