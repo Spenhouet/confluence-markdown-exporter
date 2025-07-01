@@ -1,7 +1,8 @@
 import re
 import urllib.parse
-from confluence_markdown_exporter.utils.app_data_store import ExportConfig
 from pathlib import Path
+
+from confluence_markdown_exporter.utils.app_data_store import ExportConfig
 
 
 def save_file(file_path: Path, content: str | bytes) -> None:
