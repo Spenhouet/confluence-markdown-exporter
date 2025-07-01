@@ -200,7 +200,10 @@ class Document(BaseModel):
             "space_key": sanitize_filename(self.space.key, settings.export),
             "space_name": sanitize_filename(self.space.name, settings.export),
             "homepage_id": str(self.space.homepage),
-            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title, settings.export),
+            "homepage_title": sanitize_filename(
+                Page.from_id(self.space.homepage).title,
+                settings.export
+            ),
             "ancestor_ids": "/".join(str(a) for a in self.ancestors),
             "ancestor_titles": "/".join(
                 sanitize_filename(Page.from_id(a).title, settings.export) for a in self.ancestors

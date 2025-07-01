@@ -1,7 +1,7 @@
 import re
 import urllib.parse
-from pathlib import Path
 from confluence_markdown_exporter.utils.app_data_store import ExportConfig
+from pathlib import Path
 
 
 def save_file(file_path: Path, content: str | bytes) -> None:
@@ -26,7 +26,7 @@ def sanitize_filename(filename: str, options: ExportConfig) -> str:
 
     Args:
         filename: The original filename.
-        replacement: Replacement for forbidden characters.
+        options: The Export settings.
 
     Returns:
         A sanitized filename string.
