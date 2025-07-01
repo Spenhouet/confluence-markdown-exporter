@@ -170,7 +170,7 @@ Some platforms have specific requirements for Markdown formatting, file structur
 #### Azure DevOps (ADO) Wikis
 
 - **Absolute Attachment Links**: Ensure `export.attachment_href` is set to `absolute`.
-- **Attachment Path Template**: Set `export.attachment_path` to  `.attachments/{attachment_file_id}{attachment_extension}` so ADO Wiki can find attachments.
+- **Attachment Path Template**: Set `export.attachment_path` to  `.attachments/{attachment_raw_file_id}{attachment_extension}` so ADO Wiki can find attachments.
 - **Filename sanitizing**: 
     - Set `export.filename_encode` to `:< >*?|\"-`
     - Set `export.filename_replace` to `\\/#` and `filename_replace_with` to `_`

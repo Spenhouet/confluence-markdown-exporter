@@ -241,6 +241,8 @@ class Attachment(Document):
             **super()._template_vars,
             "attachment_id": str(self.id),
             "attachment_title": sanitize_filename(self.title, settings.export),
+            # Attachments are files so the raw id should be safe to use?
+            "attachment_raw_file_id": self.file_id,
             "attachment_file_id": sanitize_filename(self.file_id, settings.export),
             "attachment_extension": self.extension,
         }

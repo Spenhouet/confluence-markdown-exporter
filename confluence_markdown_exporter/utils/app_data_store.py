@@ -177,6 +177,7 @@ class ExportConfig(BaseModel):
             "  - {attachment_id}: The unique ID of the attachment.\n"
             "  - {attachment_title}: The title of the attachment.\n"
             "  - {attachment_file_id}: The file ID of the attachment.\n"
+            "  - {attachment_raw_file_id}: The unsanitized file ID of the attachment.\n"
             "  - {attachment_extension}: The file extension of the attachment, "
             "including the leading dot."
         ),
