@@ -1,6 +1,7 @@
 import re
 import urllib.parse
 from pathlib import Path
+from confluence_markdown_exporter.utils.app_data_store import ExportConfig
 
 
 def save_file(file_path: Path, content: str | bytes) -> None:
@@ -17,7 +18,7 @@ def save_file(file_path: Path, content: str | bytes) -> None:
         raise TypeError(msg)
 
 
-def sanitize_filename(filename: str, replacement: str = "_") -> str:
+def sanitize_filename(filename: str, options: ExportConfig) -> str:
     """Sanitize a filename for cross-platform compatibility.
 
     Replaces forbidden characters with a replacement string,
@@ -31,8 +32,19 @@ def sanitize_filename(filename: str, replacement: str = "_") -> str:
         A sanitized filename string.
     """
     # Define forbidden characters (Windows + POSIX)
-    forbidden_pattern = r'[<>:"/\\|?*\0]'
-    sanitized = re.sub(forbidden_pattern, replacement, filename)
+    forbidden_pattern = re.compile(f"[{options.filename_replace}]")
+    sanitized = re.sub(forbidden_pattern, options.filename_replace_with, filename)
+
+    if options.filename_encode:
+        encode_pattern = re.compile(f"[{options.filename_encode}]")
+        def encode_special(m: re.Match[str]) -> str:
+            # These are ADO-specific exceptions to URI encoding.
+            if m.group(0) == '-':
+                return '%2D'
+            if m.group(0) == ' ':
+                return '-'
+            return urllib.parse.quote(m.group(0), safe="")
+        sanitized = re.sub(encode_pattern, encode_special, sanitized)
 
     # Trim spaces and dots from the end
     sanitized = sanitized.rstrip(" .")
@@ -51,8 +63,8 @@ def sanitize_filename(filename: str, replacement: str = "_") -> str:
     if name in reserved:
         sanitized = f"{sanitized}_"
 
-    # Limit length to 255 characters (common filesystem limit)
-    return sanitized[:255]
+    # Limit length to specificed number of characters
+    return sanitized[:options.filename_length]
 
 
 def sanitize_key(s: str, connector: str = "_") -> str:
@@ -71,20 +83,3 @@ def sanitize_key(s: str, connector: str = "_") -> str:
     if not re.match(r"^[a-z]", s):
         s = f"key{connector}{s}"
     return s
-
-# Helper for ADO filename formatting
-def ado_sanitize_filename(title: str) -> str:
-    # 1. /, \\, # to underscores
-    s = re.sub(r"[\\/#]", "_", title)
-    # 2. URL encode special chars :<>*?|"-
-    def encode_special(m: re.Match[str]) -> str:
-        if m.group(0) == '-':
-            return '%2D'
-        return urllib.parse.quote(m.group(0), safe="")
-    s = re.sub(r"[:<>*?|\"-]", encode_special, s)
-    # 3. Remove leading/trailing dots
-    s = s.strip(".")
-    # 4. Spaces to hyphens
-    s = s.replace(" ", "-")
-    # 5. Limit length to 200 chars
-    return s[:200]

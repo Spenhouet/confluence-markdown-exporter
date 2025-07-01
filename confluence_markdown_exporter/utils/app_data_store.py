@@ -148,10 +148,8 @@ class ExportConfig(BaseModel):
             "  - {homepage_title}: The title of the homepage of the Confluence space.\n"
             "  - {ancestor_ids}: A slash-separated list of ancestor page IDs.\n"
             "  - {ancestor_titles}: A slash-separated list of ancestor page titles.\n"
-            "  - {ado_ancestor_titles}: Same as ancestor_titles, but follows ADO restrictions.\n"
             "  - {page_id}: The unique ID of the Confluence page.\n"
             "  - {page_title}: The title of the Confluence page.\n"
-            "  - {ado_page_title}: Same as page_title, but follows ADO filename restrictions.\n"
         ),
         examples=["{space_name}/{page_title}.md"],
     )
@@ -188,6 +186,26 @@ class ExportConfig(BaseModel):
         default=True,
         title="Page Breadcrumbs",
         description="Whether to include breadcrumb links at the top of the page.",
+    )
+    filename_encode: str = Field(
+        default="",
+        title="Filename Encode",
+        description="Filename characters to encode. Leave empty to disable.",
+    )
+    filename_replace: str = Field(
+        default="<>:\"/\\|?*\0",
+        title="Filename Replace",
+        description="Forbidden filename characters to replace.",
+    )
+    filename_replace_with: str = Field(
+        default="_",
+        title="Filename Replace With",
+        description="Replacement character for filename_replace.",
+    )
+    filename_length: int = Field(
+        default=255,
+        title="Filename Length",
+        description="Maximum length of the filename.",
     )
     include_document_title: bool = Field(
         default=True,

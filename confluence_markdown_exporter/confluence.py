@@ -29,7 +29,6 @@ from tqdm import tqdm
 
 from confluence_markdown_exporter.api_clients import get_api_instances
 from confluence_markdown_exporter.utils.app_data_store import get_settings
-from confluence_markdown_exporter.utils.export import ado_sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
@@ -198,16 +197,13 @@ class Document(BaseModel):
     @property
     def _template_vars(self) -> dict[str, str]:
         return {
-            "space_key": sanitize_filename(self.space.key),
-            "space_name": sanitize_filename(self.space.name),
+            "space_key": sanitize_filename(self.space.key, settings.export),
+            "space_name": sanitize_filename(self.space.name, settings.export),
             "homepage_id": str(self.space.homepage),
-            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title),
+            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title, settings.export),
             "ancestor_ids": "/".join(str(a) for a in self.ancestors),
             "ancestor_titles": "/".join(
-                sanitize_filename(Page.from_id(a).title) for a in self.ancestors
-            ),
-            "ado_ancestor_titles": "/".join(
-                ado_sanitize_filename(Page.from_id(a).title) for a in self.ancestors
+                sanitize_filename(Page.from_id(a).title, settings.export) for a in self.ancestors
             ),
         }
 
@@ -241,8 +237,8 @@ class Attachment(Document):
         return {
             **super()._template_vars,
             "attachment_id": str(self.id),
-            "attachment_title": sanitize_filename(self.title),
-            "attachment_file_id": sanitize_filename(self.file_id),
+            "attachment_title": sanitize_filename(self.title, settings.export),
+            "attachment_file_id": sanitize_filename(self.file_id, settings.export),
             "attachment_extension": self.extension,
         }
 
@@ -369,13 +365,11 @@ class Page(Document):
     @property
     def _template_vars(self) -> dict[str, str]:
         base_vars = super()._template_vars
-        page_title = sanitize_filename(self.title)
-        ado_page_title = ado_sanitize_filename(self.title)
+        page_title = sanitize_filename(self.title, settings.export)
         return {
             **base_vars,
             "page_id": str(self.id),
             "page_title": page_title,
-            "ado_page_title": ado_page_title
         }
 
     @property
