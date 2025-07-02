@@ -98,4 +98,7 @@ def escape_character_class(s: str) -> str:
         The input string with special regex character class characters escaped.
     """
     # Escape backslash first, then other special characters for character classes
-    return s.replace('\\', r'\\').replace('-', r'\-').replace(']', r'\]')
+    return (s.replace('\\', r'\\')
+            .replace('-', r'\-')
+            .replace(']', r'\]')
+            .replace('^', r'\^'))
