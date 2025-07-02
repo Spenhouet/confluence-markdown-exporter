@@ -33,11 +33,13 @@ def sanitize_filename(filename: str, options: ExportConfig) -> str:
         A sanitized filename string.
     """
     # Define forbidden characters (Windows + POSIX)
-    forbidden_pattern = re.compile(f"[{options.filename_replace}]")
+    replace_re = escape_character_class(options.filename_replace)
+    forbidden_pattern = re.compile(f"[{replace_re}]")
     sanitized = re.sub(forbidden_pattern, options.filename_replace_with, filename)
 
     if options.filename_encode:
-        encode_pattern = re.compile(f"[{options.filename_encode}]")
+        encode_re = escape_character_class(options.filename_encode)
+        encode_pattern = re.compile(f"[{encode_re}]")
         def encode_special(m: re.Match[str]) -> str:
             # These are ADO-specific exceptions to URI encoding.
             if m.group(0) == '-':
@@ -84,3 +86,16 @@ def sanitize_key(s: str, connector: str = "_") -> str:
     if not re.match(r"^[a-z]", s):
         s = f"key{connector}{s}"
     return s
+
+
+def escape_character_class(s: str) -> str:
+    """Escape characters for use in a regex character class.
+
+    Args:
+        s: The string containing characters to escape.
+
+    Returns:
+        The input string with special regex character class characters escaped.
+    """
+    # Escape backslash first, then other special characters for character classes
+    return s.replace('\\', r'\\').replace('-', r'\-').replace(']', r'\]')
