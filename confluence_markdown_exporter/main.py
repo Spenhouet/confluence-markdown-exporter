@@ -33,17 +33,18 @@ def page(
             _page.export()
 
 
-@app.command(help="Export a Confluence page and all its descendant pages by ID or URL to Markdown.")
+@app.command(help="Export Confluence pages and their descendant pages by ID or URL to Markdown.")
 def page_with_descendants(
-    page: Annotated[str, typer.Argument(help="Page ID or URL")],
+    pages: Annotated[list[str], typer.Argument(help="Page ID(s) or URL(s)")],
     output_path: Annotated[Path | None, typer.Argument()] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
 
-    with measure(f"Export page {page} with descendants"):
-        override_output_path_config(output_path)
-        _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
-        _page.export_with_descendants()
+    with measure(f"Export pages {', '.join(pages)} with descendants"):
+        for page in pages:
+            override_output_path_config(output_path)
+            _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
+            _page.export_with_descendants()
 
 
 @app.command(help="Export all Confluence pages of a single space to Markdown.")
