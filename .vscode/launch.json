@@ -17,7 +17,7 @@
       }
     },
     {
-      "name": "Python: Export Page by ID or URL",
+      "name": "Python: Export Page(s) by ID or URL",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
@@ -31,21 +31,7 @@
       }
     },
     {
-      "name": "Python: Export Multiple Pages by ID or URL",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
-      "justMyCode": false,
-      "args": ["pages", "<page-id-1>", "<page-id-2>", "<page-id-3>", "scratch"],
-      "console": "integratedTerminal",
-      "cwd": "${workspaceFolder}",
-      "env": {
-        "PYTHONPATH": "${workspaceRoot}",
-        "DEBUG": "true"
-      }
-    },
-    {
-      "name": "Python: Export Page with Descendants",
+      "name": "Python: Export Page(s) with Descendants",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
