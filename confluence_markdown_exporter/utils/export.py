@@ -1,8 +1,49 @@
+import json
 import re
-import urllib.parse
 from pathlib import Path
 
-from confluence_markdown_exporter.utils.app_data_store import ExportConfig
+from confluence_markdown_exporter.utils.app_data_store import get_settings
+
+settings = get_settings()
+export_options = settings.export
+
+
+def parse_encode_setting(encode_setting: str) -> dict[str, str]:
+    """Parse encoding setting containing character mapping.
+
+    Args:
+        encode_setting: JSON object content without braces
+            '"char1":"replacement1","char2":"replacement2"'
+
+    Returns:
+        Dictionary mapping characters to their replacements
+
+    Examples:
+        "" -> {}
+        '" ":"%2D","-":"%2D"' -> {" ": "%2D", "-": "%2D"}
+        '" ":"dash","-":"%2D"' -> {" ": "dash", "-": "%2D"}
+        '"=":" equals "' -> {"=": " equals "}
+
+    Note:
+        Uses JSON format for mapping to handle all characters unambiguously.
+        Curly braces are added automatically before parsing.
+    """
+    if not encode_setting:
+        return {}
+
+    # Add curly braces to make it valid JSON
+    json_str = f"{{{encode_setting}}}"
+
+    # Use JSON parsing for robust and unambiguous parsing
+    try:
+        mapping = json.loads(json_str)
+        if isinstance(mapping, dict):
+            return mapping
+    except (json.JSONDecodeError, TypeError):
+        # Fallback: if parsing fails, return empty mapping
+        pass
+
+    return {}
 
 
 def save_file(file_path: Path, content: str | bytes) -> None:
@@ -19,35 +60,34 @@ def save_file(file_path: Path, content: str | bytes) -> None:
         raise TypeError(msg)
 
 
-def sanitize_filename(filename: str, options: ExportConfig) -> str:
+def sanitize_filename(filename: str) -> str:
     """Sanitize a filename for cross-platform compatibility.
 
-    Replaces forbidden characters with a replacement string,
+    Replaces characters based on encoding mapping,
     trims trailing spaces and dots, and prevents reserved names.
 
     Args:
         filename: The original filename.
-        options: The Export settings.
 
     Returns:
         A sanitized filename string.
     """
-    # Define forbidden characters (Windows + POSIX)
-    replace_re = escape_character_class(options.filename_replace)
-    forbidden_pattern = re.compile(f"[{replace_re}]")
-    sanitized = re.sub(forbidden_pattern, options.filename_replace_with, filename)
+    sanitized = filename
 
-    if options.filename_encode:
-        encode_re = escape_character_class(options.filename_encode)
-        encode_pattern = re.compile(f"[{encode_re}]")
-        def encode_special(m: re.Match[str]) -> str:
-            # These are ADO-specific exceptions to URI encoding.
-            if m.group(0) == '-':
-                return '%2D'
-            if m.group(0) == ' ':
-                return '-'
-            return urllib.parse.quote(m.group(0), safe="")
-        sanitized = re.sub(encode_pattern, encode_special, sanitized)
+    if export_options.filename_encoding:
+        encode_map = parse_encode_setting(export_options.filename_encoding)
+
+        # Create pattern from all characters that have mappings
+        if encode_map:
+            chars_to_encode = "".join(encode_map.keys())
+            encode_re = escape_character_class(chars_to_encode)
+            encode_pattern = re.compile(f"[{encode_re}]")
+
+            def map_char(m: re.Match[str]) -> str:
+                char = m.group(0)
+                return encode_map[char]
+
+            sanitized = re.sub(encode_pattern, map_char, sanitized)
 
     # Trim spaces and dots from the end
     sanitized = sanitized.rstrip(" .")
@@ -67,7 +107,7 @@ def sanitize_filename(filename: str, options: ExportConfig) -> str:
         sanitized = f"{sanitized}_"
 
     # Limit length to specificed number of characters
-    return sanitized[:options.filename_length]
+    return sanitized[: export_options.filename_length]
 
 
 def sanitize_key(s: str, connector: str = "_") -> str:
@@ -98,7 +138,4 @@ def escape_character_class(s: str) -> str:
         The input string with special regex character class characters escaped.
     """
     # Escape backslash first, then other special characters for character classes
-    return (s.replace('\\', r'\\')
-            .replace('-', r'\-')
-            .replace(']', r'\]')
-            .replace('^', r'\^'))
+    return s.replace("\\", r"\\").replace("-", r"\-").replace("]", r"\]").replace("^", r"\^")

@@ -177,8 +177,7 @@ class ExportConfig(BaseModel):
             "  - {attachment_id}: The unique ID of the attachment.\n"
             "  - {attachment_title}: The title of the attachment.\n"
             "  - {attachment_file_id}: The file ID of the attachment.\n"
-            "  - {attachment_raw_file_id}: The unsanitized file ID of the attachment.\n"
-            "  - {attachment_extension}: The file extension of the attachment, "
+            "  - {attachment_extension}: The file extension of the attachment,\n"
             "including the leading dot."
         ),
         examples=["{space_name}/attachments/{attachment_file_id}{attachment_extension}"],
@@ -188,20 +187,18 @@ class ExportConfig(BaseModel):
         title="Page Breadcrumbs",
         description="Whether to include breadcrumb links at the top of the page.",
     )
-    filename_encode: str = Field(
-        default="",
-        title="Filename Encode",
-        description="Filename characters to encode. Leave empty to disable.",
-    )
-    filename_replace: str = Field(
-        default="<>:\"/\\|?*\0",
-        title="Filename Replace",
-        description="Forbidden filename characters to replace.",
-    )
-    filename_replace_with: str = Field(
-        default="_",
-        title="Filename Replace With",
-        description="Replacement character for filename_replace.",
+    filename_encoding: str = Field(
+        default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_"',
+        title="Filename Encoding",
+        description=(
+            "List character-to-replacement pairs, separated by commas. "
+            'Each pair is written as "character":"replacement". '
+            "Leave empty to disable all character replacements."
+        ),
+        examples=[
+            '" ":"-","-":"%2D"',  # Replace spaces with dash and dashes with %2D
+            '"=":" equals "',  # Replace equals sign with " equals "
+        ],
     )
     filename_length: int = Field(
         default=255,

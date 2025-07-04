@@ -197,16 +197,13 @@ class Document(BaseModel):
     @property
     def _template_vars(self) -> dict[str, str]:
         return {
-            "space_key": sanitize_filename(self.space.key, settings.export),
-            "space_name": sanitize_filename(self.space.name, settings.export),
+            "space_key": sanitize_filename(self.space.key),
+            "space_name": sanitize_filename(self.space.name),
             "homepage_id": str(self.space.homepage),
-            "homepage_title": sanitize_filename(
-                Page.from_id(self.space.homepage).title,
-                settings.export
-            ),
+            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title),
             "ancestor_ids": "/".join(str(a) for a in self.ancestors),
             "ancestor_titles": "/".join(
-                sanitize_filename(Page.from_id(a).title, settings.export) for a in self.ancestors
+                sanitize_filename(Page.from_id(a).title) for a in self.ancestors
             ),
         }
 
@@ -240,10 +237,8 @@ class Attachment(Document):
         return {
             **super()._template_vars,
             "attachment_id": str(self.id),
-            "attachment_title": sanitize_filename(self.title, settings.export),
-            # Attachments are files so the raw id should be safe to use?
-            "attachment_raw_file_id": self.file_id,
-            "attachment_file_id": sanitize_filename(self.file_id, settings.export),
+            "attachment_title": sanitize_filename(self.title),
+            "attachment_file_id": sanitize_filename(self.file_id),
             "attachment_extension": self.extension,
         }
 
@@ -369,12 +364,10 @@ class Page(Document):
 
     @property
     def _template_vars(self) -> dict[str, str]:
-        base_vars = super()._template_vars
-        page_title = sanitize_filename(self.title, settings.export)
         return {
-            **base_vars,
+            **super()._template_vars,
             "page_id": str(self.id),
-            "page_title": page_title,
+            "page_title": sanitize_filename(self.title),
         }
 
     @property
@@ -942,4 +935,3 @@ def export_pages(page_ids: list[int]) -> None:
     for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
         pbar.set_postfix_str(f"Exporting page {page_id}")
         export_page(page_id)
-

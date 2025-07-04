@@ -136,11 +136,13 @@ This will open a menu where you can:
 | Key | Description | Default |
 |-----|-------------|---------|
 | export.output_path | The directory where all exported files and folders will be written. Used as the base for relative and absolute links. | ./ (current working directory) |
-| export.page_href | How to generate links to pages in Markdown. Options: "relative" (default) or "absolute". "relative" links are relative to the page, "absolute" links start from the configured output path. | relative |
+| export.page_href | How to generate links to pages in Markdown. Options: "relative" (default) or "absolute". | relative |
 | export.page_path | Path template for exported pages | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md |
-| export.attachment_href | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute". "relative" links are relative to the page, "absolute" links start from the configured output path. | relative |
+| export.attachment_href | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute". | relative |
 | export.attachment_path | Path template for attachments | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
 | export.page_breadcrumbs | Whether to include breadcrumb links at the top of the page. | True |
+| export.filename_encoding | Character mapping for filename encoding. | Default mappings for forbidden characters. |
+| export.filename_length | Maximum length of filenames. | 255 |
 | export.include_document_title | Whether to include the document title in the exported markdown file. | True |
 | retry_config.backoff_and_retry | Enable automatic retry with exponential backoff | True |
 | retry_config.backoff_factor | Multiplier for exponential backoff | 2 |
@@ -172,8 +174,7 @@ Some platforms have specific requirements for Markdown formatting, file structur
 - **Absolute Attachment Links**: Ensure `export.attachment_href` is set to `absolute`.
 - **Attachment Path Template**: Set `export.attachment_path` to  `.attachments/{attachment_raw_file_id}{attachment_extension}` so ADO Wiki can find attachments.
 - **Filename sanitizing**: 
-    - Set `export.filename_encode` to `:< >*?|\"-`
-    - Set `export.filename_replace` to `\\/#` and `filename_replace_with` to `_`
+    - Set `export.filename_encoding` to `" ":"-","-":"%2D","\\\\":"_","#":"_","/":"_"` for ADO compatibility (spaces become `-`, dashes become `%2D`, and forbidden characters become `_`)
     - Set `export.filename_length` to `200`
 
 ### Custom Config File Location
