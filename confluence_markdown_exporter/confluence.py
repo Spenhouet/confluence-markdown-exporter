@@ -33,11 +33,12 @@ from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
 from confluence_markdown_exporter.utils.table_converter import TableConverter
+from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
 JsonResponse: TypeAlias = dict
 StrPath: TypeAlias = str | PathLike[str]
 
-DEBUG: bool = os.getenv("DEBUG", "").lower() in {"true", "1"}
+DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
 settings = get_settings()
 confluence, jira = get_api_instances()

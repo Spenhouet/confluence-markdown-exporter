@@ -7,8 +7,9 @@ import typer
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 from confluence_markdown_exporter.utils.measure_time import measure
+from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
-DEBUG: bool = os.getenv("DEBUG", "").lower() in {"true", "1"}
+DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
 app = typer.Typer()
 
