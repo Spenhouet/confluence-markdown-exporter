@@ -12,7 +12,7 @@ from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 
-DEBUG: bool = bool(os.getenv("DEBUG"))
+DEBUG: bool = os.getenv("DEBUG", "").lower() in {"true", "1"}
 
 
 def response_hook(

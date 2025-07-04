@@ -37,7 +37,7 @@ from confluence_markdown_exporter.utils.table_converter import TableConverter
 JsonResponse: TypeAlias = dict
 StrPath: TypeAlias = str | PathLike[str]
 
-DEBUG: bool = bool(os.getenv("DEBUG"))
+DEBUG: bool = os.getenv("DEBUG", "").lower() in {"true", "1"}
 
 settings = get_settings()
 confluence, jira = get_api_instances()
