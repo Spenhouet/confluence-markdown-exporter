@@ -11,8 +11,9 @@ from confluence_markdown_exporter.utils.app_data_store import ApiDetails
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
+from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
-DEBUG: bool = bool(os.getenv("DEBUG"))
+DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
 
 def response_hook(
