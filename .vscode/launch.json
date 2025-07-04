@@ -22,7 +22,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["page", "<page-id> or <page-url>", "scratch"],
+      "args": ["page", "<page-id> or <page-url>", "--output-path", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -36,7 +36,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["page-with-descendants", "<page-id> or <page-url>", "scratch"],
+      "args": ["page-with-descendants", "<page-id> or <page-url>", "--output-path", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -50,7 +50,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["space", "<space-key>", "scratch"],
+      "args": ["space", "<space-key>", "--output-path", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -64,7 +64,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["all-spaces", "scratch"],
+      "args": ["all-spaces", "--output-path", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {

@@ -20,9 +20,14 @@ def override_output_path_config(value: Path | None) -> None:
 
 
 @app.command(help="Export one or more Confluence pages by ID or URL to Markdown.")
-def page(
+def pages(
     pages: Annotated[list[str], typer.Argument(help="Page ID(s) or URL(s)")],
-    output_path: Annotated[Path | None, typer.Argument()] = None,
+    output_path: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory to write exported Markdown files to. Overrides config if set."
+        ),
+    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
 
@@ -34,9 +39,14 @@ def page(
 
 
 @app.command(help="Export Confluence pages and their descendant pages by ID or URL to Markdown.")
-def page_with_descendants(
+def pages_with_descendants(
     pages: Annotated[list[str], typer.Argument(help="Page ID(s) or URL(s)")],
-    output_path: Annotated[Path | None, typer.Argument()] = None,
+    output_path: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory to write exported Markdown files to. Overrides config if set."
+        ),
+    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
 
@@ -47,22 +57,33 @@ def page_with_descendants(
             _page.export_with_descendants()
 
 
-@app.command(help="Export all Confluence pages of a single space to Markdown.")
-def space(
-    space_key: Annotated[str, typer.Argument()],
-    output_path: Annotated[Path | None, typer.Argument()] = None,
+@app.command(help="Export all Confluence pages of one or more spaces to Markdown.")
+def spaces(
+    space_keys: Annotated[list[str], typer.Argument()],
+    output_path: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory to write exported Markdown files to. Overrides config if set."
+        ),
+    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Space
 
-    with measure(f"Export space {space_key}"):
-        override_output_path_config(output_path)
-        space = Space.from_key(space_key)
-        space.export()
+    with measure(f"Export spaces {', '.join(space_keys)}"):
+        for space_key in space_keys:
+            override_output_path_config(output_path)
+            space = Space.from_key(space_key)
+            space.export()
 
 
 @app.command(help="Export all Confluence pages across all spaces to Markdown.")
 def all_spaces(
-    output_path: Annotated[Path | None, typer.Argument()] = None,
+    output_path: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory to write exported Markdown files to. Overrides config if set."
+        ),
+    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Organization
 
@@ -74,9 +95,9 @@ def all_spaces(
 
 @app.command(help="Open the interactive configuration menu.")
 def config(
-    jump_to: str = typer.Option(
-        None, help="Jump directly to a config submenu, e.g. 'auth.confluence'"
-    ),
+    jump_to: Annotated[
+        str | None, typer.Option(help="Jump directly to a config submenu, e.g. 'auth.confluence'")
+    ] = None,
 ) -> None:
     """Interactive configuration menu."""
     main_config_menu_loop(jump_to)
