@@ -238,7 +238,8 @@ class Attachment(Document):
             **super()._template_vars,
             "attachment_id": str(self.id),
             "attachment_title": sanitize_filename(self.title),
-            "attachment_file_id": sanitize_filename(self.file_id),
+            # file_id is a GUID and does not need sanitized.
+            "attachment_file_id": self.file_id,
             "attachment_extension": self.extension,
         }
 
