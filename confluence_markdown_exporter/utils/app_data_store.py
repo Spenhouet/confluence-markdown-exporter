@@ -60,6 +60,14 @@ class RetryConfig(BaseModel):
         title="Retry Status Codes",
         description="HTTP status codes that should trigger a retry.",
     )
+    verify_ssl: bool = Field(
+        default=True,
+        title="Verify SSL",
+        description=(
+            "Whether to verify SSL certificates for HTTPS requests. "
+            "Set to False only if you are sure about the security of your connection."
+        ),
+    )
 
 
 class ApiDetails(BaseModel):
