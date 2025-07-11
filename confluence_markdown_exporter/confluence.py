@@ -441,11 +441,23 @@ class Page(Document):
                 attachment.export()
                 continue
 
-    def get_attachment_by_id(self, attachment_id: str) -> Attachment:
-        return next(attachment for attachment in self.attachments if attachment_id in attachment.id)
+    def get_attachment_by_id(self, attachment_id: str):
+            """
+            Confluence Server sometimes stores attachments without a file_id.
+            Fall back to the plain attachment.id and return None if nothing matches.
+            """
+            for a in self.attachments:
+                if a.id == attachment_id:
+                    return a
+                if a.file_id and attachment_id in a.file_id:
+                    return a
+            return None
 
-    def get_attachment_by_file_id(self, file_id: str) -> Attachment:
-        return next(attachment for attachment in self.attachments if attachment.file_id == file_id)
+    ef get_attachment_by_file_id(self, file_id: str):
+        for a in self.attachments:
+            if a.file_id and file_id in a.file_id:
+                return a
+        return None
 
     def get_attachments_by_title(self, title: str) -> list[Attachment]:
         return [attachment for attachment in self.attachments if attachment.title == title]
@@ -790,7 +802,9 @@ class Page(Document):
                 if page_id and page_id != "null":
                     return self.convert_page_link(int(page_id))
             if "attachment" in str(el.get("data-linked-resource-type")):
-                return self.convert_attachment_link(el, text, parent_tags)
+                link = self.convert_attachment_link(el, text, parent_tags)
+                # convert_attachment_link may return None if the attachment meta is incomplete
+                return link or f"[{text}]({el.get('href')})"
             if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el.get("href", ""))):
                 page_id = match.group(1)
                 return self.convert_page_link(int(page_id))
