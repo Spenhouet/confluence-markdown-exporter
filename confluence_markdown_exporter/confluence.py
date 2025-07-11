@@ -825,21 +825,30 @@ class Page(Document):
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
         def convert_attachment_link(self, el, text: str, parent_tags):
+            """
+            Build a Markdown link for an attachment. If the attachment metadata
+            is missing, return the original Confluence URL instead of crashing.
+            Compatible with both old and new ExportConfig field names
+            (attachment_path_template → attachment_path).
+            """
+            # 1. Resolve the attachment object
             attachment = None
-            if attachment_file_id := el.get("data-linked-resource-file-id"):
-                attachment = self.page.get_attachment_by_file_id(str(attachment_file_id))
-            elif attachment_id := el.get("data-linked-resource-id"):
-                attachment = self.page.get_attachment_by_id(str(attachment_id))
-
-# ─── Safeguard: if metadata is missing, keep the original Confluence URL ───
+            if (fid := el.get("data-linked-resource-file-id")):
+                attachment = self.page.get_attachment_by_file_id(str(fid))
+            elif (aid := el.get("data-linked-resource-id")):
+                attachment = self.page.get_attachment_by_id(str(aid))
+        
+            # 2. Graceful fallback when metadata is incomplete
             if attachment is None:
                 href = el.get("href") or text
                 return f"[{text}]({href})"
-
-            path = self._get_path_for_href(
-                attachment.export_path,
-                settings.export.attachment_path_template,
-            )
+        
+            # 3. Choose the correct path template key
+            path_template = getattr(settings.export, "attachment_path", None) \
+                or getattr(settings.export, "attachment_path_template", None)
+        
+            # 4. Build the local path and return the Markdown link
+            path = self._get_path_for_href(attachment.export_path, path_template)
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
