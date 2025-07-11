@@ -827,11 +827,21 @@ class Page(Document):
         def convert_attachment_link(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
-            if attachment_file_id := el.get("data-media-id"):
+            attachment = None
+            if attachment_file_id := el.get("data-linked-resource-file-id"):
                 attachment = self.page.get_attachment_by_file_id(str(attachment_file_id))
             elif attachment_id := el.get("data-linked-resource-id"):
                 attachment = self.page.get_attachment_by_id(str(attachment_id))
-            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
+
+# ─── Safeguard: if metadata is missing, keep the original Confluence URL ───
+            if attachment is None:
+                href = el.get("href") or text
+                return f"[{text}]({href})"
+
+            path = self._get_path_for_href(
+                attachment.export_path,
+                settings.export.attachment_path_template,
+            )
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
