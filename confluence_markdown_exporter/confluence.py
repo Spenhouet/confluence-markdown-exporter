@@ -824,9 +824,7 @@ class Page(Document):
 
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
-        def convert_attachment_link(
-            self, el: BeautifulSoup, text: str, parent_tags: list[str]
-        ) -> str:
+        def convert_attachment_link(self, el, text: str, parent_tags):
             attachment = None
             if attachment_file_id := el.get("data-linked-resource-file-id"):
                 attachment = self.page.get_attachment_by_file_id(str(attachment_file_id))
