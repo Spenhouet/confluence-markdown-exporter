@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 from typing import Any
 
 import questionary
@@ -63,11 +64,12 @@ class ApiClientFactory:
         return instance
 
 
-def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
-    """Get authenticated Confluence and Jira API clients using current settings."""
+def get_confluence_instance() -> ConfluenceApiSdk:
+    """Get authenticated Confluence API client using current settings."""
     settings = get_settings()
     auth = settings.auth
     retry_config = settings.retry_config.model_dump()
+
     while True:
         try:
             confluence = ApiClientFactory(retry_config).create_confluence(auth.confluence)
@@ -80,7 +82,20 @@ def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
             main_config_menu_loop("auth.confluence")
             settings = get_settings()
             auth = settings.auth
-    # Retry loop for jira
+
+    if DEBUG:
+        confluence.session.hooks["response"] = [response_hook]
+
+    return confluence
+
+
+@lru_cache(maxsize=1)
+def get_jira_instance() -> JiraApiSdk:
+    """Get authenticated Jira API client using current settings with required authentication."""
+    settings = get_settings()
+    auth = settings.auth
+    retry_config = settings.retry_config.model_dump()
+
     while True:
         try:
             jira = ApiClientFactory(retry_config).create_jira(auth.jira)
@@ -97,6 +112,7 @@ def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
                 settings = get_settings()
                 auth = settings.auth
                 continue
+
             questionary.print(
                 "Redirecting to Jira authentication config...",
                 style="fg:red bold",
@@ -106,7 +122,6 @@ def get_api_instances() -> tuple[ConfluenceApiSdk, JiraApiSdk]:
             auth = settings.auth
 
     if DEBUG:
-        confluence.session.hooks["response"] = [response_hook]
         jira.session.hooks["response"] = [response_hook]
 
-    return confluence, jira
+    return jira
