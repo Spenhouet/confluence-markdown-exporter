@@ -27,8 +27,10 @@ from pydantic import BaseModel
 from requests import HTTPError
 from tqdm import tqdm
 
-from confluence_markdown_exporter.api_clients import get_api_instances
+from confluence_markdown_exporter.api_clients import get_confluence_instance
+from confluence_markdown_exporter.api_clients import get_jira_instance
 from confluence_markdown_exporter.utils.app_data_store import get_settings
+from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
@@ -41,7 +43,7 @@ StrPath: TypeAlias = str | PathLike[str]
 DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
 settings = get_settings()
-confluence, jira = get_api_instances()
+confluence = get_confluence_instance()
 
 
 class JiraIssue(BaseModel):
@@ -63,7 +65,7 @@ class JiraIssue(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_key(cls, issue_key: str) -> "JiraIssue":
-        issue_data = cast(JsonResponse, jira.get_issue(issue_key))
+        issue_data = cast(JsonResponse, get_jira_instance().get_issue(issue_key))
         return cls.from_json(issue_data)
 
 
@@ -499,7 +501,14 @@ class Page(Document):
     @classmethod
     def from_url(cls, page_url: str) -> "Page":
         """Retrieve a Page object given a Confluence page URL."""
-        path = urllib.parse.urlparse(page_url).path.rstrip("/")
+        url = urllib.parse.urlparse(page_url)
+        hostname = url.hostname
+        if hostname and hostname not in str(settings.auth.confluence.url):
+            global confluence  # noqa: PLW0603
+            set_setting("auth.confluence.url", f"{url.scheme}://{hostname}/")
+            confluence = get_confluence_instance()  # Refresh instance with new URL
+
+        path = url.path.rstrip("/")
         if match := re.search(r"/wiki/.+?/pages/(\d+)", path):
             page_id = match.group(1)
             return Page.from_id(int(page_id))
