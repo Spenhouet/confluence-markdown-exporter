@@ -444,11 +444,24 @@ class Page(Document):
                 attachment.export()
                 continue
 
-    def get_attachment_by_id(self, attachment_id: str) -> Attachment:
-        return next(attachment for attachment in self.attachments if attachment_id in attachment.id)
+    def get_attachment_by_id(self, attachment_id: str) -> Attachment | None:
+        """Get the Attachment object by its ID.
 
-    def get_attachment_by_file_id(self, file_id: str) -> Attachment:
-        return next(attachment for attachment in self.attachments if attachment.file_id == file_id)
+        Confluence Server sometimes stores attachments without a file_id.
+        Fall back to the plain attachment.id and return None if nothing matches.
+        """
+        for a in self.attachments:
+            if attachment_id in a.id:
+                return a
+            if a.file_id and attachment_id in a.file_id:
+                return a
+        return None
+
+    def get_attachment_by_file_id(self, file_id: str) -> Attachment | None:
+        for a in self.attachments:
+            if a.file_id and file_id in a.file_id:
+                return a
+        return None
 
     def get_attachments_by_title(self, title: str) -> list[Attachment]:
         return [attachment for attachment in self.attachments if attachment.title == title]
@@ -800,7 +813,9 @@ class Page(Document):
                 if page_id and page_id != "null":
                     return self.convert_page_link(int(page_id))
             if "attachment" in str(el.get("data-linked-resource-type")):
-                return self.convert_attachment_link(el, text, parent_tags)
+                link = self.convert_attachment_link(el, text, parent_tags)
+                # convert_attachment_link may return None if the attachment meta is incomplete
+                return link or f"[{text}]({el.get('href')})"
             if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el.get("href", ""))):
                 page_id = match.group(1)
                 return self.convert_page_link(int(page_id))
@@ -820,13 +835,24 @@ class Page(Document):
 
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
-        def convert_attachment_link(
-            self, el: BeautifulSoup, text: str, parent_tags: list[str]
-        ) -> str:
-            if attachment_file_id := el.get("data-media-id"):
-                attachment = self.page.get_attachment_by_file_id(str(attachment_file_id))
-            elif attachment_id := el.get("data-linked-resource-id"):
-                attachment = self.page.get_attachment_by_id(str(attachment_id))
+        def convert_attachment_link(self, el, text: str, parent_tags) -> str:
+            """Build a Markdown link for an attachment.
+
+            If the attachment metadata is missing,
+            return the original Confluence URL instead of crashing.
+            """
+            attachment = None
+            if fid := el.get("data-linked-resource-file-id"):
+                attachment = self.page.get_attachment_by_file_id(str(fid))
+            if not attachment and (fid := el.get("data-media-id")):
+                attachment = self.page.get_attachment_by_file_id(str(fid))
+            if not attachment and (aid := el.get("data-linked-resource-id")):
+                attachment = self.page.get_attachment_by_id(str(aid))
+
+            if attachment is None:
+                href = el.get("href") or text
+                return f"[{text}]({href})"
+
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
@@ -860,11 +886,14 @@ class Page(Document):
             return md
 
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            file_id = el.get("data-media-id")
-            if not file_id:
-                return ""
+            attachment = None
+            if fid := el.get("data-media-id"):
+                attachment = self.page.get_attachment_by_file_id(str(fid))
 
-            attachment = self.page.get_attachment_by_file_id(str(file_id))
+            if attachment is None:
+                href = el.get("href") or text
+                return f"[{text}]({href})"
+
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             el["src"] = path.replace(" ", "%20")
             if "_inline" in parent_tags:
