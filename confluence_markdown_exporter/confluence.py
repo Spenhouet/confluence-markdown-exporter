@@ -390,6 +390,10 @@ class Page(Document):
         return self.Converter(self).markdown
 
     def export(self) -> None:
+        if self.title == "Page not accessible":
+            print(f"Skipping export for inaccessible page with ID {self.id}")
+            return
+
         if DEBUG:
             self.export_body()
         self.export_markdown()
@@ -497,12 +501,12 @@ class Page(Document):
                     ),
                 )
             )
-        except (ApiError, HTTPError) as e:
+        except ApiError as e:
             print(f"WARNING: Could not access page with ID {page_id}: {e!s}")
             # Return a minimal page object with error information
             return cls(
                 id=page_id,
-                title="[Error: Page not accessible]",
+                title="Page not accessible",
                 space=Space(key="", name="", description="", homepage=0),
                 body="",
                 body_export="",
