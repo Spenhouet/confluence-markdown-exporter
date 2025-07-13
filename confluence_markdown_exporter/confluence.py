@@ -18,7 +18,8 @@ from typing import cast
 
 import jmespath
 import yaml
-from atlassian.errors import ApiError, ApiNotFoundError
+from atlassian.errors import ApiError
+from atlassian.errors import ApiNotFoundError
 from bs4 import BeautifulSoup
 from bs4 import Tag
 from markdownify import ATX
@@ -826,15 +827,15 @@ class Page(Document):
             return f"{text}"
 
         def convert_user_mention(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            if el.has_attr("data-account-id"):
+            if aid := el.get("data-account-id"):
                 try:
-                    return self.convert_user(User.from_accountid(str(el.get("data-account-id"))))
+                    return self.convert_user(User.from_accountid(str(aid)))
                 except ApiNotFoundError:
-                    print(f"User {el.get('data-account-id')} not found. Using text instead.")
+                    print(f"User {aid} not found. Using text instead.")
 
             return self.convert_user_name(text)
 
-        def convert_user(self, user: User) -> str | None:
+        def convert_user(self, user: User) -> str:
             return self.convert_user_name(user.display_name)
 
         def convert_user_name(self, name: str) -> str:
