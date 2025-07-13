@@ -29,8 +29,8 @@ def get_app_config_path() -> Path:
 APP_CONFIG_PATH = get_app_config_path()
 
 
-class RetryConfig(BaseModel):
-    """Configuration for network retry behavior."""
+class ConnectionConfig(BaseModel):
+    """Configuration for the connection like retry options."""
 
     backoff_and_retry: bool = Field(
         default=True,
@@ -227,7 +227,9 @@ class ConfigModel(BaseModel):
     """Top-level application configuration model."""
 
     export: ExportConfig = Field(default_factory=ExportConfig, title="Export Settings")
-    retry_config: RetryConfig = Field(default_factory=RetryConfig, title="Retry/Network Settings")
+    connection_config: ConnectionConfig = Field(
+        default_factory=ConnectionConfig, title="Connection Configuration"
+    )
     auth: AuthConfig = Field(default_factory=AuthConfig, title="Authentication")
 
 
@@ -269,7 +271,7 @@ def get_settings() -> ConfigModel:
     data = load_app_data()
     return ConfigModel(
         export=ExportConfig(**data.get("export", {})),
-        retry_config=RetryConfig(**data.get("retry_config", {})),
+        connection_config=ConnectionConfig(**data.get("connection_config", {})),
         auth=AuthConfig(**data.get("auth", {})),
     )
 

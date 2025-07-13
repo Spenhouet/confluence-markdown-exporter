@@ -144,11 +144,12 @@ This will open a menu where you can:
 | export.filename_encoding | Character mapping for filename encoding. | Default mappings for forbidden characters. |
 | export.filename_length | Maximum length of filenames. | 255 |
 | export.include_document_title | Whether to include the document title in the exported markdown file. | True |
-| retry_config.backoff_and_retry | Enable automatic retry with exponential backoff | True |
-| retry_config.backoff_factor | Multiplier for exponential backoff | 2 |
-| retry_config.max_backoff_seconds | Maximum seconds to wait between retries | 60 |
-| retry_config.max_backoff_retries | Maximum number of retry attempts | 5 |
-| retry_config.retry_status_codes | HTTP status codes that trigger a retry | \[413, 429, 502, 503, 504\] |
+| connection_config.backoff_and_retry | Enable automatic retry with exponential backoff | True |
+| connection_config.backoff_factor | Multiplier for exponential backoff | 2 |
+| connection_config.max_backoff_seconds | Maximum seconds to wait between retries | 60 |
+| connection_config.max_backoff_retries | Maximum number of retry attempts | 5 |
+| connection_config.retry_status_codes | HTTP status codes that trigger a retry | \[413, 429, 502, 503, 504\] |
+| connection_config.verify_ssl | Whether to verify SSL certificates for HTTPS requests. | True |
 | auth.confluence.url | Confluence instance URL | "" |
 | auth.confluence.username | Confluence username/email | "" |
 | auth.confluence.api_token | Confluence API token | "" |
