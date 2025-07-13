@@ -16,7 +16,6 @@ from typing import Literal
 from typing import TypeAlias
 from typing import cast
 
-import jmespath
 import yaml
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
@@ -327,31 +326,23 @@ class Page(Document):
 
     @property
     def descendants(self) -> list[int]:
-        cql_query = f"ancestor={self.id} AND type=page"
-        page_ids = []
-        start = 0
-        paging_limit = 100
-        total_size = paging_limit  # Initialize to limit to enter the loop
-
-        ids_exp = jmespath.compile("results[].content.id.to_number(@)")
+        url = "rest/api/content/search"
+        params = {
+            'cql': f'type=page AND ancestor={self.id}',
+            'limit': 100
+        }
+        results = []
 
         try:
-            while start < total_size:
-                response = cast(
-                    JsonResponse,
-                    confluence.cql(cql_query, limit=paging_limit, start=start),
-                )
+            response = confluence.get(url, params=params)
+            results.extend(response.get('results', []))
+            next = response.get('_links').get('next')
 
-                page_ids.extend(ids_exp.search(response))
-
-                size = response.get("size", 0)
-                total_size = response.get("totalSize", 0)
-
-                if size == 0:
-                    break
-
-                start += size
-
+            while next:
+                response = confluence.get(next)
+                results.extend(response.get('results', []))
+                next = response.get('_links').get('next')
+                    
         except HTTPError as e:
             if e.response.status_code == 404:  # noqa: PLR2004
                 print(
@@ -365,6 +356,7 @@ class Page(Document):
             )
             return []
 
+        page_ids = [result['id'] for result in results]
         return page_ids
 
     @property
