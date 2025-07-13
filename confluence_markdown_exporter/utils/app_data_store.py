@@ -157,7 +157,7 @@ class ExportConfig(BaseModel):
             "  - {ancestor_ids}: A slash-separated list of ancestor page IDs.\n"
             "  - {ancestor_titles}: A slash-separated list of ancestor page titles.\n"
             "  - {page_id}: The unique ID of the Confluence page.\n"
-            "  - {page_title}: The title of the Confluence page."
+            "  - {page_title}: The title of the Confluence page.\n"
         ),
         examples=["{space_name}/{page_title}.md"],
     )
@@ -185,7 +185,7 @@ class ExportConfig(BaseModel):
             "  - {attachment_id}: The unique ID of the attachment.\n"
             "  - {attachment_title}: The title of the attachment.\n"
             "  - {attachment_file_id}: The file ID of the attachment.\n"
-            "  - {attachment_extension}: The file extension of the attachment, "
+            "  - {attachment_extension}: The file extension of the attachment,\n"
             "including the leading dot."
         ),
         examples=["{space_name}/attachments/{attachment_file_id}{attachment_extension}"],
@@ -194,6 +194,24 @@ class ExportConfig(BaseModel):
         default=True,
         title="Page Breadcrumbs",
         description="Whether to include breadcrumb links at the top of the page.",
+    )
+    filename_encoding: str = Field(
+        default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_"',
+        title="Filename Encoding",
+        description=(
+            "List character-to-replacement pairs, separated by commas. "
+            'Each pair is written as "character":"replacement". '
+            "Leave empty to disable all character replacements."
+        ),
+        examples=[
+            '" ":"-","-":"%2D"',  # Replace spaces with dash and dashes with %2D
+            '"=":" equals "',  # Replace equals sign with " equals "
+        ],
+    )
+    filename_length: int = Field(
+        default=255,
+        title="Filename Length",
+        description="Maximum length of the filename.",
     )
     include_document_title: bool = Field(
         default=True,

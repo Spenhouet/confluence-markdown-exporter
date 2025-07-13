@@ -22,7 +22,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["page", "<page-id> or <page-url>", "--output-path", "scratch"],
+      "args": ["pages", "<page-id> or <page-url>", "--output-path", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -36,7 +36,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["page-with-descendants", "<page-id> or <page-url>", "--output-path", "scratch"],
+      "args": ["pages-with-descendants", "<page-id> or <page-url>", "--output-path", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -45,12 +45,12 @@
       }
     },
     {
-      "name": "Python: Export Space",
+      "name": "Python: Export Space(s)",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["space", "<space-key>", "--output-path", "scratch"],
+      "args": ["spaces", "<space-key>", "--output-path", "scratch"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
