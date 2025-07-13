@@ -387,10 +387,6 @@ class Page(Document):
         return self.Converter(self).markdown
 
     def export(self) -> None:
-        if self.title == "[Error: Page not accessible]":
-            print(f"Skipping export for inaccessible page with ID {self.id}")
-            return
-
         if DEBUG:
             self.export_body()
         self.export_markdown()
