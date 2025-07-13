@@ -30,8 +30,8 @@ def response_hook(
 class ApiClientFactory:
     """Factory for creating authenticated Confluence and Jira API clients with retry config."""
 
-    def __init__(self, retry_config: dict[str, Any]) -> None:
-        self.retry_config = retry_config
+    def __init__(self, connection_config: dict[str, Any]) -> None:
+        self.connection_config = connection_config
 
     def create_confluence(self, auth: ApiDetails) -> ConfluenceApiSdk:
         try:
@@ -40,7 +40,7 @@ class ApiClientFactory:
                 username=auth.username,
                 password=auth.api_token.get_secret_value() if auth.api_token else None,
                 token=auth.pat.get_secret_value() if auth.pat else None,
-                **self.retry_config,
+                **self.connection_config,
             )
             instance.get_all_spaces(limit=1)
         except Exception as e:
@@ -55,7 +55,7 @@ class ApiClientFactory:
                 username=auth.username,
                 password=auth.api_token.get_secret_value() if auth.api_token else None,
                 token=auth.pat.get_secret_value() if auth.pat else None,
-                **self.retry_config,
+                **self.connection_config,
             )
             instance.get_all_projects()
         except Exception as e:
@@ -68,11 +68,11 @@ def get_confluence_instance() -> ConfluenceApiSdk:
     """Get authenticated Confluence API client using current settings."""
     settings = get_settings()
     auth = settings.auth
-    retry_config = settings.retry_config.model_dump()
+    connection_config = settings.connection_config.model_dump()
 
     while True:
         try:
-            confluence = ApiClientFactory(retry_config).create_confluence(auth.confluence)
+            confluence = ApiClientFactory(connection_config).create_confluence(auth.confluence)
             break
         except ConnectionError:
             questionary.print(
@@ -94,11 +94,11 @@ def get_jira_instance() -> JiraApiSdk:
     """Get authenticated Jira API client using current settings with required authentication."""
     settings = get_settings()
     auth = settings.auth
-    retry_config = settings.retry_config.model_dump()
+    connection_config = settings.connection_config.model_dump()
 
     while True:
         try:
-            jira = ApiClientFactory(retry_config).create_jira(auth.jira)
+            jira = ApiClientFactory(connection_config).create_jira(auth.jira)
             break
         except ConnectionError:
             # Ask if user wants to use Confluence credentials for Jira
