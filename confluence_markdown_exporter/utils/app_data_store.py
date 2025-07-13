@@ -188,7 +188,7 @@ class ExportConfig(BaseModel):
         description="Whether to include breadcrumb links at the top of the page.",
     )
     filename_encoding: str = Field(
-        default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_"',
+        default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_"',
         title="Filename Encoding",
         description=(
             "List character-to-replacement pairs, separated by commas. "
