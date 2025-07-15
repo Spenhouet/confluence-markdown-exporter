@@ -502,7 +502,7 @@ class Page(Document):
                     ),
                 )
             )
-        except ApiError as e:
+        except (ApiError, HTTPError) as e:
             print(f"WARNING: Could not access page with ID {page_id}: {e!s}")
             # Return a minimal page object with error information
             return cls(
