@@ -87,7 +87,7 @@ confluence-markdown-exporter page-with-descendants <page-url e.g. https://compan
 Export all Confluence pages of a single Space:
 
 ```sh
-confluence-markdown-exporter space <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
+confluence-markdown-exporter spaces <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
 ```
 
 #### 2.3. Export all Spaces
