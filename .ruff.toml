@@ -46,7 +46,6 @@ select = [
   "W", # pycodestyle warnings
   "C4", # flake8-comprehensions
   "EM", # flake8-errmsg
-  "PD", # pandas-vet
   "PL", # Pylint
   "UP", # pyupgrade - auto-upgrade syntax for current version of Python
   "ANN", # flake8-annotations
