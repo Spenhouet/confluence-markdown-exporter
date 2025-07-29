@@ -49,7 +49,7 @@ pip install confluence-markdown-exporter
 
 ### 2. Exporting
 
-Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `page`, `page-with-descendants`, `space`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information. 
+Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information. 
 
 > [!TIP]
 > Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
@@ -59,13 +59,13 @@ Run the exporter with the desired Confluence page ID or space key. Execute the c
 Export a single Confluence page by ID:
 
 ```sh
-confluence-markdown-exporter page <page-id e.g. 645208921> <output path e.g. ./output_path/>
+confluence-markdown-exporter pages <page-id e.g. 645208921> <output path e.g. ./output_path/>
 ```
 
 or by URL:
 
 ```sh
-confluence-markdown-exporter page <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
+confluence-markdown-exporter pages <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
 ```
 
 #### 2.2. Export Page with Descendants
@@ -73,13 +73,13 @@ confluence-markdown-exporter page <page-url e.g. https://company.atlassian.net/M
 Export a Confluence page and all its descendant pages by page ID:
 
 ```sh
-confluence-markdown-exporter page-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
+confluence-markdown-exporter pages-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
 ```
 
 or by URL:
 
 ```sh
-confluence-markdown-exporter page-with-descendants <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
+confluence-markdown-exporter pages-with-descendants <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
 ```
 
 #### 2.3. Export Space
@@ -87,7 +87,7 @@ confluence-markdown-exporter page-with-descendants <page-url e.g. https://compan
 Export all Confluence pages of a single Space:
 
 ```sh
-confluence-markdown-exporter space <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
+confluence-markdown-exporter spaces <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
 ```
 
 #### 2.3. Export all Spaces
