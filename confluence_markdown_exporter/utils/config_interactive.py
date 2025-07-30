@@ -15,6 +15,7 @@ from confluence_markdown_exporter.utils.app_data_store import ConfigModel
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import reset_to_defaults
 from confluence_markdown_exporter.utils.app_data_store import set_setting
+from confluence_markdown_exporter.utils.app_data_store import get_app_config_path
 
 custom_style = Style(
     [
@@ -237,6 +238,7 @@ def _main_config_menu(settings: dict, default: tuple[str, bool] | None = None) -
                 default_value = c.value
                 break
     return questionary.select(
+        f"Config file location: {get_app_config_path()}\n\n" \
         "Select a config to change (or reset):",
         choices=choices,
         style=custom_style,
