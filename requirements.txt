@@ -1,9 +1,0 @@
-atlassian-python-api
-jmespath
-markdownify
-pydantic-settings
-pyyaml
-questionary
-tabulate
-tqdm
-typer
