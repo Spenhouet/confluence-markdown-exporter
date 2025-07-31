@@ -23,6 +23,7 @@ dependencies = [
     'tabulate',
     'tqdm',
     'typer',
+    'python-dateutil',
 ]
 
 [project.optional-dependencies]
