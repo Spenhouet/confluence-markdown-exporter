@@ -842,6 +842,10 @@ class Page(Document):
                 raise ValueError(msg)
 
             page = Page.from_id(page_id)
+
+            if page.title == "Page not accessible":
+                return f"[Page not accessible (ID: {page_id})]"
+
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
 
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
