@@ -190,6 +190,15 @@ class ExportConfig(BaseModel):
         ),
         examples=["{space_name}/attachments/{attachment_file_id}{attachment_extension}"],
     )
+    attachment_export_all: bool = Field(
+        default=False,
+        title="Attachment Export All",
+        description=(
+            "Whether to export all attachments or only the ones whose ID "
+            "is referred in the page."
+            "\nNote: large and multiple attachments will take more time"
+        ),
+    )
     page_breadcrumbs: bool = Field(
         default=True,
         title="Page Breadcrumbs",
