@@ -328,21 +328,21 @@ class Page(Document):
     def descendants(self) -> list[int]:
         url = "rest/api/content/search"
         params = {
-            'cql': f'type=page AND ancestor={self.id}',
-            'limit': 100
+            "cql": f"type=page AND ancestor={self.id}",
+            "limit": 100,
         }
         results = []
 
         try:
             response = confluence.get(url, params=params)
-            results.extend(response.get('results', []))
-            next = response.get('_links').get('next')
+            results.extend(response.get("results", []))
+            next_path = response.get("_links").get("next")
 
-            while next:
-                response = confluence.get(next)
-                results.extend(response.get('results', []))
-                next = response.get('_links').get('next')
-                    
+            while next_path:
+                response = confluence.get(next_path)
+                results.extend(response.get("results", []))
+                next_path = response.get("_links").get("next")
+
         except HTTPError as e:
             if e.response.status_code == 404:  # noqa: PLR2004
                 print(
@@ -356,8 +356,7 @@ class Page(Document):
             )
             return []
 
-        page_ids = [result['id'] for result in results]
-        return page_ids
+        return [result["id"] for result in results]
 
     @property
     def _template_vars(self) -> dict[str, str]:
