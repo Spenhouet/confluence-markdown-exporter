@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from typing import Annotated
 
@@ -70,12 +71,13 @@ def spaces(
 ) -> None:
     from confluence_markdown_exporter.confluence import Space
 
-    with measure(f"Export spaces {', '.join(space_keys)}"):
-        for space_key in space_keys:
+    normalized_space_keys = [_normalize_space_key(key) for key in space_keys]
+
+    with measure(f"Export spaces {', '.join(normalized_space_keys)}"):
+        for space_key in normalized_space_keys:
             override_output_path_config(output_path)
             space = Space.from_key(space_key)
             space.export()
-
 
 @app.command(help="Export all Confluence pages across all spaces to Markdown.")
 def all_spaces(
@@ -103,6 +105,10 @@ def config(
     """Interactive configuration menu."""
     main_config_menu_loop(jump_to)
 
+def _normalize_space_key(space_key: str) -> str:
+    # Personal Confluence spaces start with ~. Exporting them on Windows leads to
+    # Powershell expanding tilde to the Users directory, which is handled here
+    return re.sub(r"^[A-Z]:\\Users\\", "~", space_key, count=1, flags=re.IGNORECASE)
 
 if __name__ == "__main__":
     app()
