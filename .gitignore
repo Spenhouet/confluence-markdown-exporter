@@ -128,5 +128,9 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
+# branch feature_ha_append_page_metadata
+tmp
+appTest.py
+
 # End of https://www.gitignore.io/api/code,python
 
