@@ -183,10 +183,6 @@ class Space(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_key(cls, space_key: str) -> "Space":
-        # Personal Confluence spaces start with ~. Exporting them on Windows leads to
-        # Powershell expanding tilde to the Users directory, which is handled here
-        space_key = re.sub(r"^[A-Z]:\\Users\\", "~", space_key, count=1, flags=re.IGNORECASE)
-
         return cls.from_json(
             cast("JsonResponse", confluence.get_space(space_key, expand="homepage"))
         )
