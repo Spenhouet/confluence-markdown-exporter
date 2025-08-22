@@ -221,6 +221,14 @@ class ExportConfig(BaseModel):
             "If enabled, the title will be added as a top-level heading."
         ),
     )
+    include_document_metadata: bool = Field(
+        default=False,
+        title="Include Document Metadata",
+        description=(
+            "Whether to include document metadata (like author, last modified date) "
+            "at the bottom of the exported markdown file."
+        ),
+    )
 
 
 class ConfigModel(BaseModel):
