@@ -338,10 +338,10 @@ class Page(Document):
             'title' : response.get('title',''),
             'type' : response.get('type',''),
             'created' : response.get('history', {}).get('createdDate',''),
-            'author' : response.get('history', {}).get('createdBy', {}).get('username',''),
+            'author' : response.get('history', {}).get('createdBy', {}).get('displayName',''),
             'version' : response.get('version', {}).get('number','1'),
             'lastModified' : response.get('version', {}).get('when',''),
-            'lastModifiedBy' : response.get('version', {}).get('by', {}).get('username',''),
+            'lastModifiedBy' : response.get('version', {}).get('by', {}).get('displayName',''),
             'lastModifiedWithin365Days': response.get('version', {}).get('when','')[10] >= (datetime.now()-timedelta(days=365)).strftime('%Y-%m-%d') if response.get('version', {}).get('when','') else False,
             'pageURL' : f"""{response.get('_links', {}).get('base','')}/{response.get('_links', {}).get('webui','')}""",
             # 'pageURL' : f"""{response.get('_links', {}).get('base','')}/pages/viewpage.action?pageId={response.get('id','')}""",
@@ -526,7 +526,7 @@ class Page(Document):
             response = confluence.get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                        "metadata.properties,ancestors",
+                        "metadata.properties,ancestors,history,version",
                     )
             response = cls.get_custom_metadata(response)
             return cls.from_json(
