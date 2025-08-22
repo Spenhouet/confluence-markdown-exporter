@@ -424,22 +424,26 @@ class Page(Document):
         )
 
     def export_attachments(self) -> None:
-        for attachment in self.attachments:
-            if (
-                attachment.filename.endswith(".drawio")
-                and f"diagramName={attachment.title}" in self.body
-            ):
+        if settings.export.attachment_export_all:
+            for attachment in self.attachments:
                 attachment.export()
-                continue
-            if (
-                attachment.filename.endswith(".drawio.png")
-                and attachment.title.replace(" ", "%20") in self.body_export
-            ):
-                attachment.export()
-                continue
-            if attachment.file_id in self.body:
-                attachment.export()
-                continue
+        else:
+            for attachment in self.attachments:
+                if (
+                    attachment.filename.endswith(".drawio")
+                    and f"diagramName={attachment.title}" in self.body
+                ):
+                    attachment.export()
+                    continue
+                if (
+                    attachment.filename.endswith(".drawio.png")
+                    and attachment.title.replace(" ", "%20") in self.body_export
+                ):
+                    attachment.export()
+                    continue
+                if attachment.file_id in self.body:
+                    attachment.export()
+                    continue
 
     def get_attachment_by_id(self, attachment_id: str) -> Attachment | None:
         """Get the Attachment object by its ID.
