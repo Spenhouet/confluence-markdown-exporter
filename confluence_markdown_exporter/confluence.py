@@ -342,7 +342,7 @@ class Page(Document):
             'version' : response.get('version', {}).get('number','1'),
             'lastModified' : response.get('version', {}).get('when',''),
             'lastModifiedBy' : response.get('version', {}).get('by', {}).get('username',''),
-            'lastModifiedWithinLast365Days': response.get('version', {}).get('when','')[10] >= (datetime.now()-timedelta(days=365)).strftime('%Y-%m-%d') if response.get('version', {}).get('when','') else False,
+            'lastModifiedWithin365Days': response.get('version', {}).get('when','')[10] >= (datetime.now()-timedelta(days=365)).strftime('%Y-%m-%d') if response.get('version', {}).get('when','') else False,
             'pageURL' : f"""{response.get('_links', {}).get('base','')}/{response.get('_links', {}).get('webui','')}""",
             # 'pageURL' : f"""{response.get('_links', {}).get('base','')}/pages/viewpage.action?pageId={response.get('id','')}""",
         }
@@ -516,7 +516,7 @@ class Page(Document):
             ],
             attachments=Attachment.from_page_id(data.get("id", 0)),
             ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
-            page_metadata=data.get("page_metadata", {}),
+            page_metadata=data.get("page_metadata", ""),
         )
 
     @classmethod
@@ -548,7 +548,7 @@ class Page(Document):
                 labels=[],
                 attachments=[],
                 ancestors=[],
-                page_metadata='',
+                page_metadata="",
             )
 
     @classmethod
