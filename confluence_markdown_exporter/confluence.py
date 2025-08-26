@@ -767,10 +767,10 @@ class Page(Document):
         def convert_jira_issue(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             issue_key = el.get("data-jira-key")
             link = cast(BeautifulSoup, el.find("a", {"class": "jira-issue-key"}))
-            if not issue_key:
-                return self.process_tag(link, parent_tags)
             if not link:
                 return text
+            if not issue_key:
+                return self.process_tag(link, parent_tags)
 
             try:
                 issue = JiraIssue.from_key(str(issue_key))
