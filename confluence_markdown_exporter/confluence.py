@@ -4,6 +4,7 @@ https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
 import functools
+import logging
 import mimetypes
 import os
 import re
@@ -42,6 +43,8 @@ StrPath: TypeAlias = str | PathLike[str]
 
 DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
 confluence = get_confluence_instance()
 
@@ -65,7 +68,7 @@ class JiraIssue(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_key(cls, issue_key: str) -> "JiraIssue":
-        issue_data = cast(JsonResponse, get_jira_instance().get_issue(issue_key))
+        issue_data = cast("JsonResponse", get_jira_instance().get_issue(issue_key))
         return cls.from_json(issue_data)
 
 
@@ -89,18 +92,20 @@ class User(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_username(cls, username: str) -> "User":
-        return cls.from_json(cast(JsonResponse, confluence.get_user_details_by_username(username)))
+        return cls.from_json(
+            cast("JsonResponse", confluence.get_user_details_by_username(username))
+        )
 
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_userkey(cls, userkey: str) -> "User":
-        return cls.from_json(cast(JsonResponse, confluence.get_user_details_by_userkey(userkey)))
+        return cls.from_json(cast("JsonResponse", confluence.get_user_details_by_userkey(userkey)))
 
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_accountid(cls, accountid: str) -> "User":
         return cls.from_json(
-            cast(JsonResponse, confluence.get_user_details_by_accountid(accountid))
+            cast("JsonResponse", confluence.get_user_details_by_accountid(accountid))
         )
 
 
@@ -141,7 +146,7 @@ class Organization(BaseModel):
     def from_api(cls) -> "Organization":
         return cls.from_json(
             cast(
-                JsonResponse,
+                "JsonResponse",
                 confluence.get_all_spaces(
                     space_type="global", space_status="current", expand="homepage"
                 ),
@@ -175,7 +180,9 @@ class Space(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_key(cls, space_key: str) -> "Space":
-        return cls.from_json(cast(JsonResponse, confluence.get_space(space_key, expand="homepage")))
+        return cls.from_json(
+            cast("JsonResponse", confluence.get_space(space_key, expand="homepage"))
+        )
 
 
 class Label(BaseModel):
@@ -282,7 +289,7 @@ class Attachment(Document):
 
         while size >= paging_limit:
             response = cast(
-                JsonResponse,
+                "JsonResponse",
                 confluence.get_attachments_from_content(
                     page_id,
                     start=start,
@@ -307,7 +314,7 @@ class Attachment(Document):
             response = confluence._session.get(str(confluence.url + self.download_link))
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
-            print(f"There is no attachment with title '{self.title}'. Skipping export.")
+            logger.warning(f"There is no attachment with title '{self.title}'. Skipping export.")
             return
 
         save_file(
@@ -345,14 +352,14 @@ class Page(Document):
 
         except HTTPError as e:
             if e.response.status_code == 404:  # noqa: PLR2004
-                print(
-                    f"WARNING: Content with ID {self.id} not found (404) when fetching descendants."
+                logger.warning(
+                    f"Content with ID {self.id} not found (404) when fetching descendants."
                 )
                 return []
             return []
-        except Exception as e:  # noqa: BLE001
-            print(
-                f"ERROR: Unexpected error when fetching descendants for content ID {self.id}: {e!s}"
+        except Exception:
+            logger.exception(
+                f"Unexpected error when fetching descendants for content ID {self.id}."
             )
             return []
 
@@ -383,7 +390,7 @@ class Page(Document):
 
     def export(self) -> None:
         if self.title == "Page not accessible":
-            print(f"Skipping export for inaccessible page with ID {self.id}")
+            logger.warning(f"Skipping export for inaccessible page with ID {self.id}")
             return
 
         if DEBUG:
@@ -489,7 +496,7 @@ class Page(Document):
         try:
             return cls.from_json(
                 cast(
-                    JsonResponse,
+                    "JsonResponse",
                     confluence.get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
@@ -497,8 +504,8 @@ class Page(Document):
                     ),
                 )
             )
-        except (ApiError, HTTPError) as e:
-            print(f"WARNING: Could not access page with ID {page_id}: {e!s}")
+        except (ApiError, HTTPError):
+            logger.warning(f"Could not access page with ID {page_id}")
             # Return a minimal page object with error information
             return cls(
                 id=page_id,
@@ -531,7 +538,7 @@ class Page(Document):
             space_key = urllib.parse.unquote_plus(match.group(1))
             page_title = urllib.parse.unquote_plus(match.group(2))
             page_data = cast(
-                JsonResponse,
+                "JsonResponse",
                 confluence.get_page_by_title(space=space_key, title=page_title, expand="version"),
             )
             return Page.from_id(page_data["id"])
@@ -592,11 +599,11 @@ class Page(Document):
                     self.page_properties[sanitize_key(key)] = value
 
         def convert_page_properties(
-            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+            self, el: BeautifulSoup, _text: str, _parent_tags: list[str]
         ) -> None:
             rows = [
-                cast(list[Tag], tr.find_all(["th", "td"]))
-                for tr in cast(list[Tag], el.find_all("tr"))
+                cast("list[Tag]", tr.find_all(["th", "td"]))
+                for tr in cast("list[Tag]", el.find_all("tr"))
                 if tr
             ]
             if not rows:
@@ -662,7 +669,7 @@ class Page(Document):
             return super().convert_div(el, text, parent_tags)
 
         def convert_expand_container(
-            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+            self, el: BeautifulSoup, _text: str, parent_tags: list[str]
         ) -> str:
             """Convert expand-container div to HTML details element."""
             # Extract summary text from expand-control-text
@@ -728,32 +735,32 @@ class Page(Document):
 
             return self.convert_table(BeautifulSoup(html, "html.parser"), text, parent_tags)
 
-        def convert_jira_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_jira_table(self, _el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             jira_tables = BeautifulSoup(self.page.body_export, "html.parser").find_all(
                 "div", {"class": "jira-table"}
             )
 
             if len(jira_tables) == 0:
-                print("No Jira table found. Ignoring.")
+                logger.warning("No Jira table found. Ignoring.")
                 return text
 
             if len(jira_tables) > 1:
-                print("Multiple Jira tables are not supported. Ignoring.")
+                logger.exception("Multiple Jira tables are not supported. Ignoring.")
                 return text
 
             return self.process_tag(jira_tables[0], parent_tags)
 
-        def convert_toc(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_toc(self, _el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             tocs = BeautifulSoup(self.page.body_export, "html.parser").find_all(
                 "div", {"class": "toc-macro"}
             )
 
             if len(tocs) == 0:
-                print("Could not find TOC macro. Ignoring.")
+                logger.warning("Could not find TOC macro. Ignoring.")
                 return text
 
             if len(tocs) > 1:
-                print("Multiple TOC macros are not supported. Ignoring.")
+                logger.exception("Multiple TOC macros are not supported. Ignoring.")
                 return text
 
             return self.process_tag(tocs[0], parent_tags)
@@ -766,7 +773,7 @@ class Page(Document):
 
         def convert_jira_issue(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             issue_key = el.get("data-jira-key")
-            link = cast(BeautifulSoup, el.find("a", {"class": "jira-issue-key"}))
+            link = cast("BeautifulSoup", el.find("a", {"class": "jira-issue-key"}))
             if not issue_key:
                 return self.process_tag(link, parent_tags)
             if not link:
@@ -778,7 +785,7 @@ class Page(Document):
             except HTTPError:
                 return f"[[{issue_key}]]({link.get('href')})"
 
-        def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_pre(self, el: BeautifulSoup, text: str, _parent_tags: list[str]) -> str:
             if not text:
                 return ""
 
@@ -790,10 +797,10 @@ class Page(Document):
 
             return f"\n\n```{code_language}\n{text}\n```\n\n"
 
-        def convert_sub(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_sub(self, _el: BeautifulSoup, text: str, _parent_tags: list[str]) -> str:
             return f"<sub>{text}</sub>"
 
-        def convert_sup(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_sup(self, el: BeautifulSoup, text: str, _parent_tags: list[str]) -> str:
             """Convert superscript to Markdown footnotes."""
             if el.previous_sibling is None:
                 return f"[^{text}]:"  # Footnote definition
@@ -836,7 +843,7 @@ class Page(Document):
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
         def convert_attachment_link(
-            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+            self, el: BeautifulSoup, text: str, _parent_tags: list[str]
         ) -> str:
             """Build a Markdown link for an attachment.
 
@@ -858,18 +865,20 @@ class Page(Document):
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
-        def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_time(self, el: BeautifulSoup, text: str, _parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
                 return f"{el['datetime']}"
 
             return f"{text}"
 
-        def convert_user_mention(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_user_mention(
+            self, el: BeautifulSoup, text: str, _parent_tags: list[str]
+        ) -> str:
             if aid := el.get("data-account-id"):
                 try:
                     return self.convert_user(User.from_accountid(str(aid)))
                 except ApiNotFoundError:
-                    print(f"User {aid} not found. Using text instead.")
+                    logger.warning(f"User {aid} not found. Using text instead.")
 
             return self.convert_user_name(text)
 
@@ -905,7 +914,7 @@ class Page(Document):
                 parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
 
-        def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_drawio(self, el: BeautifulSoup, _text: str, _parent_tags: list[str]) -> str:
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
                 drawio_name = match.group(1)
                 preview_name = f"{drawio_name}.png"
@@ -935,7 +944,7 @@ class Page(Document):
             return super().convert_table(el, text, parent_tags)
 
         def convert_page_properties_report(
-            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+            self, el: BeautifulSoup, _text: str, parent_tags: list[str]
         ) -> str:
             data_cql = el.get("data-cql")
             if not data_cql:

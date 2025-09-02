@@ -1,3 +1,4 @@
+import logging
 import os
 from functools import lru_cache
 from typing import Any
@@ -16,14 +17,18 @@ from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
 DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
+logger = logging.getLogger(__name__)
+
 
 def response_hook(
-    response: requests.Response, *args: object, **kwargs: object
+    response: requests.Response, *_args: object, **_kwargs: object
 ) -> requests.Response:
     """Log response headers when requests fail."""
     if not response.ok:
-        print(f"Request to {response.url} failed with status {response.status_code}")
-        print(f"Response headers: {dict(response.headers)}")
+        logger.warning(
+            f"Request to {response.url} failed with status {response.status_code}"
+            f"Response headers: {dict(response.headers)}"
+        )
     return response
 
 
