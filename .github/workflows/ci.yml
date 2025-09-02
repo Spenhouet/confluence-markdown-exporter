@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test, lint and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Run linting with ruff
+        run: uv run ruff check
+
+      - name: Run tests with pytest
+        run: uv run pytest
+
+      - name: Test build (with sources for development)
+        run: uv build
+
+      - name: Test build (without sources for publication)
+        run: |
+          rm -rf dist/
+          uv build --no-sources
+
+      - name: Test package installation and import
+        run: |
+          uv run --with dist/*.whl --no-project -- python -c "import confluence_markdown_exporter; print('Package imports successfully')"
+
+      - name: Test CLI commands
+        run: |
+          uv run --with dist/*.whl --no-project confluence-markdown-exporter --help
+          uv run --with dist/*.whl --no-project cf-export --help
+
+      - name: Upload build artifacts for inspection
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: dist/
+          retention-days: 5

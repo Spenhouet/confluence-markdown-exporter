@@ -3,7 +3,10 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+import yaml
 
+from confluence_markdown_exporter import __version__
+from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 from confluence_markdown_exporter.utils.measure_time import measure
@@ -94,14 +97,56 @@ def all_spaces(
         org.export()
 
 
-@app.command(help="Open the interactive configuration menu.")
+@app.command(help="Open the interactive configuration menu or display current configuration.")
 def config(
     jump_to: Annotated[
         str | None, typer.Option(help="Jump directly to a config submenu, e.g. 'auth.confluence'")
     ] = None,
+    show: Annotated[
+        bool, typer.Option("--show", help="Display current configuration as YAML instead of opening the interactive menu")
+    ] = False,
 ) -> None:
-    """Interactive configuration menu."""
-    main_config_menu_loop(jump_to)
+    """Interactive configuration menu or display current configuration."""
+    if show:
+        # Display current configuration as YAML
+        current_settings = get_settings()
+        config_dict = current_settings.model_dump()
+        
+        # Convert values to a clean, readable format
+        def sanitize_config(obj):
+            if isinstance(obj, dict):
+                return {k: sanitize_config(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [sanitize_config(item) for item in obj]
+            elif hasattr(obj, '__class__') and 'SecretStr' in str(obj.__class__):
+                # Handle SecretStr values
+                value = str(obj)
+                return "***HIDDEN***" if value and value != "" else ""
+            elif hasattr(obj, '__class__') and 'Path' in str(obj.__class__):
+                # Handle Path objects
+                return str(obj) if obj else "."
+            else:
+                return obj
+        
+        sanitized_config = sanitize_config(config_dict)
+        
+        # Output as YAML with clean formatting
+        yaml_output = yaml.dump(
+            sanitized_config, 
+            default_flow_style=False, 
+            indent=2, 
+            sort_keys=True,
+            allow_unicode=True
+        )
+        typer.echo(yaml_output)
+    else:
+        main_config_menu_loop(jump_to)
+
+
+@app.command(help="Show the current version of confluence-markdown-exporter.")
+def version() -> None:
+    """Display the current version."""
+    typer.echo(f"confluence-markdown-exporter {__version__}")
 
 
 if __name__ == "__main__":
