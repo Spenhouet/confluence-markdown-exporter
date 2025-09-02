@@ -67,7 +67,7 @@ class TestAppConfiguration:
             "spaces",
             "all-spaces",
             "config",
-            "version"
+            "version",
         ]
         for expected_command in expected_commands:
             assert expected_command in commands

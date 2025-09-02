@@ -159,9 +159,7 @@ class TestGetConfluenceInstance:
         mock_factory_class.assert_called_once_with(
             sample_config_model.connection_config.model_dump()
         )
-        mock_factory.create_confluence.assert_called_once_with(
-            sample_config_model.auth.confluence
-        )
+        mock_factory.create_confluence.assert_called_once_with(sample_config_model.auth.confluence)
 
     @patch("confluence_markdown_exporter.api_clients.get_settings")
     @patch("confluence_markdown_exporter.api_clients.ApiClientFactory")

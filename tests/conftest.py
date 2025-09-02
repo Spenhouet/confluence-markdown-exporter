@@ -126,8 +126,7 @@ def confluence_page_response() -> dict[str, Any]:
         "body": {
             "storage": {
                 "value": (
-                    "<h1>Test Heading</h1>"
-                    "<p>Test content with <strong>bold</strong> text.</p>"
+                    "<h1>Test Heading</h1><p>Test content with <strong>bold</strong> text.</p>"
                 ),
                 "representation": "storage",
             }

@@ -16,9 +16,7 @@ from confluence_markdown_exporter.utils.measure_time import measure_time
 class TestMeasureTime:
     """Test cases for measure_time decorator."""
 
-    def test_measure_time_decorator_logs(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_measure_time_decorator_logs(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test that measure_time decorator logs execution time."""
         # Capture logs from the specific logger used by measure_time
         logger_name = "confluence_markdown_exporter.utils.measure_time"
@@ -38,9 +36,7 @@ class TestMeasureTime:
         assert "Function 'test_function' took" in log_messages[0]
         assert "seconds to execute" in log_messages[0]
 
-    def test_measure_time_with_exception(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_measure_time_with_exception(self, caplog: pytest.LogCaptureFixture) -> None:
         """Test that measure_time decorator handles exceptions properly."""
         logger_name = "confluence_markdown_exporter.utils.measure_time"
         caplog.set_level(logging.INFO, logger=logger_name)
