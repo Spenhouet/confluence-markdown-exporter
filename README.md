@@ -5,7 +5,8 @@
     <em>The confluence-markdown-exporter exports Confluence pages in Markdown format. This exporter helps in migrating content from Confluence to platforms that support Markdown e.g. Obsidian, Gollum, Azure DevOps (ADO), Foam, Dendron and more.</em>
 </p>
 <p align="center">
-  <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/publish.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/publish.yml/badge.svg" alt="Build and publish to PyPI"></a>
+  <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/ci.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/ci.yml/badge.svg" alt="Test, Lint and Build"></a>
+  <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/release.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/release.yml/badge.svg" alt="Build and publish to PyPI"></a>
   <a href="https://pypi.org/project/confluence-markdown-exporter" target="_blank">
     <img src="https://img.shields.io/pypi/v/confluence-markdown-exporter?color=%2334D058&label=PyPI%20package" alt="Package version">
    </a>
@@ -49,7 +50,7 @@ pip install confluence-markdown-exporter
 
 ### 2. Exporting
 
-Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information. 
+Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information.
 
 > [!TIP]
 > Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
@@ -126,6 +127,7 @@ confluence-markdown-exporter config
 ```
 
 This will open a menu where you can:
+
 - See all config options and their current values
 - Select a config to change (including authentication)
 - Reset all config to defaults
@@ -133,31 +135,31 @@ This will open a menu where you can:
 
 ### Available Configuration Options
 
-| Key | Description | Default |
-|-----|-------------|---------|
-| export.output_path | The directory where all exported files and folders will be written. Used as the base for relative and absolute links. | ./ (current working directory) |
-| export.page_href | How to generate links to pages in Markdown. Options: "relative" (default) or "absolute". | relative |
-| export.page_path | Path template for exported pages | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md |
-| export.attachment_href | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute". | relative |
-| export.attachment_path | Path template for attachments | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
-| export.page_breadcrumbs | Whether to include breadcrumb links at the top of the page. | True |
-| export.filename_encoding | Character mapping for filename encoding. | Default mappings for forbidden characters. |
-| export.filename_length | Maximum length of filenames. | 255 |
-| export.include_document_title | Whether to include the document title in the exported markdown file. | True |
-| connection_config.backoff_and_retry | Enable automatic retry with exponential backoff | True |
-| connection_config.backoff_factor | Multiplier for exponential backoff | 2 |
-| connection_config.max_backoff_seconds | Maximum seconds to wait between retries | 60 |
-| connection_config.max_backoff_retries | Maximum number of retry attempts | 5 |
-| connection_config.retry_status_codes | HTTP status codes that trigger a retry | \[413, 429, 502, 503, 504\] |
-| connection_config.verify_ssl | Whether to verify SSL certificates for HTTPS requests. | True |
-| auth.confluence.url | Confluence instance URL | "" |
-| auth.confluence.username | Confluence username/email | "" |
-| auth.confluence.api_token | Confluence API token | "" |
-| auth.confluence.pat | Confluence Personal Access Token | "" |
-| auth.jira.url | Jira instance URL | "" |
-| auth.jira.username | Jira username/email | "" |
-| auth.jira.api_token | Jira API token | "" |
-| auth.jira.pat | Jira Personal Access Token | "" |
+| Key                                   | Description                                                                                                           | Default                                                             |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| export.output_path                    | The directory where all exported files and folders will be written. Used as the base for relative and absolute links. | ./ (current working directory)                                      |
+| export.page_href                      | How to generate links to pages in Markdown. Options: "relative" (default) or "absolute".                              | relative                                                            |
+| export.page_path                      | Path template for exported pages                                                                                      | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md     |
+| export.attachment_href                | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute".                        | relative                                                            |
+| export.attachment_path                | Path template for attachments                                                                                         | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
+| export.page_breadcrumbs               | Whether to include breadcrumb links at the top of the page.                                                           | True                                                                |
+| export.filename_encoding              | Character mapping for filename encoding.                                                                              | Default mappings for forbidden characters.                          |
+| export.filename_length                | Maximum length of filenames.                                                                                          | 255                                                                 |
+| export.include_document_title         | Whether to include the document title in the exported markdown file.                                                  | True                                                                |
+| connection_config.backoff_and_retry   | Enable automatic retry with exponential backoff                                                                       | True                                                                |
+| connection_config.backoff_factor      | Multiplier for exponential backoff                                                                                    | 2                                                                   |
+| connection_config.max_backoff_seconds | Maximum seconds to wait between retries                                                                               | 60                                                                  |
+| connection_config.max_backoff_retries | Maximum number of retry attempts                                                                                      | 5                                                                   |
+| connection_config.retry_status_codes  | HTTP status codes that trigger a retry                                                                                | \[413, 429, 502, 503, 504\]                                         |
+| connection_config.verify_ssl          | Whether to verify SSL certificates for HTTPS requests.                                                                | True                                                                |
+| auth.confluence.url                   | Confluence instance URL                                                                                               | ""                                                                  |
+| auth.confluence.username              | Confluence username/email                                                                                             | ""                                                                  |
+| auth.confluence.api_token             | Confluence API token                                                                                                  | ""                                                                  |
+| auth.confluence.pat                   | Confluence Personal Access Token                                                                                      | ""                                                                  |
+| auth.jira.url                         | Jira instance URL                                                                                                     | ""                                                                  |
+| auth.jira.username                    | Jira username/email                                                                                                   | ""                                                                  |
+| auth.jira.api_token                   | Jira API token                                                                                                        | ""                                                                  |
+| auth.jira.pat                         | Jira Personal Access Token                                                                                            | ""                                                                  |
 
 You can always view and change the current config with the interactive menu above.
 
@@ -173,11 +175,11 @@ Some platforms have specific requirements for Markdown formatting, file structur
 #### Azure DevOps (ADO) Wikis
 
 - **Absolute Attachment Links**: Ensure `export.attachment_href` is set to `absolute`.
-- **Attachment Path Template**: Set `export.attachment_path` to  `.attachments/{attachment_file_id}{attachment_extension}` so ADO Wiki can find attachments.
-- **Filename sanitizing**: 
-    - Set `export.filename_encoding` to `" ":"-","\"":"%22","*":"%2A","-":"%2D",":":"%3A","<":"%3C",">":"%3E","?":"%3F","|":"%7C","\\":"_","#":"_","/":"_","\u0000":"_"` 
-      for ADO compatibility (spaces become `-`, dashes become `%2D`, and forbidden characters become `_`)
-    - Set `export.filename_length` to `200`
+- **Attachment Path Template**: Set `export.attachment_path` to `.attachments/{attachment_file_id}{attachment_extension}` so ADO Wiki can find attachments.
+- **Filename sanitizing**:
+  - Set `export.filename_encoding` to `" ":"-","\"":"%22","*":"%2A","-":"%2D",":":"%3A","<":"%3C",">":"%3E","?":"%3F","|":"%7C","\\":"_","#":"_","/":"_","\u0000":"_"`
+    for ADO compatibility (spaces become `-`, dashes become `%2D`, and forbidden characters become `_`)
+  - Set `export.filename_length` to `200`
 
 ### Custom Config File Location
 
@@ -201,10 +203,12 @@ pip install confluence-markdown-exporter --upgrade
 
 This package is not tested extensively. Please check all output and report any issue [here](https://github.com/Spenhouet/confluence-markdown-exporter/issues).
 It generally was tested on:
+
 - Confluence Cloud 1000.0.0-b5426ab8524f (2025-05-28)
 - Confluence Server 8.5.20
 
 ## Known Issues
+
 1. **Missing Attachment File ID on Server**: For some Confluence Server version/configuration the attachment file ID might not be provided (https://github.com/Spenhouet/confluence-markdown-exporter/issues/39). In the default configuration, this is used for the export path. Solution: Adjust the attachment path in the export config and use the `{attachment_id}` or `{attachment_title}` instead.
 2. **Connection Issues when behind Proxy or VPN**: There might be connection issues if your Confluence Server is behind a proxy or VPN (https://github.com/Spenhouet/confluence-markdown-exporter/issues/38). If you experience issues, help to fix this is appreciated.
 
