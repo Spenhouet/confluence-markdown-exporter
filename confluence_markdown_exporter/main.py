@@ -33,7 +33,7 @@ def pages(
         ),
     ] = None,
 ) -> None:
-    from confluence_markdown_exporter.confluence import Page
+    from confluence_markdown_exporter.confluence import Page  # noqa: PLC0415 lacy load
 
     with measure(f"Export pages {', '.join(pages)}"):
         for page in pages:
@@ -52,7 +52,7 @@ def pages_with_descendants(
         ),
     ] = None,
 ) -> None:
-    from confluence_markdown_exporter.confluence import Page
+    from confluence_markdown_exporter.confluence import Page  # noqa: PLC0415 lacy load
 
     with measure(f"Export pages {', '.join(pages)} with descendants"):
         for page in pages:
@@ -71,7 +71,7 @@ def spaces(
         ),
     ] = None,
 ) -> None:
-    from confluence_markdown_exporter.confluence import Space
+    from confluence_markdown_exporter.confluence import Space  # noqa: PLC0415 lacy load
 
     with measure(f"Export spaces {', '.join(space_keys)}"):
         for space_key in space_keys:
@@ -89,7 +89,7 @@ def all_spaces(
         ),
     ] = None,
 ) -> None:
-    from confluence_markdown_exporter.confluence import Organization
+    from confluence_markdown_exporter.confluence import Organization  # noqa: PLC0415 lacy load
 
     with measure("Export all spaces"):
         override_output_path_config(output_path)
@@ -100,10 +100,16 @@ def all_spaces(
 @app.command(help="Open the interactive configuration menu or display current configuration.")
 def config(
     jump_to: Annotated[
-        str | None, typer.Option(help="Jump directly to a config submenu, e.g. 'auth.confluence'")
+        str | None,
+        typer.Option(help="Jump directly to a config submenu, e.g. 'auth.confluence'"),
     ] = None,
+    *,
     show: Annotated[
-        bool, typer.Option("--show", help="Display current configuration as YAML instead of opening the interactive menu")
+        bool,
+        typer.Option(
+            "--show",
+            help="Display current configuration as YAML instead of opening the interactive menu",
+        ),
     ] = False,
 ) -> None:
     """Interactive configuration menu or display current configuration."""
@@ -111,32 +117,31 @@ def config(
         # Display current configuration as YAML
         current_settings = get_settings()
         config_dict = current_settings.model_dump()
-        
+
         # Convert values to a clean, readable format
-        def sanitize_config(obj):
+        def sanitize_config(obj):  # noqa: ANN001, ANN202
             if isinstance(obj, dict):
                 return {k: sanitize_config(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
+            if isinstance(obj, list):
                 return [sanitize_config(item) for item in obj]
-            elif hasattr(obj, '__class__') and 'SecretStr' in str(obj.__class__):
+            if hasattr(obj, "__class__") and "SecretStr" in str(obj.__class__):
                 # Handle SecretStr values
                 value = str(obj)
                 return "***HIDDEN***" if value and value != "" else ""
-            elif hasattr(obj, '__class__') and 'Path' in str(obj.__class__):
+            if hasattr(obj, "__class__") and "Path" in str(obj.__class__):
                 # Handle Path objects
                 return str(obj) if obj else "."
-            else:
-                return obj
-        
+            return obj
+
         sanitized_config = sanitize_config(config_dict)
-        
+
         # Output as YAML with clean formatting
         yaml_output = yaml.dump(
-            sanitized_config, 
-            default_flow_style=False, 
-            indent=2, 
+            sanitized_config,
+            default_flow_style=False,
+            indent=2,
             sort_keys=True,
-            allow_unicode=True
+            allow_unicode=True,
         )
         typer.echo(yaml_output)
     else:

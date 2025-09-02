@@ -1,3 +1,4 @@
+import logging
 import time
 from collections.abc import Callable
 from collections.abc import Generator
@@ -11,6 +12,8 @@ from dateutil.relativedelta import relativedelta
 T = TypeVar("T")
 P = ParamSpec("P")
 
+logger = logging.getLogger(__name__)
+
 
 def measure_time(func: Callable[P, T]) -> Callable[P, T]:
     """Decorator to measure and print the execution time of a function."""
@@ -20,7 +23,7 @@ def measure_time(func: Callable[P, T]) -> Callable[P, T]:
         result = func(*args, **kwargs)
         end_time = time.time()
         elapsed_time = end_time - start_time
-        print(f"Function '{func.__name__}' took {elapsed_time:.4f} seconds to execute.")
+        logger.info(f"Function '{func.__name__}' took {elapsed_time:.4f} seconds to execute.")
         return result
 
     return wrapper
@@ -63,7 +66,7 @@ def measure(step: str) -> Generator[None, None, None]:
         e: Reraised exception from execution
     """
     start_time = datetime.now()
-    print(format_log_message(step, time=start_time, state="started"))
+    logger.info(format_log_message(step, time=start_time, state="started"))
     state = "stopped"
     try:
         yield
@@ -73,6 +76,6 @@ def measure(step: str) -> Generator[None, None, None]:
         raise
     finally:
         end_time = datetime.now()
-        print(format_log_message(step, time=end_time, state=state))
+        logger.info(format_log_message(step, time=end_time, state=state))
         duration = relativedelta(end_time, start_time)
-        print(f"{step} took {duration}")
+        logger.info(f"{step} took {duration}")
