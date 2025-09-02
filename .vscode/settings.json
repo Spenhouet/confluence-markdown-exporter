@@ -4,19 +4,10 @@
   "autoDocstring.docstringFormat": "google",
   "autoDocstring.startOnNewLine": true,
   "python.languageServer": "Pylance",
-  "python.testing.unittestArgs": [
-    "-v",
-    "-s",
-    "./tests",
-    "-p",
-    "test_*.py",
-    "-t",
-    "${workspaceFolder}"
-  ],
-  "python.testing.pytestEnabled": false,
-  "python.testing.unittestEnabled": true,
-  "python.analysis.typeCheckingMode": "basic",
-  "python.defaultInterpreterPath": "~/.pyenv/versions/confluence-markdown-exporter/bin/python",
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true,
+  "python.analysis.typeCheckingMode": "standard",
+  "python.defaultInterpreterPath": ".venv/bin/python",
   "jupyter.notebookFileRoot": "${workspaceFolder}",
   "task.autoDetect": "off",
   "python.analysis.diagnosticSeverityOverrides": {
@@ -24,15 +15,21 @@
     "reportInvalidStringEscapeSequence": "none",
     "reportUnusedExpression": "none"
   },
+  "python.analysis.autoImportCompletions": true,
+  "python.analysis.indexing": true,
+  "python.analysis.languageServerMode": "full",
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff",
-    "editor.formatOnSave": true,
-    "editor.formatOnSaveMode": "file",
     "editor.codeActionsOnSave": {
-      "source.organizeImports": "explicit",
-      "source.fixAll": "explicit"
+      "source.fixAll": "explicit",
+      "source.organizeImports": "explicit"
     }
   },
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "jupyter.debugJustMyCode": false,
+  "debugpy.debugJustMyCode": false,
   "[markdown]": {
     "diffEditor.ignoreTrimWhitespace": false,
     "editor.unicodeHighlight.ambiguousCharacters": false,

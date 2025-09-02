@@ -1,0 +1,51 @@
+name: Bug report
+description: Report an error or unexpected behavior
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report an issue! We're glad to have you involved with confluence-markdown-exporter.
+
+        **Before reporting, please make sure to search through [existing issues](https://github.com/Spenhouet/confluence-markdown-exporter/issues?q=is:issue+is:open+label:bug) (including [closed](https://github.com/Spenhouet/confluence-markdown-exporter/issues?q=is:issue%20state:closed%20label:bug)).**
+
+  - type: textarea
+    attributes:
+      label: Summary
+      description: |
+        A clear and concise description of the bug, including a minimal reproducible example.
+
+        Be sure to include the command you invoked (e.g., `confluence-markdown-exporter pages 645208921`).
+        Idealy, also include your configuration (see `confluence-markdown-exporter config --show`):
+        ```yaml
+        # your config here
+        ```
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Version
+      description: What version of confluence-markdown-exporter are you using? (see `confluence-markdown-exporter version`)
+      placeholder: e.g., confluence-markdown-exporter 3.0.3
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: Confluence Version
+      description: |
+        What Confluence version are you using? Include whether it's Cloud or Server/Data Center.
+        Example: `Confluence Cloud` or `Confluence Server 7.19.2`
+      placeholder: e.g., Confluence Cloud or Confluence Server 7.19.2
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: Jira Version
+      description: |
+        What Jira version are you using (or not)? Include whether it's Cloud or Server/Data Center.
+        Example: `Jira Cloud` or `Jira Server 8.20.5`
+      placeholder: e.g., Jira Cloud or Jira Server 8.20.5
+    validations:
+      required: false

@@ -1,0 +1,38 @@
+name: Question
+description: Ask a question about confluence-markdown-exporter
+labels: ["question"]
+body:
+  - type: textarea
+    attributes:
+      label: Question
+      description: Describe your question in detail.
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: Version
+      description: What version of confluence-markdown-exporter are you using? (see `confluence-markdown-exporter version`)
+      placeholder: e.g., confluence-markdown-exporter 3.0.3
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: Confluence Version
+      description: |
+        What Confluence version are you using? Include whether it's Cloud or Server/Data Center.
+        Example: `Confluence Cloud` or `Confluence Server 7.19.2`
+      placeholder: e.g., Confluence Cloud or Confluence Server 7.19.2
+    validations:
+      required: false
+
+  - type: input
+    attributes:
+      label: Jira Version
+      description: |
+        What Jira version are you using (or not)? Include whether it's Cloud or Server/Data Center.
+        Example: `Jira Cloud` or `Jira Server 8.20.5`
+      placeholder: e.g., Jira Cloud or Jira Server 8.20.5
+    validations:
+      required: false

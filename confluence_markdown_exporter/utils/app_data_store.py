@@ -74,10 +74,14 @@ class ApiDetails(BaseModel):
     """API authentication details."""
 
     url: AnyHttpUrl | Literal[""] = Field(
-        "", title="Instance URL", description="Base URL of the Confluence or Jira instance."
+        "",
+        title="Instance URL",
+        description="Base URL of the Confluence or Jira instance.",
     )
     username: str = Field(
-        "", title="Username (email)", description="Username or email for API authentication."
+        "",
+        title="Username (email)",
+        description="Username or email for API authentication.",
     )
     api_token: SecretStr = Field(
         SecretStr(""),
@@ -123,7 +127,7 @@ class ExportConfig(BaseModel):
     """Export settings for markdown and attachments."""
 
     output_path: Path = Field(
-        default=Path("."),
+        default=Path(),
         title="Output Path",
         description=("Directory where exported pages and attachments will be saved."),
         examples=[

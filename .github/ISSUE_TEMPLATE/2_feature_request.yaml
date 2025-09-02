@@ -1,0 +1,56 @@
+name: Feature request
+description: Suggest a new feature or enhancement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to suggest a feature! We're glad to have you involved with confluence-markdown-exporter.
+
+        **Before submitting, please make sure to search through [existing feature requests](https://github.com/Spenhouet/confluence-markdown-exporter/issues?q=is:issue+is:open+label:enhancement) (including [closed](https://github.com/Spenhouet/confluence-markdown-exporter/issues?q=is:issue%20state:closed%20label:enhancement)).**
+
+  - type: textarea
+    attributes:
+      label: Problem Description
+      description: |
+        A clear and concise description of the problem or limitation you're experiencing.
+
+        What is the use case? What workflow or task would this feature enable or improve?
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Proposed Solution
+      description: |
+        A clear and concise description of what you want to happen.
+
+        How do you envision this feature working? What would the ideal implementation look like?
+
+        If you have ideas about commands, options, or configuration, please include examples:
+        ```bash
+        # Example command or usage
+        confluence-markdown-exporter <your-suggested-command>
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Alternatives Considered
+      description: |
+        A clear and concise description of any alternative solutions or features you've considered.
+
+        Are there workarounds you're currently using? What other tools or approaches have you tried?
+    validations:
+      required: false
+
+  - type: textarea
+    attributes:
+      label: Use Cases
+      description: |
+        Describe specific scenarios where this feature would be helpful.
+
+        Please provide concrete examples of how you (or others) would use this feature in practice.
+    validations:
+      required: false

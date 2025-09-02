@@ -73,7 +73,7 @@ def _get_field_metadata(model: type[BaseModel], key: str) -> dict:
     }
 
 
-def _format_prompt_message(key_name: str, current_value: object, model: type[BaseModel]) -> str:
+def _format_prompt_message(key_name: str, _current_value: object, model: type[BaseModel]) -> str:
     meta = _get_field_metadata(model, key_name)
     lines = []
     # Title
@@ -91,8 +91,7 @@ def _format_prompt_message(key_name: str, current_value: object, model: type[Bas
         ex = meta["examples"]
         if isinstance(ex, list | tuple) and ex:
             lines.append("\nExamples:")
-            for example in ex:
-                lines.append(f"  • {example}")
+            lines.extend(f"  • {example}" for example in ex)
     # Instruction
     lines.append(f"\nChange {meta['title']} to:")
     return "\n".join(lines)
@@ -213,7 +212,10 @@ def _main_config_menu(settings: dict, default: tuple[str, bool] | None = None) -
         if isinstance(v, dict):
             choices.append(
                 Choice(
-                    title=[("class:key", str(display_title)), ("class:value", "  [submenu]")],
+                    title=[
+                        ("class:key", str(display_title)),
+                        ("class:value", "  [submenu]"),
+                    ],
                     value=(k, True),
                 )
             )
@@ -246,7 +248,10 @@ def _main_config_menu(settings: dict, default: tuple[str, bool] | None = None) -
 
 
 def _prompt_for_new_value(  # noqa: PLR0911
-    key_name: str, current_value: object, model: type[BaseModel], parent_key: str | None = None
+    key_name: str,
+    current_value: object,
+    model: type[BaseModel],
+    _parent_key: str | None = None,
 ) -> object:
     field_type = _get_field_type(model, key_name)
     origin = get_origin(field_type)
@@ -305,7 +310,10 @@ def _get_choices(config_dict: dict, model: type[BaseModel]) -> list:
         if isinstance(v, dict):
             choices.append(
                 Choice(
-                    title=[("class:key", str(display_title)), ("class:value", "  [submenu]")],
+                    title=[
+                        ("class:key", str(display_title)),
+                        ("class:value", "  [submenu]"),
+                    ],
                     value=k,
                 )
             )
