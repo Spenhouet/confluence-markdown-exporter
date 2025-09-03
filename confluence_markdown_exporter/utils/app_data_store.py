@@ -78,8 +78,8 @@ class ApiDetails(BaseModel):
         title="Instance URL",
         description="Base URL of the Confluence or Jira instance.",
     )
-    username: str = Field(
-        "",
+    username: SecretStr = Field(
+        SecretStr(""),
         title="Username (email)",
         description="Username or email for API authentication.",
     )
@@ -109,14 +109,14 @@ class AuthConfig(BaseModel):
 
     confluence: ApiDetails = Field(
         default_factory=lambda: ApiDetails(
-            url="", username="", api_token=SecretStr(""), pat=SecretStr("")
+            url="", username=SecretStr(""), api_token=SecretStr(""), pat=SecretStr("")
         ),
         title="Confluence Account",
         description="Authentication for Confluence.",
     )
     jira: ApiDetails = Field(
         default_factory=lambda: ApiDetails(
-            url="", username="", api_token=SecretStr(""), pat=SecretStr("")
+            url="", username=SecretStr(""), api_token=SecretStr(""), pat=SecretStr("")
         ),
         title="Jira Account",
         description="Authentication for Jira.",
@@ -246,16 +246,16 @@ class ConfigModel(BaseModel):
     auth: AuthConfig = Field(default_factory=AuthConfig, title="Authentication")
 
 
-def _convert_paths_to_str(obj: object) -> object:
+def sanitize_config(obj: object, *, hide_secrets: bool = True) -> object:
     """Recursively convert Path, SecretStr, and AnyHttpUrl objects to str."""
     if isinstance(obj, dict):
-        return {k: _convert_paths_to_str(v) for k, v in obj.items()}
+        return {k: sanitize_config(v) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_convert_paths_to_str(v) for v in obj]
+        return [sanitize_config(v) for v in obj]
     if isinstance(obj, Path):
         return str(obj)
     if isinstance(obj, SecretStr):
-        return obj.get_secret_value()
+        return "********" if hide_secrets else obj.get_secret_value()
     if isinstance(obj, AnyHttpUrl):
         return str(obj)
     return obj
@@ -272,7 +272,7 @@ def load_app_data() -> dict[str, dict]:
 
 def save_app_data(data: dict[str, dict]) -> None:
     """Save application data to the config file after conversion and validation."""
-    data_obj = _convert_paths_to_str(data)
+    data_obj = sanitize_config(data, hide_secrets=False)
     if not isinstance(data_obj, dict):
         msg = "Data must be a dict after conversion"
         raise TypeError(msg)

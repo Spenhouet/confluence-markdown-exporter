@@ -42,7 +42,7 @@ class ApiClientFactory:
         try:
             instance = ConfluenceApiSdk(
                 url=str(auth.url),
-                username=auth.username,
+                username=auth.username.get_secret_value() if auth.api_token else None,
                 password=auth.api_token.get_secret_value() if auth.api_token else None,
                 token=auth.pat.get_secret_value() if auth.pat else None,
                 **self.connection_config,
@@ -57,7 +57,7 @@ class ApiClientFactory:
         try:
             instance = JiraApiSdk(
                 url=str(auth.url),
-                username=auth.username,
+                username=auth.username.get_secret_value() if auth.api_token else None,
                 password=auth.api_token.get_secret_value() if auth.api_token else None,
                 token=auth.pat.get_secret_value() if auth.pat else None,
                 **self.connection_config,

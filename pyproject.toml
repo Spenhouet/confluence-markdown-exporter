@@ -139,6 +139,7 @@ ignore = [
   "SIM102", # ignore this to avoid changing nested if statements to single if statements, potentially confusing
   "ERA001", # ignore this to keep commented out lines while functionality is not implemented (configs/logos)
   "PERF203", # ignore this as this often is intentional.
+  "ARG002", # Many methods in this project share the same signature, independent of variable usage.
 ]
 
 fixable = ["ALL"] # Allow fix for all enabled rules (when using "Fix all" or when `--fix` is provided to ruff check in CLI)

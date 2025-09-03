@@ -73,7 +73,7 @@ class TestApiClientFactory:
         assert result == mock_instance
         mock_confluence_sdk.assert_called_once_with(
             url=str(sample_api_details.url),
-            username=sample_api_details.username,
+            username=sample_api_details.username.get_secret_value(),
             password=sample_api_details.api_token.get_secret_value(),
             token=sample_api_details.pat.get_secret_value(),
             timeout=30,
@@ -112,7 +112,7 @@ class TestApiClientFactory:
         assert result == mock_instance
         mock_jira_sdk.assert_called_once_with(
             url=str(sample_api_details.url),
-            username=sample_api_details.username,
+            username=sample_api_details.username.get_secret_value(),
             password=sample_api_details.api_token.get_secret_value(),
             token=sample_api_details.pat.get_secret_value(),
             timeout=30,

@@ -1,5 +1,6 @@
 name: Bug report
 description: Report an error or unexpected behavior
+labels: ["bug"]
 body:
   - type: markdown
     attributes:
@@ -10,15 +11,12 @@ body:
 
   - type: textarea
     attributes:
-      label: Summary
+      label: Description
       description: |
         A clear and concise description of the bug, including a minimal reproducible example.
 
         Be sure to include the command you invoked (e.g., `confluence-markdown-exporter pages 645208921`).
-        Idealy, also include your configuration (see `confluence-markdown-exporter config --show`):
-        ```yaml
-        # your config here
-        ```
+        Idealy, also include your configuration (see `confluence-markdown-exporter config --show`).
     validations:
       required: true
 

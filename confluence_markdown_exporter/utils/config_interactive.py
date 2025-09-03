@@ -73,7 +73,7 @@ def _get_field_metadata(model: type[BaseModel], key: str) -> dict:
     }
 
 
-def _format_prompt_message(key_name: str, _current_value: object, model: type[BaseModel]) -> str:
+def _format_prompt_message(key_name: str, model: type[BaseModel]) -> str:
     meta = _get_field_metadata(model, key_name)
     lines = []
     # Title
@@ -251,11 +251,10 @@ def _prompt_for_new_value(  # noqa: PLR0911
     key_name: str,
     current_value: object,
     model: type[BaseModel],
-    _parent_key: str | None = None,
 ) -> object:
     field_type = _get_field_type(model, key_name)
     origin = get_origin(field_type)
-    prompt_message = _format_prompt_message(key_name, current_value, model)
+    prompt_message = _format_prompt_message(key_name, model)
     if field_type is None:
         field_type = str  # Default to string if no type found
     if origin is Literal:
@@ -386,7 +385,7 @@ def _edit_dict_config_loop(  # noqa: C901, PLR0912
             selected_key = key
         else:
             while True:
-                value_cast = _prompt_for_new_value(key, current_value, model, parent_key)
+                value_cast = _prompt_for_new_value(key, current_value, model)
                 if value_cast is not None:
                     try:
                         set_setting(f"{parent_key}.{key}" if parent_key else key, value_cast)
