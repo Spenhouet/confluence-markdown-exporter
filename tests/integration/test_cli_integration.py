@@ -1,10 +1,10 @@
 """Basic tests for confluence-markdown-exporter package."""
 
+import json
 import subprocess
 import sys
 
 import pytest
-import yaml
 
 import confluence_markdown_exporter.main as main_module
 from confluence_markdown_exporter import __version__
@@ -63,14 +63,21 @@ def test_config_show_command() -> None:
             timeout=10,
         )
 
-        # Check that output contains YAML configuration
+        # Check that output contains JSON configuration
         assert result.returncode == 0
-        assert "auth:" in result.stdout
-        assert "export:" in result.stdout
-        assert "connection_config:" in result.stdout
+        assert '"auth":' in result.stdout
+        assert '"export":' in result.stdout
+        assert '"connection_config":' in result.stdout
 
-        # Verify it's valid YAML by trying to parse it
-        config_data = yaml.safe_load(result.stdout)
+        # Extract JSON from code block (remove ```json and ``` wrapper)
+        stdout_lines = result.stdout.strip().split("\n")
+        if stdout_lines[0] == "```json" and stdout_lines[-1] == "```":
+            json_content = "\n".join(stdout_lines[1:-1])
+        else:
+            json_content = result.stdout
+
+        # Verify it's valid JSON by trying to parse it
+        config_data = json.loads(json_content)
         assert isinstance(config_data, dict)
         assert "auth" in config_data
         assert "export" in config_data

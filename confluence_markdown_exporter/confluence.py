@@ -599,7 +599,7 @@ class Page(Document):
                     self.page_properties[sanitize_key(key)] = value
 
         def convert_page_properties(
-            self, el: BeautifulSoup, _text: str, _parent_tags: list[str]
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> None:
             rows = [
                 cast("list[Tag]", tr.find_all(["th", "td"]))
@@ -669,7 +669,7 @@ class Page(Document):
             return super().convert_div(el, text, parent_tags)
 
         def convert_expand_container(
-            self, el: BeautifulSoup, _text: str, parent_tags: list[str]
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
             """Convert expand-container div to HTML details element."""
             # Extract summary text from expand-control-text
@@ -735,7 +735,7 @@ class Page(Document):
 
             return self.convert_table(BeautifulSoup(html, "html.parser"), text, parent_tags)
 
-        def convert_jira_table(self, _el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_jira_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             jira_tables = BeautifulSoup(self.page.body_export, "html.parser").find_all(
                 "div", {"class": "jira-table"}
             )
@@ -750,7 +750,7 @@ class Page(Document):
 
             return self.process_tag(jira_tables[0], parent_tags)
 
-        def convert_toc(self, _el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_toc(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             tocs = BeautifulSoup(self.page.body_export, "html.parser").find_all(
                 "div", {"class": "toc-macro"}
             )
@@ -785,7 +785,7 @@ class Page(Document):
             except HTTPError:
                 return f"[[{issue_key}]]({link.get('href')})"
 
-        def convert_pre(self, el: BeautifulSoup, text: str, _parent_tags: list[str]) -> str:
+        def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if not text:
                 return ""
 
@@ -797,10 +797,10 @@ class Page(Document):
 
             return f"\n\n```{code_language}\n{text}\n```\n\n"
 
-        def convert_sub(self, _el: BeautifulSoup, text: str, _parent_tags: list[str]) -> str:
+        def convert_sub(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             return f"<sub>{text}</sub>"
 
-        def convert_sup(self, el: BeautifulSoup, text: str, _parent_tags: list[str]) -> str:
+        def convert_sup(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert superscript to Markdown footnotes."""
             if el.previous_sibling is None:
                 return f"[^{text}]:"  # Footnote definition
@@ -843,7 +843,7 @@ class Page(Document):
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
         def convert_attachment_link(
-            self, el: BeautifulSoup, text: str, _parent_tags: list[str]
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
             """Build a Markdown link for an attachment.
 
@@ -865,15 +865,13 @@ class Page(Document):
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
-        def convert_time(self, el: BeautifulSoup, text: str, _parent_tags: list[str]) -> str:
+        def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
                 return f"{el['datetime']}"
 
             return f"{text}"
 
-        def convert_user_mention(
-            self, el: BeautifulSoup, text: str, _parent_tags: list[str]
-        ) -> str:
+        def convert_user_mention(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if aid := el.get("data-account-id"):
                 try:
                     return self.convert_user(User.from_accountid(str(aid)))
@@ -914,7 +912,7 @@ class Page(Document):
                 parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
 
-        def convert_drawio(self, el: BeautifulSoup, _text: str, _parent_tags: list[str]) -> str:
+        def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
                 drawio_name = match.group(1)
                 preview_name = f"{drawio_name}.png"
@@ -944,7 +942,7 @@ class Page(Document):
             return super().convert_table(el, text, parent_tags)
 
         def convert_page_properties_report(
-            self, el: BeautifulSoup, _text: str, parent_tags: list[str]
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
             data_cql = el.get("data-cql")
             if not data_cql:
