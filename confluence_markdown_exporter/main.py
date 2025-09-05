@@ -1,4 +1,3 @@
-import json
 import os
 from pathlib import Path
 from typing import Annotated
@@ -7,7 +6,6 @@ import typer
 
 from confluence_markdown_exporter import __version__
 from confluence_markdown_exporter.utils.app_data_store import get_settings
-from confluence_markdown_exporter.utils.app_data_store import sanitize_config
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 from confluence_markdown_exporter.utils.measure_time import measure
@@ -34,7 +32,7 @@ def pages(
         ),
     ] = None,
 ) -> None:
-    from confluence_markdown_exporter.confluence import Page  # noqa: PLC0415 lacy load
+    from confluence_markdown_exporter.confluence import Page
 
     with measure(f"Export pages {', '.join(pages)}"):
         for page in pages:
@@ -53,7 +51,7 @@ def pages_with_descendants(
         ),
     ] = None,
 ) -> None:
-    from confluence_markdown_exporter.confluence import Page  # noqa: PLC0415 lacy load
+    from confluence_markdown_exporter.confluence import Page
 
     with measure(f"Export pages {', '.join(pages)} with descendants"):
         for page in pages:
@@ -72,7 +70,7 @@ def spaces(
         ),
     ] = None,
 ) -> None:
-    from confluence_markdown_exporter.confluence import Space  # noqa: PLC0415 lacy load
+    from confluence_markdown_exporter.confluence import Space
 
     with measure(f"Export spaces {', '.join(space_keys)}"):
         for space_key in space_keys:
@@ -90,7 +88,7 @@ def all_spaces(
         ),
     ] = None,
 ) -> None:
-    from confluence_markdown_exporter.confluence import Organization  # noqa: PLC0415 lacy load
+    from confluence_markdown_exporter.confluence import Organization
 
     with measure("Export all spaces"):
         override_output_path_config(output_path)
@@ -115,13 +113,8 @@ def config(
 ) -> None:
     """Interactive configuration menu or display current configuration."""
     if show:
-        # Display current configuration as YAML
         current_settings = get_settings()
-        config_dict = current_settings.model_dump()
-        sanitized_config = sanitize_config(config_dict)
-
-        # Output as JSON with clean formatting
-        json_output = json.dumps(sanitized_config, indent=2)
+        json_output = current_settings.model_dump_json(indent=2)
         typer.echo(f"```json\n{json_output}\n```")
     else:
         main_config_menu_loop(jump_to)
