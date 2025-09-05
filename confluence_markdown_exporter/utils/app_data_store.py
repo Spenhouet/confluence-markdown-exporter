@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import SecretStr
 from pydantic import ValidationError
+from pydantic import field_serializer
 from typer import get_app_dir
 
 
@@ -102,6 +103,10 @@ class ApiDetails(BaseModel):
             "See your Atlassian instance documentation for how to create a PAT."
         ),
     )
+
+    @field_serializer("username", "api_token", "pat", when_used="json")
+    def dump_secret(self, v: SecretStr) -> str:
+        return v.get_secret_value()
 
 
 class AuthConfig(BaseModel):
@@ -246,21 +251,6 @@ class ConfigModel(BaseModel):
     auth: AuthConfig = Field(default_factory=AuthConfig, title="Authentication")
 
 
-def sanitize_config(obj: object, *, hide_secrets: bool = True) -> object:
-    """Recursively convert Path, SecretStr, and AnyHttpUrl objects to str."""
-    if isinstance(obj, dict):
-        return {k: sanitize_config(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [sanitize_config(v) for v in obj]
-    if isinstance(obj, Path):
-        return str(obj)
-    if isinstance(obj, SecretStr):
-        return "********" if hide_secrets else obj.get_secret_value()
-    if isinstance(obj, AnyHttpUrl):
-        return str(obj)
-    return obj
-
-
 def load_app_data() -> dict[str, dict]:
     """Load application data from the config file, returning a validated dict."""
     data = json.loads(APP_CONFIG_PATH.read_text()) if APP_CONFIG_PATH.exists() else {}
@@ -270,13 +260,11 @@ def load_app_data() -> dict[str, dict]:
         return ConfigModel().model_dump()
 
 
-def save_app_data(data: dict[str, dict]) -> None:
-    """Save application data to the config file after conversion and validation."""
-    data_obj = sanitize_config(data, hide_secrets=False)
-    if not isinstance(data_obj, dict):
-        msg = "Data must be a dict after conversion"
-        raise TypeError(msg)
-    APP_CONFIG_PATH.write_text(json.dumps(data_obj, indent=2))
+def save_app_data(config_model: ConfigModel) -> None:
+    """Save application data to the config file using Pydantic serialization."""
+    # Use Pydantic's model_dump_json which properly handles SecretStr serialization
+    json_str = config_model.model_dump_json(indent=2)
+    APP_CONFIG_PATH.write_text(json_str)
 
 
 def get_settings() -> ConfigModel:
@@ -308,7 +296,7 @@ def set_setting(path: str, value: object) -> None:
         settings = ConfigModel.model_validate(data)
     except ValidationError as e:
         raise ValueError(str(e)) from e
-    save_app_data(settings.model_dump())
+    save_app_data(settings)
 
 
 def get_default_value_by_path(path: str | None = None) -> object:
@@ -337,9 +325,10 @@ def reset_to_defaults(path: str | None = None) -> None:
     If path is None, reset the entire config. Otherwise, reset the specified path.
     """
     if path is None:
-        save_app_data(ConfigModel().model_dump())
+        save_app_data(ConfigModel())
         return
     data = load_app_data()
     default_value = get_default_value_by_path(path)
     _set_by_path(data, path, default_value)
-    save_app_data(data)
+    settings = ConfigModel.model_validate(data)
+    save_app_data(settings)

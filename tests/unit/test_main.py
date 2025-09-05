@@ -78,18 +78,15 @@ class TestAppConfiguration:
     # implemented as integration tests with proper test fixtures.
 
     @patch("confluence_markdown_exporter.main.get_settings")
-    @patch("confluence_markdown_exporter.main.json.dumps")
     def test_config_show_command(
         self,
-        mock_json_dumps: MagicMock,
         mock_get_settings: MagicMock,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
         """Test config command with show option."""
         mock_settings = MagicMock()
-        mock_settings.model_dump.return_value = {"test": "config"}
+        mock_settings.model_dump_json.return_value = '{\n  "test": "config"\n}'
         mock_get_settings.return_value = mock_settings
-        mock_json_dumps.return_value = '{\n  "test": "config"\n}'
 
         config(None, show=True)
 
@@ -97,7 +94,7 @@ class TestAppConfiguration:
         assert "```json" in captured.out
         assert '"test": "config"' in captured.out
         assert "```" in captured.out
-        mock_json_dumps.assert_called_once()
+        mock_settings.model_dump_json.assert_called_once_with(indent=2)
 
     @patch("confluence_markdown_exporter.main.main_config_menu_loop")
     def test_config_interactive_command(self, mock_menu_loop: MagicMock) -> None:
