@@ -185,6 +185,81 @@ class Space(BaseModel):
         )
 
 
+class Folder(BaseModel):
+    id: str
+    title: str
+    space: Space
+
+    @property
+    def pages(self) -> list[int]:
+        """Get all page IDs within this folder and its subfolders recursively."""
+        return self._get_all_pages()
+
+    def _get_all_pages(self) -> list[int]:
+        """Recursively collect all page IDs from this folder and subfolders."""
+        page_ids = []
+        children = get_folder_children(self.id)
+
+        for child in children:
+            child_type = child.get("type")
+            child_id = child.get("id")
+
+            if child_type == "page" and child_id:
+                # It's a page - add it to our list
+                page_ids.append(int(child_id))
+            elif child_type == "folder" and child_id:
+                # It's a subfolder - recursively get its pages
+                try:
+                    subfolder = Folder.from_id(child_id)
+                    page_ids.extend(subfolder.pages)
+                except (ApiError, HTTPError) as e:
+                    logger.warning(f"Could not access subfolder {child_id}: {e}")
+                    continue
+
+        return page_ids
+
+    def export(self) -> None:
+        """Export all pages within this folder."""
+        page_ids = self.pages
+        if not page_ids:
+            logger.warning(f"No pages found in folder '{self.title}' (ID: {self.id})")
+        export_pages(page_ids)
+
+    @classmethod
+    def from_json(cls, data: JsonResponse) -> "Folder":
+        """Create a Folder instance from API JSON response."""
+        # Extract space key from the _links or _expandable section
+        space_key = ""
+        if "spaceId" in data:
+            # Try to get space from spaceId if available
+            space_id = data.get("spaceId", "")
+            try:
+                # Get space info from the v1 API
+                space_data = cast("JsonResponse", confluence.get_space(space_id, expand="homepage"))
+                space_key = space_data.get("key", "")
+            except (ApiError, HTTPError):
+                logger.warning(f"Could not fetch space for folder {data.get('id', '')}")
+
+        return cls(
+            id=data.get("id", ""),
+            title=data.get("title", ""),
+            space=Space.from_key(space_key) if space_key else Space(
+                key="", name="", description="", homepage=0
+            ),
+        )
+
+    @classmethod
+    @functools.lru_cache(maxsize=100)
+    def from_id(cls, folder_id: str) -> "Folder":
+        """Fetch a folder by ID and create a Folder instance."""
+        try:
+            folder_data = get_folder_by_id(folder_id)
+            return cls.from_json(folder_data)
+        except (ApiError, HTTPError) as e:
+            msg = f"Could not access folder with ID {folder_id}: {e}"
+            raise ValueError(msg) from e
+
+
 class Label(BaseModel):
     id: str
     name: str
@@ -964,6 +1039,78 @@ class Page(Document):
             else:
                 result = os.path.relpath(path, self.page.export_path.parent)
             return result
+
+
+def get_folder_by_id(folder_id: str) -> JsonResponse:
+    """Fetch folder metadata using Confluence REST API v2.
+
+    Args:
+        folder_id: The folder ID.
+
+    Returns:
+        JSON response containing folder metadata.
+
+    Raises:
+        HTTPError: If the API request fails.
+    """
+    url = f"api/v2/folders/{folder_id}"
+    response = confluence.get(url)
+    if not response:
+        msg = f"Folder with ID {folder_id} not found or not accessible"
+        raise ApiNotFoundError(msg)
+    return cast("JsonResponse", response)
+
+
+def get_folder_children(folder_id: str) -> list[JsonResponse]:
+    """Fetch all children (pages and subfolders) from a folder with pagination.
+
+    Args:
+        folder_id: The folder ID.
+
+    Returns:
+        List of child objects (pages and folders) with metadata.
+    """
+    all_children = []
+    cursor = None
+    limit = 100
+
+    while True:
+        url = f"api/v2/folders/{folder_id}/children"
+        params = {"limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+
+        try:
+            response = confluence.get(url, params=params)
+            if not response:
+                break
+
+            children = response.get("results", [])
+            if not children:
+                break
+
+            all_children.extend(children)
+
+            # Check for next page
+            links = response.get("_links", {})
+            if "next" in links:
+                next_url = links["next"]
+                if "cursor=" in next_url:
+                    cursor = next_url.split("cursor=")[1].split("&")[0]
+                else:
+                    break
+            else:
+                break
+
+        except HTTPError as e:
+            if e.response.status_code == 404:  # noqa: PLR2004
+                logger.warning(
+                    f"Folder with ID {folder_id} not found (404) when fetching children."
+                )
+                break
+            raise
+
+    return all_children
 
 
 def export_page(page_id: int) -> None:

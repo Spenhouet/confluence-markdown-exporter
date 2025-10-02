@@ -79,6 +79,25 @@ def spaces(
             space.export()
 
 
+@app.command(help="Export all Confluence pages within one or more folders to Markdown.")
+def folders(
+    folder_ids: Annotated[list[str], typer.Argument(help="Folder ID(s)")],
+    output_path: Annotated[
+        Path | None,
+        typer.Option(
+            help="Directory to write exported Markdown files to. Overrides config if set."
+        ),
+    ] = None,
+) -> None:
+    from confluence_markdown_exporter.confluence import Folder
+
+    with measure(f"Export folders {', '.join(folder_ids)}"):
+        for folder_id in folder_ids:
+            override_output_path_config(output_path)
+            folder = Folder.from_id(folder_id)
+            folder.export()
+
+
 @app.command(help="Export all Confluence pages across all spaces to Markdown.")
 def all_spaces(
     output_path: Annotated[
