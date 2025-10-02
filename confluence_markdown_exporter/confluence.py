@@ -259,6 +259,41 @@ class Folder(BaseModel):
             msg = f"Could not access folder with ID {folder_id}: {e}"
             raise ValueError(msg) from e
 
+    @classmethod
+    def from_url(cls, folder_url: str) -> "Folder":
+        """Retrieve a Folder object given a Confluence folder URL.
+
+        Supports URL patterns like:
+        - https://company.atlassian.net/wiki/spaces/SPACE/folders/123456
+        - https://company.atlassian.net/wiki/spaces/SPACE/pages/folders/123456
+        """
+        url = urllib.parse.urlparse(folder_url)
+        hostname = url.hostname
+        if hostname and hostname not in str(settings.auth.confluence.url):
+            global confluence  # noqa: PLW0603
+            set_setting("auth.confluence.url", f"{url.scheme}://{hostname}/")
+            confluence = get_confluence_instance()  # Refresh instance with new URL
+
+        path = url.path.rstrip("/")
+
+        # Try pattern: /wiki/spaces/SPACE/folders/123456
+        if match := re.search(r"/wiki/spaces/[^/]+/folders/(\d+)", path):
+            folder_id = match.group(1)
+            return Folder.from_id(folder_id)
+
+        # Try pattern: /wiki/spaces/SPACE/pages/folders/123456
+        if match := re.search(r"/wiki/spaces/[^/]+/pages/folders/(\d+)", path):
+            folder_id = match.group(1)
+            return Folder.from_id(folder_id)
+
+        # Try pattern: /wiki/.+?/folders/123456 (generic)
+        if match := re.search(r"/wiki/.+?/folders/(\d+)", path):
+            folder_id = match.group(1)
+            return Folder.from_id(folder_id)
+
+        msg = f"Could not parse folder URL {folder_url}."
+        raise ValueError(msg)
+
 
 class Label(BaseModel):
     id: str

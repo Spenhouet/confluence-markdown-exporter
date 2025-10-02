@@ -164,6 +164,65 @@ class TestFolderClass:
         assert folder.title == "Test Folder"
         mock_get_folder.assert_called_once_with("123456")
 
+    @patch("confluence_markdown_exporter.confluence.Folder.from_id")
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_from_url_spaces_folders_pattern(
+        self, mock_settings: MagicMock, mock_from_id: MagicMock
+    ) -> None:
+        """Test creating Folder from URL with /spaces/SPACE/folders/ pattern."""
+        mock_settings.auth.confluence.url = "https://company.atlassian.net/"
+
+        mock_folder = MagicMock()
+        mock_from_id.return_value = mock_folder
+
+        url = "https://company.atlassian.net/wiki/spaces/MYSPACE/folders/123456"
+        result = Folder.from_url(url)
+
+        mock_from_id.assert_called_once_with("123456")
+        assert result == mock_folder
+
+    @patch("confluence_markdown_exporter.confluence.Folder.from_id")
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_from_url_pages_folders_pattern(
+        self, mock_settings: MagicMock, mock_from_id: MagicMock
+    ) -> None:
+        """Test creating Folder from URL with /pages/folders/ pattern."""
+        mock_settings.auth.confluence.url = "https://company.atlassian.net/"
+
+        mock_folder = MagicMock()
+        mock_from_id.return_value = mock_folder
+
+        url = "https://company.atlassian.net/wiki/spaces/MYSPACE/pages/folders/789012"
+        result = Folder.from_url(url)
+
+        mock_from_id.assert_called_once_with("789012")
+        assert result == mock_folder
+
+    @patch("confluence_markdown_exporter.confluence.Folder.from_id")
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_from_url_generic_folders_pattern(
+        self, mock_settings: MagicMock, mock_from_id: MagicMock
+    ) -> None:
+        """Test creating Folder from URL with generic /folders/ pattern."""
+        mock_settings.auth.confluence.url = "https://company.atlassian.net/"
+
+        mock_folder = MagicMock()
+        mock_from_id.return_value = mock_folder
+
+        url = "https://company.atlassian.net/wiki/x/folders/345678"
+        result = Folder.from_url(url)
+
+        mock_from_id.assert_called_once_with("345678")
+        assert result == mock_folder
+
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_from_url_invalid_url(self, mock_settings: MagicMock) -> None:
+        """Test that invalid folder URL raises ValueError."""
+        mock_settings.auth.confluence.url = "https://company.atlassian.net/"
+
+        with pytest.raises(ValueError, match="Could not parse folder URL"):
+            Folder.from_url("https://company.atlassian.net/wiki/invalid/path")
+
     @patch("confluence_markdown_exporter.confluence.get_folder_children")
     def test_pages_property_with_pages(self, mock_get_children: MagicMock) -> None:
         """Test pages property returns page IDs."""

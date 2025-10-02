@@ -5,6 +5,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 from pydantic import AnyHttpUrl
@@ -15,6 +16,22 @@ from confluence_markdown_exporter.utils.app_data_store import AuthConfig
 from confluence_markdown_exporter.utils.app_data_store import ConfigModel
 from confluence_markdown_exporter.utils.app_data_store import ConnectionConfig
 from confluence_markdown_exporter.utils.app_data_store import ExportConfig
+
+
+def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
+    """Configure pytest by mocking the Confluence instance before import."""
+    # Mock get_confluence_instance to avoid authentication during test collection
+    # This is needed because confluence.py creates a module-level instance
+    patcher = patch("confluence_markdown_exporter.api_clients.get_confluence_instance")
+    mock = patcher.start()
+    mock_client = MagicMock()
+    mock.return_value = mock_client
+
+    # Import the module now with the mock in place
+    import confluence_markdown_exporter.confluence  # noqa: F401
+
+    # Stop the patcher after the module is loaded so individual tests can mock as needed
+    patcher.stop()
 
 
 @pytest.fixture

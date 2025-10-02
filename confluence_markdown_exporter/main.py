@@ -81,7 +81,7 @@ def spaces(
 
 @app.command(help="Export all Confluence pages within one or more folders to Markdown.")
 def folders(
-    folder_ids: Annotated[list[str], typer.Argument(help="Folder ID(s)")],
+    folders: Annotated[list[str], typer.Argument(help="Folder ID(s) or URL(s)")],
     output_path: Annotated[
         Path | None,
         typer.Option(
@@ -91,11 +91,16 @@ def folders(
 ) -> None:
     from confluence_markdown_exporter.confluence import Folder
 
-    with measure(f"Export folders {', '.join(folder_ids)}"):
-        for folder_id in folder_ids:
+    with measure(f"Export folders {', '.join(folders)}"):
+        for folder in folders:
             override_output_path_config(output_path)
-            folder = Folder.from_id(folder_id)
-            folder.export()
+            # Detect if it's a URL or ID
+            _folder = (
+                Folder.from_url(folder)
+                if folder.startswith(("http://", "https://"))
+                else Folder.from_id(folder)
+            )
+            _folder.export()
 
 
 @app.command(help="Export all Confluence pages across all spaces to Markdown.")

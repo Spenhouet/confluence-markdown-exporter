@@ -99,6 +99,12 @@ Export all Confluence pages within a folder and all its subfolders by folder ID:
 confluence-markdown-exporter folders <folder-id e.g. 3491123> <output path e.g. ./output_path/>
 ```
 
+or by URL:
+
+```sh
+confluence-markdown-exporter folders <folder-url e.g. https://company.atlassian.net/wiki/spaces/MYSPACE/folders/3491123> <output path e.g. ./output_path/>
+```
+
 This command **recursively exports all pages** from the specified folder and any nested subfolders within it. You can find the folder ID in the Confluence URL when viewing a folder, or from the folder's properties in Confluence.
 
 #### 2.5. Export all Spaces
