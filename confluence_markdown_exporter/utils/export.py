@@ -106,6 +106,9 @@ def sanitize_filename(filename: str) -> str:
     if name in reserved:
         sanitized = f"{sanitized}_"
 
+    if export_options.filename_lowercase:
+        sanitized = sanitized.lower()
+
     # Limit length to specificed number of characters
     return sanitized[: export_options.filename_length]
 
