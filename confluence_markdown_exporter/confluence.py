@@ -813,23 +813,35 @@ class Page(Document):
         def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
             if "user-mention" in str(el.get("class")):
                 return self.convert_user_mention(el, text, parent_tags)
+
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
                 if fallback := BeautifulSoup(self.page.editor2, "html.parser").find(
                     "a", string=text
                 ):
-                    return self.convert_a(fallback, text, parent_tags)  # type: ignore -
+
+                    fallback_href = fallback.get("href", "")
+                    fallback_class = fallback.get("class", [])
+
+                    if( "createpage.action" not in str(fallback_href) and
+                        "createlink" not in str(fallback_class)):
+                        return self.convert_a(fallback, text, parent_tags)  # type: ignore -
+
                 return f"[[{text}]]"
+
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = str(el.get("data-linked-resource-id", ""))
                 if page_id and page_id != "null":
                     return self.convert_page_link(int(page_id))
+
             if "attachment" in str(el.get("data-linked-resource-type")):
                 link = self.convert_attachment_link(el, text, parent_tags)
                 # convert_attachment_link may return None if the attachment meta is incomplete
                 return link or f"[{text}]({el.get('href')})"
+
             if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el.get("href", ""))):
                 page_id = match.group(1)
                 return self.convert_page_link(int(page_id))
+
             if str(el.get("href", "")).startswith("#"):
                 # Handle heading links
                 return f"[{text}](#{sanitize_key(text, '-')})"
