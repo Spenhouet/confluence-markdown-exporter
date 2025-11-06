@@ -16,6 +16,8 @@ from string import Template
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
+from urllib.parse import unquote
+from urllib.parse import urlparse
 
 import yaml
 from atlassian.errors import ApiError
@@ -32,6 +34,7 @@ from confluence_markdown_exporter.api_clients import get_confluence_instance
 from confluence_markdown_exporter.api_clients import get_jira_instance
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
+from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
@@ -395,8 +398,9 @@ class Page(Document):
 
         if DEBUG:
             self.export_body()
-        self.export_markdown()
+        # Export attachments first so the files can be utilized during markdown conversion
         self.export_attachments()
+        self.export_markdown()
 
     def export_with_descendants(self) -> None:
         export_pages([self.id, *self.descendants])
@@ -443,8 +447,8 @@ class Page(Document):
                     continue
                 if (
                     attachment.filename.endswith(".drawio.png")
-                    and attachment.title.replace(" ", "%20") in self.body_export
-                ):
+                    or attachment.filename.endswith(".drawio")
+                ) and attachment.title.replace(" ", "%20") in self.body_export:
                     attachment.export()
                     continue
                 if attachment.file_id in self.body:
@@ -902,15 +906,54 @@ class Page(Document):
             if fid := el.get("data-media-id"):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
 
+            url_src = str(el.get("src", ""))
+
+            if ".drawio.png" in url_src:
+                filename = unquote(urlparse(url_src).path.split("/")[-1])
+                drawio_result = self._convert_drawio_embedded_mermaid(filename)
+                if drawio_result:
+                    return drawio_result
+                # If no mermaid diagram extracted, use PNG as attachment fallback
+                if attachment is None:
+                    drawio_images = self.page.get_attachments_by_title(filename)
+                    if len(drawio_images) > 0:
+                        attachment = drawio_images[0]
+
             if attachment is None:
                 href = el.get("href") or text
-                return f"[{text}]({href})"
+                if href:
+                    return f"![{text}]({href})"
+                if url_src:
+                    return f"![{text}]({url_src})"
+                return text
 
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             el["src"] = path.replace(" ", "%20")
             if "_inline" in parent_tags:
                 parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
+
+        def _convert_drawio_embedded_mermaid(self, filename: str) -> str | None:
+            """Extract mermaid diagram from DrawIO PNG preview image.
+
+            Args:
+                filename: The filename of the drawio diagram image.
+
+            Returns:
+                Markdown formatted mermaid diagram or None if not found.
+            """
+            drawio_title = filename.removesuffix(".png")
+            drawio_attachments = self.page.get_attachments_by_title(drawio_title)
+
+            if len(drawio_attachments) == 0:
+                return None
+
+            drawio_filepath = settings.export.output_path / drawio_attachments[0].export_path
+            if not drawio_filepath.exists():
+                return None
+
+            # Extract mermaid diagram from DrawIO file
+            return load_and_parse_drawio(str(drawio_filepath))
 
         def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
