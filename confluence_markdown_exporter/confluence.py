@@ -231,16 +231,33 @@ class Attachment(Document):
 
     @property
     def extension(self) -> str:
+        # Prefer explicit draw.io markers
         if self.comment == "draw.io diagram" and self.media_type == "application/vnd.jgraph.mxfile":
             return ".drawio"
         if self.comment == "draw.io preview" and self.media_type == "image/png":
             return ".drawio.png"
 
-        return mimetypes.guess_extension(self.media_type) or ""
+        # First try to guess from media_type
+        guessed = mimetypes.guess_extension(self.media_type) or ""
+        if guessed:
+            return guessed
+
+        # Fallback to using the title's suffix (if present)
+        try:
+            title_suffix = Path(self.title).suffix
+        except Exception:
+            title_suffix = ""
+
+        return title_suffix or ""
 
     @property
     def filename(self) -> str:
-        return f"{self.file_id}{self.extension}"
+        # If file_id is available use it, otherwise fall back to a sanitized title stem
+        if self.file_id:
+            return f"{self.file_id}{self.extension}"
+        # Use the title stem (filename without extension), sanitized for filesystem
+        stem = sanitize_filename(Path(self.title).stem)
+        return f"{stem}{self.extension}"
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -248,8 +265,10 @@ class Attachment(Document):
             **super()._template_vars,
             "attachment_id": str(self.id),
             "attachment_title": sanitize_filename(self.title),
-            # file_id is a GUID and does not need sanitized.
-            "attachment_file_id": self.file_id,
+            # file_id is a GUID and does not need sanitized. When missing, fall back to
+            # a sanitized title stem so templates that only reference {attachment_file_id}
+            # don't end up with filenames like ".png".
+            "attachment_file_id": self.file_id or sanitize_filename(Path(self.title).stem),
             "attachment_extension": self.extension,
         }
 
@@ -317,8 +336,25 @@ class Attachment(Document):
             logger.warning(f"There is no attachment with title '{self.title}'. Skipping export.")
             return
 
+        # If the configured template produced a filepath without an extension
+        # but the response content is JSON (or the content-type indicates JSON),
+        # save the file with a .json suffix so consumers can recognise it.
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        target_filepath = filepath
+        looks_like_json = False
+        try:
+            # Quick binary check for JSON-like content
+            body_start = response.content.lstrip()[:1]
+            if body_start in (b"{", b"["):
+                looks_like_json = True
+        except Exception:
+            looks_like_json = False
+
+        if not filepath.suffix and ("json" in content_type or looks_like_json):
+            target_filepath = filepath.with_suffix(".json")
+
         save_file(
-            filepath,
+            target_filepath,
             response.content,
         )
 
@@ -782,7 +818,7 @@ class Page(Document):
             try:
                 issue = JiraIssue.from_key(str(issue_key))
                 return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
-            except HTTPError:
+            except (HTTPError, AttributeError):
                 return f"[[{issue_key}]]({link.get('href')})"
 
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
