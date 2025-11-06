@@ -3,6 +3,7 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+import contextlib
 import functools
 import logging
 import mimetypes
@@ -14,6 +15,7 @@ from os import PathLike
 from pathlib import Path
 from string import Template
 from typing import Literal
+from typing import Optional
 from typing import TypeAlias
 from typing import cast
 
@@ -26,6 +28,7 @@ from markdownify import ATX
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
 from requests import HTTPError
+from requests import RequestException
 from tqdm import tqdm
 
 from confluence_markdown_exporter.api_clients import get_confluence_instance
@@ -228,28 +231,78 @@ class Attachment(Document):
     download_link: str
     comment: str
     version: Version
+    _saved_extension: str | None = None
 
     @property
     def extension(self) -> str:
+        # Determine extension once and return it.
+        # Prefer explicit draw.io markers
         if self.comment == "draw.io diagram" and self.media_type == "application/vnd.jgraph.mxfile":
             return ".drawio"
         if self.comment == "draw.io preview" and self.media_type == "image/png":
             return ".drawio.png"
 
-        return mimetypes.guess_extension(self.media_type) or ""
+        # First try to guess from media_type
+        guessed = mimetypes.guess_extension(self.media_type) or ""
+        result = guessed or ""
+
+        # Fallback to using the title's suffix (if present)
+        title_suffix = ""
+        if getattr(self, "title", None) and isinstance(self.title, str):
+            try:
+                title_suffix = Path(self.title).suffix
+            except (TypeError, AttributeError):
+                title_suffix = ""
+
+        if title_suffix:
+            result = title_suffix
+
+        # As a last resort try to probe the remote resource's Content-Type
+        # header via a HEAD request and derive an extension from it.
+        try:
+            if (
+                confluence
+                and getattr(confluence, "url", None)
+                and getattr(confluence, "_session", None)
+            ):
+                url = str(confluence.url + self.download_link)
+                resp = confluence._session.head(url, allow_redirects=True, timeout=5)
+                ct = (resp.headers.get("Content-Type") or "").split(";")[0].lower()
+                guessed2 = mimetypes.guess_extension(ct) or ""
+                if guessed2:
+                    result = guessed2
+        except (RequestException, AttributeError, TypeError):
+            # Network or other predictable failures are non-fatal
+            pass
+
+        return result
 
     @property
     def filename(self) -> str:
-        return f"{self.file_id}{self.extension}"
+        # Prefer file_id when available
+        if self.file_id:
+            return f"{self.file_id}{self.extension}"
+
+        # Use the title stem (filename without extension), sanitized for filesystem
+        stem = sanitize_filename(Path(self.title).stem) if self.title else ""
+        if stem:
+            return f"{stem}{self.extension}"
+
+        # Last-resort: use attachment id
+        return f"{self.id}{self.extension}"
 
     @property
     def _template_vars(self) -> dict[str, str]:
         return {
             **super()._template_vars,
             "attachment_id": str(self.id),
-            "attachment_title": sanitize_filename(self.title),
-            # file_id is a GUID and does not need sanitized.
-            "attachment_file_id": self.file_id,
+            # attachment_title: prefer a sanitized title; if empty, use a readable id-based name
+            "attachment_title": sanitize_filename(self.title) or f"attachment-{self.id}",
+            # file_id is a GUID. When missing, fall back to a sanitized title stem. If
+            # that is still empty, use attachment id so templates never resolve to empty.
+            # Prefix with page id when available to avoid collisions across pages.
+            "attachment_file_id": ((str(self.ancestors[-1]) + "-") if self.ancestors else "")
+            + (self.file_id or sanitize_filename(Path(self.title).stem) or str(self.id)),
             "attachment_extension": self.extension,
         }
 
@@ -317,10 +370,27 @@ class Attachment(Document):
             logger.warning(f"There is no attachment with title '{self.title}'. Skipping export.")
             return
 
-        save_file(
-            filepath,
-            response.content,
-        )
+        # If the configured template produced a filepath without an extension
+        # but the response content is JSON (or the content-type indicates JSON),
+        # save the file with a .json suffix so consumers can recognise it.
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        target_filepath = filepath
+        looks_like_json = False
+        # Quick binary check for JSON-like content; suppress unexpected issues
+        with contextlib.suppress(Exception):
+            body_start = response.content.lstrip()[:1]
+            if body_start in (b"{", b"["):
+                looks_like_json = True
+
+        if not filepath.suffix and ("json" in content_type or looks_like_json):
+            target_filepath = filepath.with_suffix(".json")
+
+        save_file(target_filepath, response.content)
+
+        # Record the actual saved extension so subsequent calls to
+        # Attachment.extension and export_path include the correct suffix.
+        with contextlib.suppress(Exception):
+            self._saved_extension = target_filepath.suffix
 
 
 class Page(Document):
@@ -351,15 +421,17 @@ class Page(Document):
                 next_path = response.get("_links").get("next")
 
         except HTTPError as e:
-            if e.response.status_code == 404:  # noqa: PLR2004
+            if e.response is not None and e.response.status_code == 404:  # noqa: PLR2004
                 logger.warning(
-                    f"Content with ID {self.id} not found (404) when fetching descendants."
+                    "Content with ID %s not found (404) when fetching descendants.", self.id
                 )
                 return []
             return []
-        except Exception:
+        except (RequestException, ApiError) as exc:
             logger.exception(
-                f"Unexpected error when fetching descendants for content ID {self.id}."
+                "Unexpected error when fetching descendants for content ID %s: %s",
+                self.id,
+                exc,
             )
             return []
 
@@ -395,8 +467,10 @@ class Page(Document):
 
         if DEBUG:
             self.export_body()
-        self.export_markdown()
+        # Export attachments first so exported markdown can reference the
+        # actual filenames (including any extensions discovered during download).
         self.export_attachments()
+        self.export_markdown()
 
     def export_with_descendants(self) -> None:
         export_pages([self.id, *self.descendants])
@@ -424,10 +498,46 @@ class Page(Document):
         )
 
     def export_markdown(self) -> None:
-        save_file(
-            settings.export.output_path / self.export_path,
-            self.markdown,
-        )
+        md = self.markdown
+
+        # Replace Confluence page URLs in markdown with local exported paths.
+        # Matches patterns like:
+        #  - https://.../wiki/.../pages/<id>/...
+        #  - https://.../spaces/<space>/pages/<id>/...
+        #  - /spaces/<space>/pages/<id>/...
+        #  - /wiki/.../pages/<id>/...
+        def _repl_page_link(m: re.Match[str]) -> str:  # type: ignore[unused-variable]
+            # m.group(0) is the full '(URL...)' including parentheses if matched that way,
+            # but we'll search by id directly via group 'id'
+            try:
+                page_id = int(m.group("id"))
+            except ValueError:
+                return m.group(0)
+
+            try:
+                page = Page.from_id(page_id)
+            except (ApiError, HTTPError):
+                return m.group(0)
+
+            # compute local relative path from this page to the target page
+            try:
+                rel = os.path.relpath(str(page.export_path), str(self.export_path.parent))
+                return f"({rel.replace(' ', '%20')})"
+            except (OSError, ValueError):
+                return m.group(0)
+
+        # Patterns capturing the page id into a named group 'id'
+        patterns = [
+            r"\((?:https?://[^)]+)?/wiki/[^)]+/pages/(?P<id>\d+)[^)]+\)",
+            r"\((?:https?://[^)]+)?/spaces/[^/]+/pages/(?P<id>\d+)[^)]+\)",
+            r"\((?:https?://[^)]+)?/pages/(?P<id>\d+)[^)]+\)",
+            r"\((?:/wiki/[^)]+/pages/)?(?P<id>\d+)\)",
+        ]
+
+        for pat in patterns:
+            md = re.sub(pat, _repl_page_link, md)
+
+        save_file(settings.export.output_path / self.export_path, md)
 
     def export_attachments(self) -> None:
         if settings.export.attachment_export_all:
@@ -435,19 +545,67 @@ class Page(Document):
                 attachment.export()
         else:
             for attachment in self.attachments:
+                # Export draw.io source when referenced in the page; also export
+                # any preview images that share the same stem.
+                stem = Path(attachment.title).stem
+                image_exts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]
+
+                # draw.io explicit handling
                 if (
-                    attachment.filename.endswith(".drawio")
+                    (attachment.filename.endswith(".drawio") or attachment.comment == "draw.io diagram")
                     and f"diagramName={attachment.title}" in self.body
                 ):
                     attachment.export()
+                    # Export preview images with same stem
+                    for other in self.attachments:
+                        if other is attachment:
+                            continue
+                        try:
+                            if (
+                                Path(other.title).stem == stem
+                                and Path(other.title).suffix.lower() in image_exts
+                            ):
+                                other.export()
+                        except (TypeError, AttributeError):
+                            # Ignore attachments with unexpected title types
+                            continue
                     continue
+
+                # If there is a drawio preview attachment (named like <name>.drawio.png)
                 if (
                     attachment.filename.endswith(".drawio.png")
                     and attachment.title.replace(" ", "%20") in self.body_export
                 ):
                     attachment.export()
                     continue
-                if attachment.file_id in self.body:
+
+                # gliffy diagrams: export the gliffy JSON/source and any preview images
+                if (
+                    ("gliffy" in (attachment.media_type or "").lower())
+                    or attachment.media_type == "application/gliffy+json"
+                ):
+                    # If the page references the diagram by title or href, export it
+                    if (
+                        attachment.title
+                        and (attachment.title in self.body or attachment.title in self.body_export)
+                    ):
+                        attachment.export()
+                        for other in self.attachments:
+                            if other is attachment:
+                                continue
+                            try:
+                                if (
+                                    Path(other.title).stem == stem
+                                    and Path(other.title).suffix.lower() in image_exts
+                                ):
+                                    other.export()
+                            except (TypeError, AttributeError):
+                                continue
+                        # keep going to next attachment
+                        continue
+
+                # If the file_id is referenced directly in the page body, export this attachment
+                if attachment.file_id and attachment.file_id in self.body:
                     attachment.export()
                     continue
 
@@ -459,16 +617,47 @@ class Page(Document):
         """
         for a in self.attachments:
             if attachment_id in a.id:
-                return a
+                return self._prefer_image_variant(a)
             if a.file_id and attachment_id in a.file_id:
-                return a
+                return self._prefer_image_variant(a)
         return None
 
     def get_attachment_by_file_id(self, file_id: str) -> Attachment | None:
         for a in self.attachments:
             if a.file_id and file_id in a.file_id:
-                return a
+                return self._prefer_image_variant(a)
         return None
+
+    def _prefer_image_variant(self, attachment: Attachment) -> Attachment:
+        """Given an attachment, prefer an image preview variant with the same stem.
+
+        Some macros (gliffy/drawio) store a JSON-like attachment plus a generated
+        PNG preview with the same base name. If a preview exists, prefer it for
+        image embedding and links.
+        """
+        try:
+            stem = Path(attachment.title).stem
+        except (TypeError, AttributeError):
+            return attachment
+
+        # Common image extensions in order of preference
+        image_exts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]
+
+        # Find candidates with same stem and an image suffix
+        candidates = [
+            a for a in self.attachments if Path(a.title).stem == stem and Path(a.title).suffix
+        ]
+        if not candidates:
+            return attachment
+
+        # Prefer candidates whose suffix is a known image type
+        for ext in image_exts:
+            for c in candidates:
+                if Path(c.title).suffix.lower() == ext:
+                    return c
+
+        # Otherwise return the first candidate (fall back)
+        return candidates[0]
 
     def get_attachments_by_title(self, title: str) -> list[Attachment]:
         return [attachment for attachment in self.attachments if attachment.title == title]
@@ -559,6 +748,26 @@ class Page(Document):
             super().__init__(**options)
             self.page = page
             self.page_properties = {}
+
+        def _choose_best_attachment(self, candidates: list["Attachment"]) -> Optional["Attachment"]:
+            """Choose the best attachment from candidates.
+
+            Heuristic:
+            - Prefer attachments whose media type starts with 'image/'
+            - Otherwise prefer attachments that have a non-empty extension
+            - Otherwise return the first candidate
+            """
+            if not candidates:
+                return None
+            # Prefer image media types
+            for c in candidates:
+                if c.media_type and str(c.media_type).lower().startswith("image/"):
+                    return c
+            # Prefer non-empty extension
+            for c in candidates:
+                if c.extension:
+                    return c
+            return candidates[0]
 
         @property
         def markdown(self) -> str:
@@ -702,13 +911,20 @@ class Page(Document):
             modified_header = el.find("th", {"class": "modified-column"})
             modified_header_text = modified_header.text.strip() if modified_header else "Modified"
 
-            def _get_path(p: Path) -> str:
-                attachment_path = self._get_path_for_href(p, settings.export.attachment_href)
+            def _get_path(p: Path, attachment: Optional["Attachment"] = None) -> str:
+                # Prefer filesystem-resolved attachment path when possible
+                if attachment is not None:
+                    resolved = self._resolve_attachment_href(attachment)
+                    attachment_path = self._get_path_for_href(
+                        resolved, settings.export.attachment_href
+                    )
+                else:
+                    attachment_path = self._get_path_for_href(p, settings.export.attachment_href)
                 return attachment_path.replace(" ", "%20")
 
             rows = [
                 {
-                    "file": f"[{att.title}]({_get_path(att.export_path)})",
+                    "file": f"[{att.title}]({_get_path(att.export_path, att)})",
                     "modified": f"{att.version.friendly_when} by {self.convert_user(att.version.by)}",  # noqa: E501
                 }
                 for att in self.page.attachments
@@ -782,7 +998,7 @@ class Page(Document):
             try:
                 issue = JiraIssue.from_key(str(issue_key))
                 return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
-            except HTTPError:
+            except (HTTPError, AttributeError):
                 return f"[[{issue_key}]]({link.get('href')})"
 
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
@@ -806,7 +1022,7 @@ class Page(Document):
                 return f"[^{text}]:"  # Footnote definition
             return f"[^{text}]"  # f"<sup>{text}</sup>"
 
-        def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
+        def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911,C901
             if "user-mention" in str(el.get("class")):
                 return self.convert_user_mention(el, text, parent_tags)
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
@@ -826,6 +1042,14 @@ class Page(Document):
             if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el.get("href", ""))):
                 page_id = match.group(1)
                 return self.convert_page_link(int(page_id))
+            # Also handle the alternative Confluence URL format: /spaces/<space>/pages/<id>/...
+            if match := re.search(r"/spaces/[^/]+/pages/(\d+)", str(el.get("href", ""))):
+                page_id = match.group(1)
+                return self.convert_page_link(int(page_id))
+            # Generic pages/<id> pattern (catches full URLs with hostnames)
+            if match := re.search(r"/pages/(\d+)", str(el.get("href", ""))):
+                page_id = match.group(1)
+                return self.convert_page_link(int(page_id))
             if str(el.get("href", "")).startswith("#"):
                 # Handle heading links
                 return f"[{text}](#{sanitize_key(text, '-')})"
@@ -836,11 +1060,15 @@ class Page(Document):
             if not page_id:
                 msg = "Page link does not have valid page_id."
                 raise ValueError(msg)
-
             page = Page.from_id(page_id)
-            page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
-
-            return f"[{page.title}]({page_path.replace(' ', '%20')})"
+            # compute relative path from current page to target page's export path
+            try:
+                rel = os.path.relpath(str(page.export_path), str(self.page.export_path.parent))
+                return f"[{page.title}]({rel.replace(' ', '%20')})"
+            except Exception:
+                # Fallback to the template-based path
+                page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
+                return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
         def convert_attachment_link(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
@@ -859,10 +1087,42 @@ class Page(Document):
                 attachment = self.page.get_attachment_by_id(str(aid))
 
             if attachment is None:
-                href = el.get("href") or text
-                return f"[{text}]({href})"
+                # Try to recover the attachment by examining href or title text
+                href = el.get("href") or ""
+                # If href contains the download path, extract the file name and try matching
+                if href and "/download/attachments/" in href:
+                    try:
+                        candidate = urllib.parse.unquote_plus(href.split("/")[-1])
+                        # Try matching by title or filename
+                        matches = self.page.get_attachments_by_title(candidate)
+                        if matches:
+                            attachment = matches[0]
+                    except (IndexError, ValueError):
+                        # Ignore malformed hrefs
+                        pass
 
-            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
+                # Try matching by link text (title)
+                if attachment is None and text:
+                    matches = self.page.get_attachments_by_title(text)
+                    if matches:
+                        attachment = matches[0]
+
+                # Try matching by presence of attachment filename in href
+                if attachment is None and href:
+                    for att in self.page.attachments:
+                        if att.filename and att.filename in href:
+                            attachment = att
+                            break
+
+                if attachment is None:
+                    href_val = el.get("href") or text or ""
+                    # If nothing meaningful to link, don't emit an empty markdown link
+                    if not href_val:
+                        return ""
+                    return f"[{text}]({href_val})"
+
+            resolved = self._resolve_attachment_href(attachment)
+            path = self._get_path_for_href(resolved, settings.export.attachment_href)
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
@@ -876,7 +1136,7 @@ class Page(Document):
                 try:
                     return self.convert_user(User.from_accountid(str(aid)))
                 except ApiNotFoundError:
-                    logger.warning(f"User {aid} not found. Using text instead.")
+                    logger.warning("User %s not found. Using text instead.", aid)
 
             return self.convert_user_name(text)
 
@@ -897,16 +1157,42 @@ class Page(Document):
 
             return md
 
-        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901,PLR0912
             attachment = None
             if fid := el.get("data-media-id"):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
 
             if attachment is None:
-                href = el.get("href") or text
-                return f"[{text}]({href})"
+                # Try fallbacks similar to convert_attachment_link
+                href = el.get("src") or el.get("href") or ""
+                if href and "/download/attachments/" in href:
+                    try:
+                        candidate = urllib.parse.unquote_plus(href.split("/")[-1])
+                        matches = self.page.get_attachments_by_title(candidate)
+                        if matches:
+                            attachment = matches[0]
+                    except (IndexError, ValueError):
+                        pass
 
-            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
+                if attachment is None and text:
+                    matches = self.page.get_attachments_by_title(text)
+                    if matches:
+                        attachment = matches[0]
+
+                if attachment is None and href:
+                    for att in self.page.attachments:
+                        if att.filename and att.filename in href:
+                            attachment = att
+                            break
+
+                if attachment is None:
+                    href_val = href or text or ""
+                    if not href_val:
+                        return ""
+                    return f"[{text}]({href_val})"
+
+            resolved = self._resolve_attachment_href(attachment)
+            path = self._get_path_for_href(resolved, settings.export.attachment_href)
             el["src"] = path.replace(" ", "%20")
             if "_inline" in parent_tags:
                 parent_tags.remove("_inline")  # Always show images.
@@ -964,6 +1250,42 @@ class Page(Document):
             else:
                 result = os.path.relpath(path, self.page.export_path.parent)
             return result
+
+        def _resolve_attachment_href(self, attachment: "Attachment") -> Path:
+            """Return an export Path for the attachment, ensuring the filename has an extension.
+
+            If the template-generated path lacks a suffix or doesn't exist on disk, search
+            the output attachments directory for files sharing the same stem and pick the
+            best candidate (preferring common image types).
+            """
+            rel_path = Path(attachment.export_path)
+            out_base = settings.export.output_path
+
+            # If the path already has a suffix and the file exists, return it.
+            abs_path = out_base / rel_path
+            if rel_path.suffix and abs_path.exists():
+                return rel_path
+
+            # Search the target directory for files with the same stem
+            stem = rel_path.stem
+            parent = out_base / rel_path.parent
+            if not parent.exists():
+                return rel_path
+
+            candidates = list(parent.glob(f"{stem}.*"))
+            if not candidates:
+                return rel_path
+
+            # Prefer common image extensions
+            image_exts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]
+            for ext in image_exts:
+                for c in candidates:
+                    if c.suffix.lower() == ext:
+                        return Path(rel_path.parent) / c.name
+
+            # Otherwise return the first candidate (stable sort)
+            candidates.sort()
+            return Path(rel_path.parent) / candidates[0].name
 
 
 def export_page(page_id: int) -> None:
