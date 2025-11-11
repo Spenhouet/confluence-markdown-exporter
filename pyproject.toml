@@ -16,7 +16,6 @@ requires-python = ">= 3.10"
 dependencies = [
     'atlassian-python-api',
     'jmespath',
-    'lxml',
     'markdownify',
     'pydantic-settings',
     'pyyaml',
