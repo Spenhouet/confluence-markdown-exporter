@@ -21,6 +21,7 @@
 - Converts Confluence macros to equivalent Markdown syntax where possible.
 - Handles images and attachments by linking them appropriately in the Markdown output.
 - Supports extended Markdown features like tasks, alerts, and front matter.
+- Supports Confluence add-ons: draw.io
 
 ## Supported Markdown Elements
 
@@ -35,6 +36,7 @@
 - **Tasks**: Converts Confluence tasks to Markdown task lists.
 - **Alerts**: Converts Confluence info panels to Markdown alert blocks.
 - **Front Matter**: Adds front matter to the Markdown files for metadata like page properties and page labels.
+- **Mermaid**: Converts Mermaid diagrams embedded in draw.io diagrams to Mermaid code blocks.
 
 ## Usage
 
