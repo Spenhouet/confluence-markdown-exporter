@@ -161,12 +161,12 @@ class Space(BaseModel):
     key: str
     name: str
     description: str
-    homepage: int
+    homepage: int | None
 
     @property
     def pages(self) -> list[int]:
-        homepage = Page.from_id(self.homepage)
-        return [self.homepage, *homepage.descendants]
+        homepage = Page.from_id(self.homepage) if self.homepage is not None else None
+        return [self.homepage, *homepage.descendants] if homepage is not None else []
 
     def export(self) -> None:
         export_pages(self.pages)
