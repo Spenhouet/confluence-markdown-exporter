@@ -161,10 +161,12 @@ class Space(BaseModel):
     key: str
     name: str
     description: str
-    homepage: int
+    homepage: int | None
 
     @property
     def pages(self) -> list[int]:
+        if self.homepage is None:
+            return []
         homepage = Page.from_id(self.homepage)
         return [self.homepage, *homepage.descendants]
 
@@ -209,11 +211,15 @@ class Document(BaseModel):
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        homepage_title = ""
+        if self.space.homepage:
+            homepage_title = sanitize_filename(Page.from_id(self.space.homepage).title)
+
         return {
             "space_key": sanitize_filename(self.space.key),
             "space_name": sanitize_filename(self.space.name),
-            "homepage_id": str(self.space.homepage),
-            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title),
+            "homepage_id": str(self.space.homepage or ""),
+            "homepage_title": homepage_title,
             "ancestor_ids": "/".join(str(a) for a in self.ancestors),
             "ancestor_titles": "/".join(
                 sanitize_filename(Page.from_id(a).title) for a in self.ancestors
