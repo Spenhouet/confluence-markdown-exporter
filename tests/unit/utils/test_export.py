@@ -115,7 +115,7 @@ class TestSaveFile:
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = Path(temp_dir) / "test.txt"
 
-            with pytest.raises(TypeError, match="Content must be either a string or bytes."):
+            with pytest.raises(TypeError, match=r"Content must be either a string or bytes."):
                 save_file(file_path, 123)  # type: ignore[arg-type]
 
 
