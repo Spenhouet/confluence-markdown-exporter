@@ -31,7 +31,6 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.4.1",
-    "ruff>=0.11.13",
 ]
 
 [project.urls]
@@ -78,7 +77,7 @@ exclude = [
   "venv",
 ]
 
-indent-width = 4 # each indent is 4 spaces, equivalent to using "tab" 
+indent-width = 4 # each indent is 4 spaces, equivalent to using "tab"
 line-length = 100 # max no of characters in a line. Black default is 88 characters
 target-version = "py310" # Assumes Python 3.10 and above
 
@@ -133,10 +132,10 @@ ignore = [
   "E114", # lint rule that may clash with Ruff Formatter: indentation-with-invalid-multiple-comment
   "E117", # lint rule that may clash with Ruff Formatter: over-indented
   "D206", # lint rule that may clash with Ruff Formatter: indent-with-spaces
-  "D300", # lint rule that may clash with Ruff Formatter: triple-single-quotes      
+  "D300", # lint rule that may clash with Ruff Formatter: triple-single-quotes
   "D1", # ignore this to match google docstring convention
   "G004", # ignore this to allow f-strings in logging
-  "UP015", # ignore this to allow "with open" statements to have modes explicitly stated 
+  "UP015", # ignore this to allow "with open" statements to have modes explicitly stated
   "SIM102", # ignore this to avoid changing nested if statements to single if statements, potentially confusing
   "ERA001", # ignore this to keep commented out lines while functionality is not implemented (configs/logos)
   "PERF203", # ignore this as this often is intentional.
@@ -151,7 +150,7 @@ dummy-variable-rgx = "^(_+\\w*)$" # Allow unused variables when underscore-prefi
 flake8-bugbear.extend-immutable-calls = [
   "fastapi.Depends",
   "fastapi.Query",
-] # Allow default arguments like, e.g., `data: List[str] = fastapi.Query(None)`  
+] # Allow default arguments like, e.g., `data: List[str] = fastapi.Query(None)`
 pycodestyle.max-doc-length = 100 # max line-length for docstrings
 pydocstyle.convention = "google" # docstring convention. Options: "google", "numpy", or "pep257"
 pylint.max-args = 10 # max no of args in a function
