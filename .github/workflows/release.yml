@@ -48,13 +48,13 @@ jobs:
         if: ${{ github.event.inputs.custom_version != '' }}
         run: |
           uv version ${{ github.event.inputs.custom_version }}
-          echo "NEW_VERSION=${{ github.event.inputs.custom_version }}" >> $GITHUB_ENV
+          echo "NEW_VERSION=${{ github.event.inputs.custom_version }}" >> "$GITHUB_ENV"
 
       - name: Update version (bump)
         if: ${{ github.event.inputs.custom_version == '' }}
         run: |
-          NEW_VERSION=$(uv version --bump ${{ github.event.inputs.version_bump }} | awk '{print $NF}')
-          echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
+          NEW_VERSION="$(uv version --bump ${{ github.event.inputs.version_bump }} | awk '{print $NF}')"
+          echo "NEW_VERSION=${NEW_VERSION}" >> "$GITHUB_ENV"
 
       - name: Test build with new version
         run: |
