@@ -239,6 +239,15 @@ class ExportConfig(BaseModel):
             "If enabled, the title will be added as a top-level heading."
         ),
     )
+    enable_jira_enrichment: bool = Field(
+        default=True,
+        title="Enable Jira Enrichment",
+        description=(
+            "Whether to fetch Jira issue data to enrich Confluence pages. "
+            "When enabled, Jira issue links will include the issue summary. "
+            "When disabled, only the issue key and link will be included."
+        ),
+    )
 
 
 class ConfigModel(BaseModel):
