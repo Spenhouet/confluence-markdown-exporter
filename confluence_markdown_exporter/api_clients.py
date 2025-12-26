@@ -101,11 +101,11 @@ def get_jira_instance() -> JiraApiSdk | None:
     Returns None if Jira enrichment is disabled in settings.
     """
     settings = get_settings()
-    
+
     # Check if Jira enrichment is enabled
     if not settings.export.enable_jira_enrichment:
         return None
-    
+
     auth = settings.auth
     connection_config = settings.connection_config.model_dump()
 
