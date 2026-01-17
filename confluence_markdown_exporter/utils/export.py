@@ -1,6 +1,7 @@
 import json
-import re
+import logging
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from confluence_markdown_exporter.utils.app_data_store import get_settings
 settings = get_settings()
 export_options = settings.export
 
+logger = logging.getLogger(__name__)
 
 def parse_encode_setting(encode_setting: str) -> dict[str, str]:
     """Parse encoding setting containing character mapping.
@@ -49,15 +51,14 @@ def parse_encode_setting(encode_setting: str) -> dict[str, str]:
 
 
 def set_file_timestamp(file_path: Path, iso_timestamp: str) -> None:
-    """
-    Update file at *file_path* so that its modification and access time equals *iso_timestamp*.
+    """Update file at *file_path* so that its modification and access time equals *iso_timestamp*.
 
     Parameters
     ----------
     file_path : str
         Path to the target file (can be relative or absolute).
     iso_timestamp : str
-        ISO‑8601 string, e.g. '2024-10-18T08:58:21.000Z'.
+        ISO-8601 string, e.g. '2024-10-18T08:58:21.000Z'.
     """
     # Replace the trailing 'Z' with '+00:00' so datetime.fromisoformat
     # can understand the UTC offset.
@@ -66,7 +67,7 @@ def set_file_timestamp(file_path: Path, iso_timestamp: str) -> None:
     try:
         dt = datetime.fromisoformat(iso_timestamp)
     except ValueError as e:
-        print(f"WARNING: {e} -> timestamp for file {file_path} will not be changed")
+        logger.warning(f"{e} -> timestamp for file {file_path} will not be changed")
         return
 
     epoch_seconds = dt.timestamp()

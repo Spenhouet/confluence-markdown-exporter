@@ -37,7 +37,8 @@ from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
-from confluence_markdown_exporter.utils.export import save_file, set_file_timestamp
+from confluence_markdown_exporter.utils.export import save_file
+from confluence_markdown_exporter.utils.export import set_file_timestamp
 from confluence_markdown_exporter.utils.table_converter import TableConverter
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
@@ -324,7 +325,7 @@ class Attachment(Document):
         save_file(
             filepath,
             response.content,
-            self.version.when  # file changed date
+            self.version.when,  # file changed date
         )
 
 
@@ -416,7 +417,7 @@ class Page(Document):
             / self.export_path.parent
             / f"{self.export_path.stem}_body_view.html",
             str(soup.prettify()),
-            self.version.when  # file changed date
+            self.version.when,  # file changed date
         )
         soup = BeautifulSoup(self.body_export, "html.parser")
         save_file(
@@ -424,21 +425,21 @@ class Page(Document):
             / self.export_path.parent
             / f"{self.export_path.stem}_body_export_view.html",
             str(soup.prettify()),
-            self.version.when  # file changed date
+            self.version.when,  # file changed date
         )
         save_file(
             settings.export.output_path
             / self.export_path.parent
             / f"{self.export_path.stem}_body_editor2.xml",
             str(self.editor2),
-            self.version.when  # file changed date
+            self.version.when,  # file changed date
         )
 
     def export_markdown(self) -> None:
         save_file(
             settings.export.output_path / self.export_path,
             self.markdown,
-            self.version.when  # file changed date
+            self.version.when,  # file changed date
         )
 
     def export_attachments(self) -> None:
@@ -478,9 +479,7 @@ class Page(Document):
 
     def get_attachment_by_file_id(self, file_id: str) -> Attachment | None:
         for a in self.attachments:
-            if a.file_id and file_id in a.file_id:
-                return a
-            elif a.id and file_id == a.id:
+            if (a.file_id and file_id in a.file_id) or (a.id and file_id == a.id):
                 return a
         return None
 
@@ -503,7 +502,7 @@ class Page(Document):
             attachments=Attachment.from_page_id(data.get("id", 0)),
             ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
             version=Version.from_json(data.get("version", {})),
-            url=data.get("_links", {}).get("base", "") + data.get("_links", {}).get("webui", "")
+            url=data.get("_links", {}).get("base", "") + data.get("_links", {}).get("webui", ""),
         )
 
     @classmethod
@@ -589,11 +588,13 @@ class Page(Document):
         def front_matter(self) -> str:
             indent = self.options["front_matter_indent"]
             if settings.export.page_metadata_in_frontmatter:
-                self.set_page_properties(tags=self.labels,
-                                         confluence_version=self.page.version.number,
-                                         confluence_last_modified=self.page.version.when,
-                                         confluence_last_editor=self.page.version.by.display_name,
-                                         confluence_url=self.page.url)
+                self.set_page_properties(
+                    tags=self.labels,
+                    confluence_version=self.page.version.number,
+                    confluence_last_modified=self.page.version.when,
+                    confluence_last_editor=self.page.version.by.display_name,
+                    confluence_url=self.page.url,
+                )
             else:
                 self.set_page_properties(tags=self.labels)
 
@@ -925,9 +926,7 @@ class Page(Document):
 
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             attachment = None
-            if fid := el.get("data-media-id"):
-                attachment = self.page.get_attachment_by_file_id(str(fid))
-            elif fid := el.get("data-linked-resource-id"):
+            if (fid := el.get("data-media-id")) or (fid := el.get("data-linked-resource-id")):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
 
             url_src = str(el.get("src", ""))
