@@ -1,5 +1,7 @@
 import json
 import re
+import os
+from datetime import datetime
 from pathlib import Path
 
 from confluence_markdown_exporter.utils.app_data_store import get_settings
@@ -46,7 +48,32 @@ def parse_encode_setting(encode_setting: str) -> dict[str, str]:
     return {}
 
 
-def save_file(file_path: Path, content: str | bytes) -> None:
+def set_file_timestamp(file_path: Path, iso_timestamp: str) -> None:
+    """
+    Update file at *file_path* so that its modification and access time equals *iso_timestamp*.
+
+    Parameters
+    ----------
+    file_path : str
+        Path to the target file (can be relative or absolute).
+    iso_timestamp : str
+        ISO‑8601 string, e.g. '2024-10-18T08:58:21.000Z'.
+    """
+    # Replace the trailing 'Z' with '+00:00' so datetime.fromisoformat
+    # can understand the UTC offset.
+    if iso_timestamp.endswith("Z"):
+        iso_timestamp = iso_timestamp.rstrip('Z') + '+00:00'
+    try:
+        dt = datetime.fromisoformat(iso_timestamp)
+    except ValueError as e:
+        print(f"WARNING: {e} -> timestamp for file {file_path} will not be changed")
+        return
+
+    epoch_seconds = dt.timestamp()
+    os.utime(str(file_path), (epoch_seconds, epoch_seconds))
+
+
+def save_file(file_path: Path, content: str | bytes, timestamp: str | None = None) -> None:
     """Save content to a file, creating parent directories as needed."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(content, bytes):
@@ -58,6 +85,8 @@ def save_file(file_path: Path, content: str | bytes) -> None:
     else:
         msg = "Content must be either a string or bytes."
         raise TypeError(msg)
+    if timestamp:
+        set_file_timestamp(file_path, timestamp)
 
 
 def sanitize_filename(filename: str) -> str:

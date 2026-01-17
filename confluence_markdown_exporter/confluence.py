@@ -37,7 +37,7 @@ from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
-from confluence_markdown_exporter.utils.export import save_file
+from confluence_markdown_exporter.utils.export import save_file, set_file_timestamp
 from confluence_markdown_exporter.utils.table_converter import TableConverter
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
@@ -311,6 +311,7 @@ class Attachment(Document):
     def export(self) -> None:
         filepath = settings.export.output_path / self.export_path
         if filepath.exists():
+            set_file_timestamp(filepath, self.version.when)
             return
 
         try:
@@ -323,6 +324,7 @@ class Attachment(Document):
         save_file(
             filepath,
             response.content,
+            self.version.when  # file changed date
         )
 
 
@@ -333,6 +335,7 @@ class Page(Document):
     editor2: str
     labels: list["Label"]
     attachments: list["Attachment"]
+    version: Version
 
     @property
     def descendants(self) -> list[int]:
@@ -412,6 +415,7 @@ class Page(Document):
             / self.export_path.parent
             / f"{self.export_path.stem}_body_view.html",
             str(soup.prettify()),
+            self.version.when  # file changed date
         )
         soup = BeautifulSoup(self.body_export, "html.parser")
         save_file(
@@ -419,18 +423,21 @@ class Page(Document):
             / self.export_path.parent
             / f"{self.export_path.stem}_body_export_view.html",
             str(soup.prettify()),
+            self.version.when  # file changed date
         )
         save_file(
             settings.export.output_path
             / self.export_path.parent
             / f"{self.export_path.stem}_body_editor2.xml",
             str(self.editor2),
+            self.version.when  # file changed date
         )
 
     def export_markdown(self) -> None:
         save_file(
             settings.export.output_path / self.export_path,
             self.markdown,
+            self.version.when  # file changed date
         )
 
     def export_attachments(self) -> None:
@@ -492,6 +499,7 @@ class Page(Document):
             ],
             attachments=Attachment.from_page_id(data.get("id", 0)),
             ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
+            version=Version.from_json(data.get("version", {})),
         )
 
     @classmethod
@@ -504,7 +512,7 @@ class Page(Document):
                     confluence.get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                        "metadata.properties,ancestors",
+                        "metadata.properties,ancestors,version",
                     ),
                 )
             )
