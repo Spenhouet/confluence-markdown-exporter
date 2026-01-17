@@ -213,6 +213,11 @@ class ExportConfig(BaseModel):
         title="Page Breadcrumbs",
         description="Whether to include breadcrumb links at the top of the page.",
     )
+    page_toc: bool = Field(
+        default=True,
+        title="Page Table of Contents (TOC)",
+        description="Whether to expand Table of Contents (TOC) macro at the top of the page.",
+    )
     filename_encoding: str = Field(
         default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_"',
         title="Filename Encoding",
