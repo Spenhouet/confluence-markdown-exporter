@@ -218,6 +218,11 @@ class ExportConfig(BaseModel):
         title="Page Table of Contents (TOC)",
         description="Whether to expand Table of Contents (TOC) macro at the top of the page.",
     )
+    page_metadata_in_frontmatter: bool = Field(
+        default=False,
+        title="Confluence metadata as front matter",
+        description="Whether to add Confluence page original url, version, last edited date and editor name to the page as front matter.",
+    )
     filename_encoding: str = Field(
         default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_"',
         title="Filename Encoding",

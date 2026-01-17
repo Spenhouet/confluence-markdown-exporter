@@ -336,6 +336,7 @@ class Page(Document):
     labels: list["Label"]
     attachments: list["Attachment"]
     version: Version
+    url: str
 
     @property
     def descendants(self) -> list[int]:
@@ -500,6 +501,7 @@ class Page(Document):
             attachments=Attachment.from_page_id(data.get("id", 0)),
             ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
             version=Version.from_json(data.get("version", {})),
+            url=data.get("_links", {}).get("base", "") + data.get("_links", {}).get("webui", "")
         )
 
     @classmethod
@@ -584,7 +586,14 @@ class Page(Document):
         @property
         def front_matter(self) -> str:
             indent = self.options["front_matter_indent"]
-            self.set_page_properties(tags=self.labels)
+            if settings.export.page_metadata_in_frontmatter:
+                self.set_page_properties(tags=self.labels,
+                                         confluence_version=self.page.version.number,
+                                         confluence_last_modified=self.page.version.when,
+                                         confluence_last_editor=self.page.version.by.display_name,
+                                         confluence_url=self.page.url)
+            else:
+                self.set_page_properties(tags=self.labels)
 
             if not self.page_properties:
                 return ""
