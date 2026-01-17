@@ -224,6 +224,11 @@ class ExportConfig(BaseModel):
         description="Whether to add Confluence page original url, version, last edited date and "
         "editor name to the page as front matter.",
     )
+    page_always_expand: bool = Field(
+        default=False,
+        title="Expand-container is always expanded",
+        description="Whether to remove expand-container block and show as normal content.",
+    )
     filename_encoding: str = Field(
         default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_"',
         title="Filename Encoding",

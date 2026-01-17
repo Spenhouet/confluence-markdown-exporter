@@ -710,6 +710,8 @@ class Page(Document):
             )
 
             # Return as details element
+            if settings.export.page_always_expand:
+                return f"\n\n---\n\n{content}\n\n---\n\n"
             return f"\n<details>\n<summary>{summary_text}</summary>\n\n{content}\n\n</details>\n\n"
 
         def convert_span(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
