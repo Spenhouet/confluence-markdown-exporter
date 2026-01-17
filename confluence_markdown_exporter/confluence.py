@@ -480,6 +480,8 @@ class Page(Document):
         for a in self.attachments:
             if a.file_id and file_id in a.file_id:
                 return a
+            elif a.id and file_id == a.id:
+                return a
         return None
 
     def get_attachments_by_title(self, title: str) -> list[Attachment]:
@@ -924,6 +926,8 @@ class Page(Document):
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             attachment = None
             if fid := el.get("data-media-id"):
+                attachment = self.page.get_attachment_by_file_id(str(fid))
+            elif fid := el.get("data-linked-resource-id"):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
 
             url_src = str(el.get("src", ""))
