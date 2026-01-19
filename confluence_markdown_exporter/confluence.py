@@ -162,10 +162,16 @@ class Space(BaseModel):
     key: str
     name: str
     description: str
-    homepage: int
+    homepage: int | None
 
     @property
     def pages(self) -> list[int]:
+        if self.homepage is None:
+            logger.warning(
+                f"Space '{self.name}' (key: {self.key}) has no homepage. No pages will be exported."
+            )
+            return []
+
         homepage = Page.from_id(self.homepage)
         return [self.homepage, *homepage.descendants]
 
