@@ -4,6 +4,7 @@ https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
 import functools
+import json
 import logging
 import mimetypes
 import os
@@ -654,6 +655,7 @@ class Page(Document):
                     "warning": self.convert_alert,
                     "details": self.convert_page_properties,
                     "drawio": self.convert_drawio,
+                    "plantuml": self.convert_plantuml,
                     "scroll-ignore": self.convert_hidden_content,
                     "toc": self.convert_toc,
                     "jira": self.convert_jira_table,
@@ -814,10 +816,17 @@ class Page(Document):
             if "user-mention" in str(el.get("class")):
                 return self.convert_user_mention(el, text, parent_tags)
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
+                logger.warning(
+                    f"Broken link detected: '{text}' on page '{self.page.title}' "
+                    f"(ID: {self.page.id}). This is likely a Confluence bug. "
+                    f"Please report this issue to Atlassian Support."
+                )
                 if fallback := BeautifulSoup(self.page.editor2, "html.parser").find(
                     "a", string=text
                 ):
-                    return self.convert_a(fallback, text, parent_tags)  # type: ignore -
+                    # Prevent infinite recursion if fallback is the same element
+                    if isinstance(fallback, Tag) and fallback.get("href") != el.get("href"):
+                        return self.convert_a(fallback, text, parent_tags)  # type: ignore -
                 return f"[[{text}]]"
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = str(el.get("data-linked-resource-id", ""))
@@ -842,6 +851,14 @@ class Page(Document):
                 raise ValueError(msg)
 
             page = Page.from_id(page_id)
+
+            if page.title == "Page not accessible":
+                logger.warning(
+                    f"Confluence page link (ID: {page_id}) is not accessible, "
+                    f"referenced from page '{self.page.title}' (ID: {self.page.id})"
+                )
+                return f"[Page not accessible (ID: {page_id})]"
+
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
 
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
@@ -977,6 +994,66 @@ class Page(Document):
                 return f"\n{drawio_link}\n\n"
 
             return ""
+
+        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str: # noqa: PLR0911
+            """Convert PlantUML diagrams from editor2 XML to Markdown code blocks.
+
+            PlantUML diagrams are stored in the editor2 XML as structured macros with
+            the UML definition in a JSON structure inside CDATA sections.
+            """
+            # Parse the editor2 XML to find the PlantUML macro
+            # The editor2 content is an XML fragment without a root element, so wrap it
+            wrapped_editor2 = f"<root>{self.page.editor2}</root>"
+            soup_editor2 = BeautifulSoup(wrapped_editor2, "xml")
+
+            # Get the macro-id from the current element to match it in editor2
+            macro_id = el.get("data-macro-id")
+            if not macro_id:
+                logger.warning("PlantUML macro found but no macro-id attribute")
+                return "\n<!-- PlantUML diagram (no macro-id found) -->\n\n"
+
+            # Find the corresponding macro in editor2 XML
+            # BeautifulSoup with lxml strips namespace prefixes from both
+            # element and attribute names
+            # So ac:structured-macro becomes structured-macro, ac:name becomes name, etc.
+            plantuml_macros = soup_editor2.find_all("structured-macro")
+            plantuml_macro = None
+            for macro in plantuml_macros:
+                if macro.get("name") == "plantuml" and macro.get("macro-id") == macro_id:
+                    plantuml_macro = macro
+                    break
+
+            if not plantuml_macro:
+                logger.warning(f"PlantUML macro with id {macro_id} not found in editor2 XML")
+                return "\n<!-- PlantUML diagram (not found in editor2) -->\n\n"
+
+            # Extract the plain-text-body containing the JSON
+            plain_text_body = plantuml_macro.find("plain-text-body")
+            if not plain_text_body:
+                logger.warning(f"PlantUML macro {macro_id} has no plain-text-body")
+                return "\n<!-- PlantUML diagram (no content found) -->\n\n"
+
+            # Extract the JSON from CDATA
+            cdata_content = plain_text_body.get_text(strip=True)
+            if not cdata_content:
+                logger.warning(f"PlantUML macro {macro_id} has empty content")
+                return "\n<!-- PlantUML diagram (empty content) -->\n\n"
+
+            # Parse the JSON to get the umlDefinition
+            try:
+                plantuml_data = json.loads(cdata_content)
+                uml_definition = plantuml_data.get("umlDefinition", "")
+
+                if not uml_definition:
+                    logger.warning(f"PlantUML macro {macro_id} has no umlDefinition")
+                    return "\n<!-- PlantUML diagram (no UML definition) -->\n\n"
+
+            except json.JSONDecodeError:
+                logger.exception(f"Failed to parse PlantUML JSON for macro {macro_id}")
+                return "\n<!-- PlantUML diagram (invalid JSON) -->\n\n"
+            else:
+                # Return as a Markdown code block with plantuml syntax
+                return f"\n```plantuml\n{uml_definition}\n```\n\n"
 
         def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("class") and "metadata-summary-macro" in el["class"]:
