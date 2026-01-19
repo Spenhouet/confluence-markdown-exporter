@@ -815,8 +815,9 @@ class Page(Document):
                 return self.convert_user_mention(el, text, parent_tags)
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
                 logger.warning(
-                    f"Broken link detected: '{text}' on page '{self.page.title}' (ID: {self.page.id}). "
-                    f"This is likely a Confluence bug. Please report this issue to Atlassian Support."
+                    f"Broken link detected: '{text}' on page '{self.page.title}' "
+                    f"(ID: {self.page.id}). This is likely a Confluence bug. "
+                    f"Please report this issue to Atlassian Support."
                 )
                 if fallback := BeautifulSoup(self.page.editor2, "html.parser").find(
                     "a", string=text
