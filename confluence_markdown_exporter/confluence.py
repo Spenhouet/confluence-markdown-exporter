@@ -814,10 +814,17 @@ class Page(Document):
             if "user-mention" in str(el.get("class")):
                 return self.convert_user_mention(el, text, parent_tags)
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
+                logger.warning(
+                    f"Broken link detected: '{text}' on page '{self.page.title}' "
+                    f"(ID: {self.page.id}). This is likely a Confluence bug. "
+                    f"Please report this issue to Atlassian Support."
+                )
                 if fallback := BeautifulSoup(self.page.editor2, "html.parser").find(
                     "a", string=text
                 ):
-                    return self.convert_a(fallback, text, parent_tags)  # type: ignore -
+                    # Prevent infinite recursion if fallback is the same element
+                    if isinstance(fallback, Tag) and fallback.get("href") != el.get("href"):
+                        return self.convert_a(fallback, text, parent_tags)  # type: ignore -
                 return f"[[{text}]]"
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = str(el.get("data-linked-resource-id", ""))
