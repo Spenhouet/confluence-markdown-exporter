@@ -844,6 +844,10 @@ class Page(Document):
             page = Page.from_id(page_id)
 
             if page.title == "Page not accessible":
+                logger.warning(
+                    f"Confluence page link (ID: {page_id}) is not accessible, "
+                    f"referenced from page '{self.page.title}' (ID: {self.page.id})"
+                )
                 return f"[Page not accessible (ID: {page_id})]"
 
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
