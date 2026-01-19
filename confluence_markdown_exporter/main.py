@@ -9,6 +9,7 @@ from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 from confluence_markdown_exporter.utils.measure_time import measure
+from confluence_markdown_exporter.utils.platform_compat import handle_powershell_tilde_expansion
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
 DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
@@ -72,8 +73,12 @@ def spaces(
 ) -> None:
     from confluence_markdown_exporter.confluence import Space
 
-    with measure(f"Export spaces {', '.join(space_keys)}"):
-        for space_key in space_keys:
+    # Personal Confluence spaces start with ~. Exporting them on Windows leads to
+    # Powershell expanding tilde to the Users directory, which is handled here
+    normalized_space_keys = [handle_powershell_tilde_expansion(key) for key in space_keys]
+
+    with measure(f"Export spaces {', '.join(normalized_space_keys)}"):
+        for space_key in normalized_space_keys:
             override_output_path_config(output_path)
             space = Space.from_key(space_key)
             space.export()
