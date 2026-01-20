@@ -15,7 +15,7 @@
 ## Features
 
 - Converts Confluence pages to Markdown format.
-- Uses the Atlassian API to export individual pages, pages including children, and whole spaces.
+- Uses the Atlassian API to export individual pages, pages including children, folders with subfolders, and whole spaces.
 - Supports various Confluence elements such as headings, paragraphs, lists, tables, and more.
 - Retains formatting such as bold, italic, and underline.
 - Converts Confluence macros to equivalent Markdown syntax where possible.
@@ -53,7 +53,7 @@ pip install confluence-markdown-exporter
 
 ### 2. Exporting
 
-Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information.
+Run the exporter with the desired Confluence page ID, folder ID, or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `folders`, `spaces`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information.
 
 > [!TIP]
 > Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
@@ -94,7 +94,23 @@ Export all Confluence pages of a single Space:
 confluence-markdown-exporter spaces <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
 ```
 
-#### 2.3. Export all Spaces
+#### 2.4. Export Folder
+
+Export all Confluence pages within a folder and all its subfolders by folder ID:
+
+```sh
+confluence-markdown-exporter folders <folder-id e.g. 3491123> <output path e.g. ./output_path/>
+```
+
+or by URL:
+
+```sh
+confluence-markdown-exporter folders <folder-url e.g. https://company.atlassian.net/wiki/spaces/MYSPACE/folders/3491123> <output path e.g. ./output_path/>
+```
+
+This command **recursively exports all pages** from the specified folder and any nested subfolders within it. You can find the folder ID in the Confluence URL when viewing a folder, or from the folder's properties in Confluence.
+
+#### 2.5. Export all Spaces
 
 Export all Confluence pages across all spaces:
 
