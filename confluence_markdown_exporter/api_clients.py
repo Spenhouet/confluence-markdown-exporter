@@ -95,9 +95,17 @@ def get_confluence_instance() -> ConfluenceApiSdk:
 
 
 @lru_cache(maxsize=1)
-def get_jira_instance() -> JiraApiSdk:
-    """Get authenticated Jira API client using current settings with required authentication."""
+def get_jira_instance() -> JiraApiSdk | None:
+    """Get authenticated Jira API client using current settings with required authentication.
+
+    Returns None if Jira enrichment is disabled in settings.
+    """
     settings = get_settings()
+
+    # Check if Jira enrichment is enabled
+    if not settings.export.enable_jira_enrichment:
+        return None
+
     auth = settings.auth
     connection_config = settings.connection_config.model_dump()
 
