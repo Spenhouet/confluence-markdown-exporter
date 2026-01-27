@@ -83,7 +83,7 @@ jobs:
             --generate-notes
 
       - name: Generate artifact attestations
-        uses: actions/attest-build-provenance@v3.1.0
+        uses: actions/attest-build-provenance@v3.2.0
         with:
           subject-path: "dist/*"
 
