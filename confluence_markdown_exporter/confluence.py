@@ -504,6 +504,19 @@ class Page(Document):
     @classmethod
     @functools.lru_cache(maxsize=1000)
     def from_id(cls, page_id: int) -> "Page":
+        if page_id is None:
+            logger.warning("Page ID is None, skipping")
+            return cls(
+                id=0,
+                title="Page not accessible",
+                space=Space(key="", name="", description="", homepage=0),
+                body="",
+                body_export="",
+                editor2="",
+                labels=[],
+                attachments=[],
+                ancestors=[],
+            )
         try:
             return cls.from_json(
                 cast(
