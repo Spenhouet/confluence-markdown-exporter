@@ -321,10 +321,16 @@ class Attachment(Document):
             return
 
         try:
-            response = confluence._session.get(str(confluence.url + self.download_link))
+            response = confluence._session.get(
+                str(confluence.url + self.download_link),
+                timeout=settings.connection_config.timeout,
+            )
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
             logger.warning(f"There is no attachment with title '{self.title}'. Skipping export.")
+            return
+        except Exception as e:
+            logger.warning(f"Failed to download attachment '{self.title}': {e}. Skipping.")
             return
 
         save_file(
@@ -794,7 +800,7 @@ class Page(Document):
             try:
                 issue = JiraIssue.from_key(str(issue_key))
                 return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
-            except HTTPError:
+            except (HTTPError, ConnectionError, Exception):
                 return f"[[{issue_key}]]({link.get('href')})"
 
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
