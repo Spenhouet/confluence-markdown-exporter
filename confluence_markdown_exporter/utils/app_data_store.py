@@ -72,7 +72,9 @@ class ConnectionConfig(BaseModel):
     timeout: int = Field(
         default=30,
         title="Request Timeout",
-        description="Timeout in seconds for API requests. Prevents hanging on slow/unresponsive servers.",
+        description=(
+            "Timeout in seconds for API requests. Prevents hanging on slow/unresponsive servers."
+        ),
     )
 
 
