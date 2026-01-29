@@ -1113,7 +1113,7 @@ def _load_exported_pages() -> set[int]:
 def _mark_page_exported(page_id: int) -> None:
     """Mark a page as exported."""
     cache_file = _get_exported_pages_file()
-    with open(cache_file, "a") as f:
+    with cache_file.open("a") as f:
         f.write(f"{page_id}\n")
 
 
