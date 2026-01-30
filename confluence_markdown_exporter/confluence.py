@@ -382,6 +382,28 @@ class Page(Document):
         return [result["id"] for result in results]
 
     @property
+    def children(self) -> list[dict]:
+        """Get direct child pages (id, title only)."""
+        url = f"rest/api/content/{self.id}/child/page"
+        params = {"limit": 100}
+        results = []
+
+        try:
+            response = confluence.get(url, params=params)
+            results.extend(response.get("results", []))
+            next_path = response.get("_links", {}).get("next")
+
+            while next_path:
+                response = confluence.get(next_path)
+                results.extend(response.get("results", []))
+                next_path = response.get("_links", {}).get("next")
+        except Exception:
+            logger.exception(f"Error fetching children for page {self.id}")
+            return []
+
+        return [{"id": r["id"], "title": r["title"]} for r in results]
+
+    @property
     def _template_vars(self) -> dict[str, str]:
         return {
             **super()._template_vars,
@@ -674,6 +696,8 @@ class Page(Document):
                     "toc": self.convert_toc,
                     "jira": self.convert_jira_table,
                     "attachments": self.convert_attachments,
+                    "pagetree": self.convert_children,
+                    "children": self.convert_children,
                 }
                 if macro_name in macro_handlers:
                     return macro_handlers[macro_name](el, text, parent_tags)
@@ -784,6 +808,24 @@ class Page(Document):
                 return text
 
             return self.process_tag(tocs[0], parent_tags)
+
+        def convert_children(
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+        ) -> str:
+            """Convert children/pagetree macro to markdown links."""
+            children = self.page.children
+            if not children:
+                return ""
+
+            lines = []
+            for child in children:
+                child_page = Page.from_id(child["id"])
+                page_path = self._get_path_for_href(
+                    child_page.export_path, settings.export.page_href
+                )
+                lines.append(f"- [{child['title']}]({page_path.replace(' ', '%20')})")
+
+            return "\n".join(lines) + "\n"
 
         def convert_hidden_content(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
