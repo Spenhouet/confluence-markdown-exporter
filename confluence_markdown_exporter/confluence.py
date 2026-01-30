@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import yaml
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
+from atlassian.errors import ApiPermissionError
 from bs4 import BeautifulSoup
 from bs4 import Tag
 from markdownify import ATX
@@ -238,6 +239,7 @@ class Attachment(Document):
     download_link: str
     comment: str
     version: Version
+    container_id: int
 
     @property
     def extension(self) -> str:
@@ -254,8 +256,11 @@ class Attachment(Document):
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        container_page = Page.from_id(self.container_id)
         return {
             **super()._template_vars,
+            "page_id": str(self.container_id),
+            "page_title": sanitize_filename(container_page.title),
             "attachment_id": str(self.id),
             "attachment_title": sanitize_filename(self.title),
             # file_id is a GUID and does not need sanitized.
@@ -283,6 +288,7 @@ class Attachment(Document):
             collection_name=extensions.get("collectionName", ""),
             download_link=data.get("_links", {}).get("download", ""),
             comment=extensions.get("comment", ""),
+            container_id=int(container.get("id", 0)),
             ancestors=[
                 *[ancestor.get("id") for ancestor in container.get("ancestors", [])],
                 container.get("id"),
@@ -904,6 +910,8 @@ class Page(Document):
                     return self.convert_user(User.from_accountid(str(aid)))
                 except ApiNotFoundError:
                     logger.warning(f"User {aid} not found. Using text instead.")
+                except ApiPermissionError:
+                    logger.warning(f"No permission to view user {aid}. Using text instead.")
 
             return self.convert_user_name(text)
 
@@ -1089,7 +1097,8 @@ class Page(Document):
                 result = "/" + str(path).lstrip("/")
             else:
                 result = os.path.relpath(path, self.page.export_path.parent)
-            return result
+            # Normalize to forward slashes for markdown compatibility
+            return result.replace("\\", "/")
 
 
 def export_page(page_id: int) -> None:
