@@ -580,7 +580,9 @@ class Page(Document):
         @property
         def markdown(self) -> str:
             md_body = self.convert(self.page.html)
-            markdown = f"{self.front_matter}\n"
+            markdown = ""
+            if settings.export.page_frontmatter:
+                markdown = f"{self.front_matter}\n"
             if settings.export.page_breadcrumbs:
                 markdown += f"{self.breadcrumbs}\n"
             markdown += f"{md_body}\n"
