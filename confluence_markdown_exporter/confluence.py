@@ -172,8 +172,31 @@ class Space(BaseModel):
             )
             return []
 
-        homepage = Page.from_id(self.homepage)
-        return [self.homepage, *homepage.descendants]
+        url = "rest/api/content/search"
+        params = {
+            "cql": f'type=page AND space="{self.key}"',
+            "limit": 100,
+        }
+        results = []
+
+        try:
+            response = confluence.get(url, params=params)
+            results.extend(response.get("results", []))
+            next_path = response.get("_links", {}).get("next")
+
+            while next_path:
+                response = confluence.get(next_path)
+                results.extend(response.get("results", []))
+                next_path = response.get("_links", {}).get("next")
+
+        except HTTPError:
+            logger.warning(f"Unexpected error when fetching pages for space '{self.key}'.")
+            return []
+        except Exception:
+            logger.exception(f"Unexpected error when fetching pages for space '{self.key}'.")
+            return []
+
+        return [int(result["id"]) for result in results]
 
     def export(self) -> None:
         export_pages(self.pages)
