@@ -168,9 +168,8 @@ class Space(BaseModel):
     def pages(self) -> list[int]:
         if self.homepage is None:
             logger.warning(
-                f"Space '{self.name}' (key: {self.key}) has no homepage. No pages will be exported."
+                f"Space '{self.name}' (key: {self.key}) has no homepage. Exporting by space key."
             )
-            return []
 
         url = "rest/api/content/search"
         params = {
@@ -239,11 +238,18 @@ class Document(BaseModel):
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        homepage_id = self.space.homepage
+        homepage_title = ""
+        if homepage_id is not None:
+            homepage_title = sanitize_filename(Page.from_id(homepage_id).title)
+        else:
+            homepage_title = sanitize_filename(self.space.name or self.space.key)
+
         return {
             "space_key": sanitize_filename(self.space.key),
             "space_name": sanitize_filename(self.space.name),
-            "homepage_id": str(self.space.homepage),
-            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title),
+            "homepage_id": str(homepage_id) if homepage_id is not None else "",
+            "homepage_title": homepage_title,
             "ancestor_ids": "/".join(str(a) for a in self.ancestors),
             "ancestor_titles": "/".join(
                 sanitize_filename(Page.from_id(a).title) for a in self.ancestors
