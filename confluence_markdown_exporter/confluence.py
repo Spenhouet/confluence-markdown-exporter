@@ -340,6 +340,7 @@ class Page(Document):
     editor2: str
     labels: list["Label"]
     attachments: list["Attachment"]
+    version: Version
 
     @property
     def descendants(self) -> list[int]:
@@ -399,6 +400,8 @@ class Page(Document):
         return self.Converter(self).markdown
 
     def export(self) -> None:
+        from confluence_markdown_exporter.utils.lockfile import LockfileManager
+
         if self.title == "Page not accessible":
             logger.warning(f"Skipping export for inaccessible page with ID {self.id}")
             return
@@ -408,6 +411,9 @@ class Page(Document):
         # Export attachments first so the files can be utilized during markdown conversion
         self.export_attachments()
         self.export_markdown()
+
+        # Record to lockfile if enabled
+        LockfileManager.record_page(self)
 
     def export_with_descendants(self) -> None:
         export_pages([self.id, *self.descendants])
@@ -499,6 +505,7 @@ class Page(Document):
             ],
             attachments=Attachment.from_page_id(data.get("id", 0)),
             ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
+            version=Version.from_json(data.get("version", {})),
         )
 
     @classmethod
@@ -511,7 +518,7 @@ class Page(Document):
                     confluence.get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                        "metadata.properties,ancestors",
+                        "metadata.properties,ancestors,version",
                     ),
                 )
             )
@@ -528,6 +535,7 @@ class Page(Document):
                 labels=[],
                 attachments=[],
                 ancestors=[],
+                version=Version.from_json({}),
             )
 
     @classmethod
@@ -1001,7 +1009,7 @@ class Page(Document):
 
             return ""
 
-        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str: # noqa: PLR0911
+        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
             """Convert PlantUML diagrams from editor2 XML to Markdown code blocks.
 
             PlantUML diagrams are stored in the editor2 XML as structured macros with
