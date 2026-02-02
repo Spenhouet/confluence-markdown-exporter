@@ -53,7 +53,6 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 confluence = get_confluence_instance()
 
-
 class JiraIssue(BaseModel):
     key: str
     summary: str
@@ -543,8 +542,10 @@ class Page(Document):
                     ),
                 )
             )
-        except (ApiError, HTTPError):
-            logger.warning(f"Could not access page with ID {page_id}")
+        except (ApiError, HTTPError) as e:
+            # Log more details to help diagnose the issue
+            status_code = getattr(getattr(e, 'response', None), 'status_code', 'unknown')
+            logger.warning(f"Could not access page with ID {page_id} (HTTP {status_code}): {e}")
             # Return a minimal page object with error information
             return cls(
                 id=page_id,
@@ -887,34 +888,61 @@ class Page(Document):
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = str(el.get("data-linked-resource-id", ""))
                 if page_id and page_id != "null":
-                    return self.convert_page_link(int(page_id))
+                    return self.convert_page_link(int(page_id), el.get("href"), text)
             if "attachment" in str(el.get("data-linked-resource-type")):
                 link = self.convert_attachment_link(el, text, parent_tags)
                 # convert_attachment_link may return None if the attachment meta is incomplete
                 return link or f"[{text}]({el.get('href')})"
             if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el.get("href", ""))):
                 page_id = match.group(1)
-                return self.convert_page_link(int(page_id))
+                original_href = el.get("href", "")
+                return self.convert_page_link(int(page_id), original_href, text)
             if str(el.get("href", "")).startswith("#"):
                 # Handle heading links
                 return f"[{text}](#{sanitize_key(text, '-')})"
 
             return super().convert_a(el, text, parent_tags)
 
-        def convert_page_link(self, page_id: int) -> str:
+        def convert_page_link(
+            self, page_id: int, original_href: str | None = None, original_text: str | None = None
+        ) -> str:
             if not page_id:
                 msg = "Page link does not have valid page_id."
                 raise ValueError(msg)
 
             page = Page.from_id(page_id)
+            confluence_url = str(settings.auth.confluence.url).rstrip("/")
 
+            # Helper to make href absolute
+            def make_absolute(href: str) -> str:
+                if href.startswith("/"):
+                    return f"{confluence_url}{href}"
+                return href
+
+            # Inaccessible page - use original href if available
             if page.title == "Page not accessible":
-                logger.warning(
-                    f"Confluence page link (ID: {page_id}) is not accessible, "
-                    f"referenced from page '{self.page.title}' (ID: {self.page.id})"
+                logger.info(
+                    f"Page (ID: {page_id}) not accessible, keeping original link. "
+                    f"Referenced from '{self.page.title}'"
                 )
-                return f"[Page not accessible (ID: {page_id})]"
+                link_text = original_text or f"Page {page_id}"
+                if original_href:
+                    return f"[{link_text}]({make_absolute(original_href)})"
+                # Fallback if no original href
+                return f"[{link_text}]({confluence_url}/wiki/pages/viewpage.action?pageId={page_id})"
 
+            # Cross-space page - use original href if available
+            if page.space.key != self.page.space.key:
+                logger.info(
+                    f"Cross-space link to '{page.title}' (space: {page.space.key}), keeping original link. "
+                    f"Referenced from '{self.page.title}'"
+                )
+                if original_href:
+                    return f"[{page.title}]({make_absolute(original_href)})"
+                # Fallback if no original href
+                return f"[{page.title}]({confluence_url}/wiki/spaces/{page.space.key}/pages/{page_id})"
+
+            # Same-space page - use relative path
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
 
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
