@@ -133,7 +133,35 @@ class LockfileManager:
         return entry.version != page.version.number or entry.export_path != str(page.export_path)
 
     @classmethod
-    def reset(cls) -> None:
-        """Reset the manager state."""
-        cls._lockfile_path = None
-        cls._lock = None
+    def cleanup_untracked(cls, *, dry_run: bool = False) -> list[Path]:
+        """Delete exported files that are not in the lockfile.
+
+        Args:
+            dry_run: If True, only return files that would be deleted without deleting.
+
+        Returns list of deleted (or would-be-deleted) file paths.
+        """
+        from pathlib import Path
+
+        from confluence_markdown_exporter.utils.app_data_store import get_settings
+
+        if cls._lock is None:
+            return []
+
+        settings = get_settings()
+        output_path = settings.export.output_path
+
+        # Collect all export_paths from lockfile
+        tracked_paths = {Path(entry.export_path) for entry in cls._lock.pages.values()}
+
+        # Find all markdown files in output directory
+        untracked: list[Path] = []
+        for md_file in output_path.rglob("*.md"):
+            relative_path = md_file.relative_to(output_path)
+            if relative_path not in tracked_paths:
+                untracked.append(relative_path)
+                if not dry_run:
+                    md_file.unlink()
+                    logger.info(f"Deleted untracked file: {relative_path}")
+
+        return untracked
