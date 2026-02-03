@@ -45,9 +45,7 @@ class ConfluenceLock(BaseModel):
                 content = lockfile_path.read_text(encoding="utf-8")
                 return cls.model_validate_json(content)
             except ValidationError:
-                logger.warning(
-                    f"Failed to parse lock file: {lockfile_path}. Starting fresh."
-                )
+                logger.warning(f"Failed to parse lock file: {lockfile_path}. Starting fresh.")
         return cls()
 
     def save(self, lockfile_path: Path) -> None:
@@ -75,9 +73,7 @@ class ConfluenceLock(BaseModel):
     def add_page(self, page: Page) -> None:
         """Add or update a page entry in the lock file."""
         if page.version is None:
-            logger.warning(
-                f"Page {page.id} has no version info. Skipping lock entry."
-            )
+            logger.warning(f"Page {page.id} has no version info. Skipping lock entry.")
             return
 
         self.pages[str(page.id)] = PageEntry(
@@ -115,6 +111,26 @@ class LockfileManager:
 
         cls._lock.add_page(page)
         cls._lock.save(cls._lockfile_path)
+
+    @classmethod
+    def should_export(cls, page: Page) -> bool:
+        """Check if a page should be exported based on lockfile state.
+
+        Returns True if the page should be exported (not in lockfile or changed).
+        """
+        if cls._lock is None:
+            return True
+
+        page_id = str(page.id)
+        if page_id not in cls._lock.pages:
+            return True
+
+        entry = cls._lock.pages[page_id]
+        if page.version is None:
+            return True
+
+        # Export if version or export_path has changed
+        return entry.version != page.version.number or entry.export_path != str(page.export_path)
 
     @classmethod
     def reset(cls) -> None:

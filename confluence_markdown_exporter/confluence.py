@@ -39,6 +39,7 @@ from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_d
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
+from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.table_converter import TableConverter
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
@@ -133,7 +134,7 @@ class Organization(BaseModel):
     spaces: list["Space"]
 
     @property
-    def pages(self) -> list[int]:
+    def pages(self) -> list["Page"]:
         return [page for space in self.spaces for page in space.pages]
 
     def export(self) -> None:
@@ -165,7 +166,7 @@ class Space(BaseModel):
     homepage: int | None
 
     @property
-    def pages(self) -> list[int]:
+    def pages(self) -> list["Page"]:
         if self.homepage is None:
             logger.warning(
                 f"Space '{self.name}' (key: {self.key}) has no homepage. No pages will be exported."
@@ -173,7 +174,7 @@ class Space(BaseModel):
             return []
 
         homepage = Page.from_id(self.homepage)
-        return [self.homepage, *homepage.descendants]
+        return [homepage, *homepage.descendants]
 
     def export(self) -> None:
         export_pages(self.pages)
@@ -343,10 +344,11 @@ class Page(Document):
     version: Version
 
     @property
-    def descendants(self) -> list[int]:
+    def descendants(self) -> list["Page"]:
         url = "rest/api/content/search"
         params = {
             "cql": f"type=page AND ancestor={self.id}",
+            "expand": "metadata.properties,ancestors,version",
             "limit": 100,
         }
         results = []
@@ -373,8 +375,7 @@ class Page(Document):
                 f"Unexpected error when fetching descendants for content ID {self.id}."
             )
             return []
-
-        return [result["id"] for result in results]
+        return [self.from_json(result) for result in results]
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -400,8 +401,6 @@ class Page(Document):
         return self.Converter(self).markdown
 
     def export(self) -> None:
-        from confluence_markdown_exporter.utils.lockfile import LockfileManager
-
         if self.title == "Page not accessible":
             logger.warning(f"Skipping export for inaccessible page with ID {self.id}")
             return
@@ -416,7 +415,7 @@ class Page(Document):
         LockfileManager.record_page(self)
 
     def export_with_descendants(self) -> None:
-        export_pages([self.id, *self.descendants])
+        export_pages([self, *self.descendants])
 
     def export_body(self) -> None:
         soup = BeautifulSoup(self.html, "html.parser")
@@ -1111,13 +1110,17 @@ def export_page(page_id: int) -> None:
     page.export()
 
 
-def export_pages(page_ids: list[int]) -> None:
+def export_pages(pages: list["Page"]) -> None:
     """Export a list of Confluence pages to Markdown.
 
     Args:
-        page_ids: List of pages to export.
+        pages: List of pages to export.
         output_path: The output path.
     """
-    for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
-        pbar.set_postfix_str(f"Exporting page {page_id}")
-        export_page(page_id)
+    for page in (pbar := tqdm(pages, smoothing=0.05)):
+        # filter pages new and updated only
+        if LockfileManager.should_export(page):
+            pbar.set_postfix_str(f"Exporting page {page.id}")
+            export_page(page.id)
+        else:
+            pbar.set_postfix_str(f"Skipping page {page.id} (no changes)")
