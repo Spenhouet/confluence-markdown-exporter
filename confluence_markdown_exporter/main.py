@@ -44,11 +44,10 @@ def pages(
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
 
-    override_output_path_config(output_path)
-    if lockfile:
-        LockfileManager.init()
-
     with measure(f"Export pages {', '.join(pages)}"):
+        override_output_path_config(output_path)
+        if lockfile:
+            LockfileManager.init()
         for page in pages:
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             _page.export()
@@ -71,14 +70,20 @@ def pages_with_descendants(
             help="Enable lock file tracking for exported pages.",
         ),
     ] = False,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help="Only export pages that have changed since last export.",
+        ),
+    ] = False,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
 
-    override_output_path_config(output_path)
-    if lockfile:
-        LockfileManager.init()
-
     with measure(f"Export pages {', '.join(pages)} with descendants"):
+        override_output_path_config(output_path)
+        if lockfile or incremental:
+            LockfileManager.init()
         for page in pages:
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             _page.export_with_descendants()
@@ -101,6 +106,13 @@ def spaces(
             help="Enable lock file tracking for exported pages.",
         ),
     ] = False,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help="Only export pages that have changed since last export.",
+        ),
+    ] = False,
 ) -> None:
     from confluence_markdown_exporter.confluence import Space
 
@@ -108,11 +120,10 @@ def spaces(
     # Powershell expanding tilde to the Users directory, which is handled here
     normalized_space_keys = [handle_powershell_tilde_expansion(key) for key in space_keys]
 
-    override_output_path_config(output_path)
-    if lockfile:
-        LockfileManager.init()
-
     with measure(f"Export spaces {', '.join(normalized_space_keys)}"):
+        override_output_path_config(output_path)
+        if lockfile or incremental:
+            LockfileManager.init()
         for space_key in normalized_space_keys:
             space = Space.from_key(space_key)
             space.export()
@@ -134,14 +145,20 @@ def all_spaces(
             help="Enable lock file tracking for exported pages.",
         ),
     ] = False,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help="Only export pages that have changed since last export.",
+        ),
+    ] = False,
 ) -> None:
     from confluence_markdown_exporter.confluence import Organization
 
-    override_output_path_config(output_path)
-    if lockfile:
-        LockfileManager.init()
-
     with measure("Export all spaces"):
+        override_output_path_config(output_path)
+        if lockfile or incremental:
+            LockfileManager.init()
         org = Organization.from_api()
         org.export()
 
