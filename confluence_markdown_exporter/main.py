@@ -187,6 +187,33 @@ def config(
         main_config_menu_loop(jump_to)
 
 
+@app.command(help="Delete exported files that are not tracked in the lockfile.")
+def prune(
+    output_path: Annotated[
+        Path | None,
+        typer.Option(help="Directory containing exported Markdown files. Overrides config if set."),
+    ] = None,
+    *,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Show files that would be deleted without actually deleting them.",
+        ),
+    ] = False,
+) -> None:
+    """Delete exported files not tracked in the lockfile."""
+    override_output_path_config(output_path)
+    LockfileManager.init()
+    deleted = LockfileManager.cleanup_untracked(dry_run=dry_run)
+    if dry_run:
+        typer.echo(f"Would delete {len(deleted)} file(s):")
+        for path in deleted:
+            typer.echo(f"  {path}")
+    else:
+        typer.echo(f"Deleted {len(deleted)} file(s).")
+
+
 @app.command(help="Show the current version of confluence-markdown-exporter.")
 def version() -> None:
     """Display the current version."""
