@@ -105,3 +105,29 @@ def test_cli_entry_points() -> None:
         # Allow other exceptions as the module might have initialization code
         # but we can still verify it's importable
         pass
+
+
+def test_sync_command_exists() -> None:
+    """Verify sync is registered as a CLI command."""
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "confluence_markdown_exporter.main", "sync", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0
+    assert "sync" in result.stdout.lower() or "usage" in result.stdout.lower()
+
+
+def test_status_command_exists() -> None:
+    """Verify status is registered as a CLI command."""
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-m", "confluence_markdown_exporter.main", "status", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 0
+    assert "status" in result.stdout.lower() or "usage" in result.stdout.lower()

@@ -22,6 +22,7 @@
 - Handles images and attachments by linking them appropriately in the Markdown output.
 - Supports extended Markdown features like tasks, alerts, and front matter.
 - Supports Confluence add-ons: [draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts), [PlantUML](https://marketplace.atlassian.com/apps/1222993/flowchart-plantuml-diagrams-for-confluence)
+- Incremental sync: after the initial export, only re-exports pages that have changed. See [Incremental Sync](docs/incremental-sync.md).
 
 ## Supported Markdown Elements
 
@@ -53,7 +54,7 @@ pip install confluence-markdown-exporter
 
 ### 2. Exporting
 
-Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information.
+Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `all-spaces`, `sync`, `status`, or `config`. If a command is unclear, you can always add `--help` to get additional information.
 
 > [!TIP]
 > Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
@@ -63,13 +64,13 @@ Run the exporter with the desired Confluence page ID or space key. Execute the c
 Export a single Confluence page by ID:
 
 ```sh
-confluence-markdown-exporter pages <page-id e.g. 645208921> <output path e.g. ./output_path/>
+confluence-markdown-exporter pages 645208921 --output-path ./output_path/
 ```
 
 or by URL:
 
 ```sh
-confluence-markdown-exporter pages <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
+confluence-markdown-exporter pages https://company.atlassian.net/MySpace/My+Page+Title --output-path ./output_path/
 ```
 
 #### 2.2. Export Page with Descendants
@@ -77,30 +78,72 @@ confluence-markdown-exporter pages <page-url e.g. https://company.atlassian.net/
 Export a Confluence page and all its descendant pages by page ID:
 
 ```sh
-confluence-markdown-exporter pages-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
+confluence-markdown-exporter pages-with-descendants 645208921 --output-path ./output_path/
 ```
 
 or by URL:
 
 ```sh
-confluence-markdown-exporter pages-with-descendants <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
+confluence-markdown-exporter pages-with-descendants https://company.atlassian.net/MySpace/My+Page+Title --output-path ./output_path/
 ```
 
-#### 2.3. Export Space
+#### 2.3. Export Space(s)
 
 Export all Confluence pages of a single Space:
 
 ```sh
-confluence-markdown-exporter spaces <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
+confluence-markdown-exporter spaces MYSPACE --output-path ./output_path/
 ```
 
-#### 2.3. Export all Spaces
+#### 2.4. Export all Spaces
 
 Export all Confluence pages across all spaces:
 
 ```sh
-confluence-markdown-exporter all-spaces <output path e.g. ./output_path/>
+confluence-markdown-exporter all-spaces --output-path ./output_path/
 ```
+
+#### Appending Scopes (`--append`)
+
+All export commands accept the `--append` flag. If a state file (`.cme-state.json`) already exists in the output directory from a previous export, the default behavior is to refuse the export and recommend using `sync` instead.
+
+Use `--append` to add a new scope (e.g., a new space or page) to an existing export:
+
+```sh
+confluence-markdown-exporter spaces MARKETING --output-path ./output_path/ --append
+```
+
+#### 2.5. Sync
+
+After the initial export, use `sync` to incrementally update only the pages that have changed:
+
+```sh
+confluence-markdown-exporter sync --output-path ./output_path/
+```
+
+Use `--dry-run` to preview changes without modifying any files:
+
+```sh
+confluence-markdown-exporter sync --output-path ./output_path/ --dry-run
+```
+
+Use `--force` to re-export all pages regardless of whether they have changed (useful after config changes):
+
+```sh
+confluence-markdown-exporter sync --output-path ./output_path/ --force
+```
+
+For more details, see the [Incremental Sync](docs/incremental-sync.md) documentation.
+
+#### 2.6. Status
+
+View the local state of a previous export without contacting the Confluence API:
+
+```sh
+confluence-markdown-exporter status --output-path ./output_path/
+```
+
+This shows the tracked scopes, total page count, and active/deleted breakdown.
 
 ### 3. Output
 
