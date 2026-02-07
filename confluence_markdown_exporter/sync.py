@@ -87,7 +87,7 @@ def _replay_spaces_scope(args: list[str]) -> dict[str, int]:
 
 
 def _replay_all_spaces_scope() -> dict[str, int]:
-    """Replay an 'all_spaces' scope entry.
+    """Replay an 'all-spaces' scope entry.
 
     Fetches all pages across all spaces in the organization.
 
@@ -148,8 +148,9 @@ def replay_scopes(state: ExportState) -> dict[str, int]:
 
     Dispatches each scope entry to the appropriate handler based on the
     command field, then merges results. When the same page appears in
-    multiple scopes, later entries overwrite earlier ones (versions
-    should be identical since they come from the same Confluence instance).
+    multiple scopes, the merged mapping keeps the maximum positive version
+    number observed for that page. Non-positive (sentinel) versions do not
+    overwrite an existing positive version.
 
     Args:
         state: The ExportState containing scope entries to replay.
@@ -252,14 +253,21 @@ def execute_sync(
     export_and_track(pages_to_export, state, output_path)
 
     # Delete orphan files for removed Confluence pages
+    output_root = output_path.resolve()
     for page_id in delta.deleted:
         page_state = state.pages.get(page_id)
         if page_state is not None:
-            # Remove the local file
-            file_path = output_path / page_state.output_path
-            if file_path.exists():
-                file_path.unlink()
-                logger.info(f"Deleted orphan file: {file_path}")
+            # Remove the local file, ensuring path stays within output directory
+            candidate = (output_path / page_state.output_path).resolve()
+            if candidate.is_relative_to(output_root):
+                if candidate.exists() and candidate.is_file():
+                    candidate.unlink()
+                    logger.info(f"Deleted orphan file: {candidate}")
+            else:
+                logger.warning(
+                    "Refusing to delete file outside export directory: %s",
+                    candidate,
+                )
 
             # Mark page as deleted in state
             page_state.status = "deleted"

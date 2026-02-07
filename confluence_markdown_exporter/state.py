@@ -199,6 +199,11 @@ def compute_delta(
             delta.new.append(page_id)
             continue
 
+        if current_version <= 0:
+            # Sentinel version (e.g. from transient API errors), force re-export
+            delta.modified.append(page_id)
+            continue
+
         if current_version > page_state.version:
             delta.modified.append(page_id)
             continue
