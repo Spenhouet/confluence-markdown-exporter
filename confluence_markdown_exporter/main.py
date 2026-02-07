@@ -115,19 +115,21 @@ def pages(
 
     override_output_path_config(output_path)
     settings = get_settings()
+
+    page_ids = [
+        int(p) if p.isdigit() else Page.from_url(p).id
+        for p in pages
+    ]
+
     state = check_state_file_guard(
         output_path=settings.export.output_path,
         append=append,
         command="pages",
-        args=list(pages),
+        args=[str(pid) for pid in page_ids],
         confluence_url=str(settings.auth.confluence.url),
     )
 
     with measure(f"Export pages {', '.join(pages)}"):
-        page_ids = [
-            int(p) if p.isdigit() else Page.from_url(p).id
-            for p in pages
-        ]
         export_and_track(page_ids, state, settings.export.output_path)
 
     save_state(settings.export.output_path, state)
@@ -156,18 +158,24 @@ def pages_with_descendants(
 
     override_output_path_config(output_path)
     settings = get_settings()
+
+    root_page_ids = [
+        int(p) if p.isdigit() else Page.from_url(p).id
+        for p in pages
+    ]
+
     state = check_state_file_guard(
         output_path=settings.export.output_path,
         append=append,
         command="pages-with-descendants",
-        args=list(pages),
+        args=[str(pid) for pid in root_page_ids],
         confluence_url=str(settings.auth.confluence.url),
     )
 
     with measure(f"Export pages {', '.join(pages)} with descendants"):
         all_page_ids: list[int] = []
-        for page in pages:
-            _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
+        for pid in root_page_ids:
+            _page = Page.from_id(pid)
             all_page_ids.extend([_page.id, *_page.descendants])
         all_page_ids = list(dict.fromkeys(all_page_ids))
         export_and_track(all_page_ids, state, settings.export.output_path)
