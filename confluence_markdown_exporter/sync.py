@@ -44,10 +44,27 @@ def _fetch_page_versions(page_ids: list[int]) -> dict[str, int]:
             data = confluence.get_page_by_id(page_id, expand="version")
             version = data.get("version", {}).get("number", 0)
             result[str(page_id)] = version
-        except (ApiError, HTTPError):
+        except (ApiError, HTTPError) as exc:
+            status_code = getattr(exc, "status_code", None)
+            response = getattr(exc, "response", None)
+            if response is not None:
+                status_code = getattr(response, "status_code", status_code)
+
+            if status_code in (403, 404):
+                logger.info(
+                    "Page %s not accessible (status %s), treating as removed.",
+                    page_id,
+                    status_code,
+                )
+                continue
+
             logger.warning(
-                f"Could not fetch version for page {page_id}, skipping."
+                "Could not fetch version for page %s (status %s), "
+                "marking for re-export.",
+                page_id,
+                status_code,
             )
+            result[str(page_id)] = 0
     return result
 
 
@@ -146,17 +163,22 @@ def replay_scopes(state: ExportState) -> dict[str, int]:
     for scope in state.scopes:
         if scope.command == "spaces":
             pages = _replay_spaces_scope(scope.args)
-        elif scope.command == "all_spaces":
+        elif scope.command == "all-spaces":
             pages = _replay_all_spaces_scope()
         elif scope.command == "pages":
             pages = _replay_pages_scope(scope.args)
-        elif scope.command == "pages_with_descendants":
+        elif scope.command == "pages-with-descendants":
             pages = _replay_pages_with_descendants_scope(scope.args)
         else:
             logger.warning(f"Unknown scope command: {scope.command}")
             continue
 
-        merged.update(pages)
+        for page_id, version in pages.items():
+            existing = merged.get(page_id)
+            if existing is not None and version <= 0:
+                continue
+            if existing is None or version > existing:
+                merged[page_id] = version
 
     return merged
 
@@ -289,11 +311,13 @@ def format_sync_report(delta: SyncDelta, state: ExportState) -> str:
     # Summary line
     n_new = len(delta.new)
     n_modified = len(delta.modified)
+    n_stale = len(delta.stale)
     n_deleted = len(delta.deleted)
     n_unchanged = len(delta.unchanged)
-    lines.append(
-        f"{n_new} new, {n_modified} modified, {n_deleted} deleted, "
-        f"{n_unchanged} unchanged"
-    )
+    parts = [f"{n_new} new", f"{n_modified} modified"]
+    if n_stale:
+        parts.append(f"{n_stale} stale")
+    parts.extend([f"{n_deleted} deleted", f"{n_unchanged} unchanged"])
+    lines.append(", ".join(parts))
 
     return "\n".join(lines)

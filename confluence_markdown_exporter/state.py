@@ -91,6 +91,7 @@ def save_state(output_path: Path, state: ExportState) -> None:
         output_path: Directory where the state file will be written.
         state: The ExportState to persist.
     """
+    output_path.mkdir(parents=True, exist_ok=True)
     state_file = output_path / STATE_FILENAME
     json_str = state.model_dump_json(indent=2)
     state_file.write_text(json_str, encoding="utf-8")
@@ -132,7 +133,7 @@ def validate_state_url(
     Raises:
         ValueError: If the URLs do not match and update is False.
     """
-    if state.confluence_url != current_url:
+    if state.confluence_url.rstrip("/") != current_url.rstrip("/"):
         if update:
             state.confluence_url = current_url
             return

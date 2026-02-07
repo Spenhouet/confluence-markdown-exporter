@@ -77,7 +77,7 @@ class TestReplayScopes:
         ]
 
         state = _make_state(
-            scopes=[ScopeEntry(command="all_spaces", args=[])]
+            scopes=[ScopeEntry(command="all-spaces", args=[])]
         )
         result = replay_scopes(state)
 
@@ -146,7 +146,7 @@ class TestReplayScopes:
 
         state = _make_state(
             scopes=[
-                ScopeEntry(command="pages_with_descendants", args=["401"])
+                ScopeEntry(command="pages-with-descendants", args=["401"])
             ]
         )
         result = replay_scopes(state)

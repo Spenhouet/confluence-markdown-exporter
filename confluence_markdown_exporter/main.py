@@ -125,7 +125,7 @@ def pages(
 
     with measure(f"Export pages {', '.join(pages)}"):
         page_ids = [
-            Page.from_id(int(p)).id if p.isdigit() else Page.from_url(p).id
+            int(p) if p.isdigit() else Page.from_url(p).id
             for p in pages
         ]
         export_and_track(page_ids, state, settings.export.output_path)
@@ -159,7 +159,7 @@ def pages_with_descendants(
     state = check_state_file_guard(
         output_path=settings.export.output_path,
         append=append,
-        command="pages_with_descendants",
+        command="pages-with-descendants",
         args=list(pages),
         confluence_url=str(settings.auth.confluence.url),
     )
@@ -169,6 +169,7 @@ def pages_with_descendants(
         for page in pages:
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             all_page_ids.extend([_page.id, *_page.descendants])
+        all_page_ids = list(dict.fromkeys(all_page_ids))
         export_and_track(all_page_ids, state, settings.export.output_path)
 
     save_state(settings.export.output_path, state)
@@ -244,7 +245,7 @@ def all_spaces(
     state = check_state_file_guard(
         output_path=settings.export.output_path,
         append=append,
-        command="all_spaces",
+        command="all-spaces",
         args=[],
         confluence_url=str(settings.auth.confluence.url),
     )
