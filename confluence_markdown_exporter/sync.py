@@ -178,8 +178,11 @@ def replay_scopes(state: ExportState) -> dict[str, int]:
         elif scope.command == "pages-with-descendants":
             pages = _replay_pages_with_descendants_scope(scope.args)
         else:
-            logger.warning(f"Unknown scope command: {scope.command}")
-            continue
+            msg = (
+                f"Unknown scope command: {scope.command!r}. "
+                "The state file may have been created by a newer version."
+            )
+            raise ValueError(msg)
 
         for page_id, version in pages.items():
             existing = merged.get(page_id)
