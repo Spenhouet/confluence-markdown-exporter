@@ -77,7 +77,14 @@ def check_state_file_guard(
             raise SystemExit(1)
 
         # Validate URL matches
-        validate_state_url(existing_state, confluence_url)
+        try:
+            validate_state_url(existing_state, confluence_url)
+        except ValueError as exc:
+            msg = (
+                f"{exc}\n\nHint: To update the stored Confluence URL, "
+                "run 'sync --force' instead."
+            )
+            raise ValueError(msg) from exc
 
         # Add scope if not already present
         if new_scope not in existing_state.scopes:

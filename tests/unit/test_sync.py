@@ -85,22 +85,16 @@ class TestReplayScopes:
         mock_org_cls.from_api.assert_called_once()
 
     @patch("confluence_markdown_exporter.sync.confluence")
-    @patch("confluence_markdown_exporter.sync.Page")
     def test_pages_scope(
-        self, mock_page_cls: MagicMock, mock_confluence: MagicMock
+        self, mock_confluence: MagicMock
     ) -> None:
-        """Pages scope fetches individual pages by ID and returns versions."""
+        """Pages scope fetches individual page versions via lightweight API."""
         from confluence_markdown_exporter.sync import replay_scopes
 
-        mock_page_1 = MagicMock()
-        mock_page_1.id = 301
-        mock_page_1.page_version = 4
-
-        mock_page_2 = MagicMock()
-        mock_page_2.id = 302
-        mock_page_2.page_version = 2
-
-        mock_page_cls.from_id.side_effect = [mock_page_1, mock_page_2]
+        mock_confluence.get_page_by_id.side_effect = [
+            {"id": 301, "version": {"number": 4}},
+            {"id": 302, "version": {"number": 2}},
+        ]
 
         state = _make_state(
             scopes=[ScopeEntry(command="pages", args=["301", "302"])]
@@ -108,14 +102,17 @@ class TestReplayScopes:
         result = replay_scopes(state)
 
         assert result == {"301": 4, "302": 2}
-        assert mock_page_cls.from_id.call_count == 2
+        assert mock_confluence.get_page_by_id.call_count == 2
 
     @patch("confluence_markdown_exporter.sync.confluence")
     @patch("confluence_markdown_exporter.sync.Page")
     def test_pages_with_descendants_scope(
         self, mock_page_cls: MagicMock, mock_confluence: MagicMock
     ) -> None:
-        """Pages-with-descendants scope fetches page + descendants versions."""
+        """Pages-with-descendants scope fetches root version via lightweight API.
+
+        Discovers descendants via Page.from_id after confirming root accessibility.
+        """
         from confluence_markdown_exporter.sync import replay_scopes
 
         mock_parent = MagicMock()
@@ -123,23 +120,12 @@ class TestReplayScopes:
         mock_parent.page_version = 3
         mock_parent.descendants = [402, 403]
 
-        mock_child_1 = MagicMock()
-        mock_child_1.id = 402
-        mock_child_1.page_version = 1
+        mock_page_cls.from_id.return_value = mock_parent
 
-        mock_child_2 = MagicMock()
-        mock_child_2.id = 403
-        mock_child_2.page_version = 2
-
-        def from_id_dispatch(page_id: int) -> MagicMock:
-            return {401: mock_parent, 402: mock_child_1, 403: mock_child_2}[page_id]
-
-        mock_page_cls.from_id.side_effect = from_id_dispatch
-
-        # For spaces/all_spaces, confluence.get_page_by_id is used.
-        # For pages/pages_with_descendants, Page.from_id is used directly.
-        # But descendants need version lookups too:
+        # First call: lightweight version fetch for root (401)
+        # Then: lightweight version fetches for descendants (402, 403)
         mock_confluence.get_page_by_id.side_effect = [
+            {"id": 401, "version": {"number": 3}},
             {"id": 402, "version": {"number": 1}},
             {"id": 403, "version": {"number": 2}},
         ]
@@ -152,13 +138,13 @@ class TestReplayScopes:
         result = replay_scopes(state)
 
         assert result == {"401": 3, "402": 1, "403": 2}
+        # Page.from_id called only for root (to get descendants list)
+        mock_page_cls.from_id.assert_called_once_with(401)
 
     @patch("confluence_markdown_exporter.sync.confluence")
     @patch("confluence_markdown_exporter.sync.Space")
-    @patch("confluence_markdown_exporter.sync.Page")
     def test_multiple_scopes_deduplicate(
         self,
-        mock_page_cls: MagicMock,
         mock_space_cls: MagicMock,
         mock_confluence: MagicMock,
     ) -> None:
@@ -170,20 +156,14 @@ class TestReplayScopes:
         mock_space.pages = [101]
         mock_space_cls.from_key.return_value = mock_space
 
+        # All version fetches go through confluence.get_page_by_id:
+        # First scope (spaces): page 101
+        # Second scope (pages): page 101 and 102
         mock_confluence.get_page_by_id.side_effect = [
             {"id": 101, "version": {"number": 5}},
+            {"id": 101, "version": {"number": 5}},
+            {"id": 102, "version": {"number": 1}},
         ]
-
-        # Second scope: individual page 101 (duplicate) and 102
-        mock_page_101 = MagicMock()
-        mock_page_101.id = 101
-        mock_page_101.page_version = 5
-
-        mock_page_102 = MagicMock()
-        mock_page_102.id = 102
-        mock_page_102.page_version = 1
-
-        mock_page_cls.from_id.side_effect = [mock_page_101, mock_page_102]
 
         state = _make_state(
             scopes=[

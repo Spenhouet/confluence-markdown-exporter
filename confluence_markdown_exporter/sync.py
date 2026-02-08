@@ -104,9 +104,9 @@ def _replay_all_spaces_scope() -> dict[str, int]:
 def _replay_pages_scope(args: list[str]) -> dict[str, int]:
     """Replay a 'pages' scope entry.
 
-    Fetches individual pages by ID and returns their versions. Uses
-    Page.from_id which fetches full page data (including version),
-    since these are specific pages the user requested.
+    Fetches individual page versions via the lightweight API, which
+    correctly distinguishes permanent errors (403/404, treated as
+    removal) from transient errors (sentinel version=0 for re-export).
 
     Args:
         args: List of page ID strings.
@@ -114,18 +114,16 @@ def _replay_pages_scope(args: list[str]) -> dict[str, int]:
     Returns:
         Mapping of page_id to version.
     """
-    result: dict[str, int] = {}
-    for page_id_str in args:
-        page = Page.from_id(int(page_id_str))
-        result[str(page.id)] = page.page_version
-    return result
+    return _fetch_page_versions([int(p) for p in args])
 
 
 def _replay_pages_with_descendants_scope(args: list[str]) -> dict[str, int]:
     """Replay a 'pages-with-descendants' scope entry.
 
-    For each page ID, fetches the page and all its descendants,
-    then returns their versions.
+    For each root page ID, first checks accessibility via the lightweight
+    version API. If the root is inaccessible or has a non-positive version
+    (transient error), skips descendant discovery for that root. Otherwise,
+    fetches the full page to discover descendants and their versions.
 
     Args:
         args: List of root page ID strings.
@@ -135,9 +133,18 @@ def _replay_pages_with_descendants_scope(args: list[str]) -> dict[str, int]:
     """
     result: dict[str, int] = {}
     for page_id_str in tqdm(args, unit="pages", desc="Discovering descendants"):
-        page = Page.from_id(int(page_id_str))
-        result[str(page.id)] = page.page_version
-        # Fetch descendant versions via lightweight API
+        root_id = int(page_id_str)
+
+        # Fetch root version via lightweight API (handles 403/404 as removal)
+        root_versions = _fetch_page_versions([root_id])
+        result.update(root_versions)
+
+        root_version = root_versions.get(str(root_id))
+        if root_version is None or root_version <= 0:
+            continue
+
+        # Root is accessible; fetch full page for descendant discovery
+        page = Page.from_id(root_id)
         descendant_versions = _fetch_page_versions(page.descendants)
         result.update(descendant_versions)
     return result
