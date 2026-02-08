@@ -666,6 +666,8 @@ class Page(Document):
                     "toc": self.convert_toc,
                     "jira": self.convert_jira_table,
                     "attachments": self.convert_attachments,
+                    "markdown": self.convert_markdown,
+                    "mohamicorp-markdown": self.convert_markdown,
                 }
                 if macro_name in macro_handlers:
                     return macro_handlers[macro_name](el, text, parent_tags)
@@ -1060,6 +1062,114 @@ class Page(Document):
             else:
                 # Return as a Markdown code block with plantuml syntax
                 return f"\n```plantuml\n{uml_definition}\n```\n\n"
+
+        def _find_element_with_namespace(
+            self, parent: BeautifulSoup, tag_name: str
+        ) -> BeautifulSoup | None:
+            """Find an element with or without namespace prefix."""
+            return parent.find(f"ac:{tag_name}") or parent.find(tag_name)
+
+        def _find_structured_macro(self, el: BeautifulSoup) -> BeautifulSoup | None:
+            """Find structured-macro element with or without namespace."""
+            return self._find_element_with_namespace(el, "structured-macro")
+
+        def _extract_plain_text_body(self, el: BeautifulSoup) -> str | None:
+            """Extract markdown content from plain-text-body element."""
+            plain_text_body = self._find_element_with_namespace(el, "plain-text-body")
+            if plain_text_body:
+                return plain_text_body.get_text()
+            return None
+
+        def _extract_markdown_parameter(self, el: BeautifulSoup) -> str | None:
+            """Extract markdown content from parameter element."""
+            param = el.find("ac:parameter", {"ac:name": "markdown"})
+            if param is None:
+                param = el.find("parameter", {"name": "markdown"})
+            if param:
+                return param.get_text()
+            return None
+
+        def _extract_markdown_from_body(self, el: BeautifulSoup) -> str | None:
+            """Extract markdown content from body HTML."""
+            # Try plain-text-body first (standard markdown macro)
+            markdown_content = self._extract_plain_text_body(el)
+            if markdown_content:
+                return markdown_content
+
+            # Check in structured-macro child element
+            structured_macro = self._find_structured_macro(el)
+            if structured_macro:
+                markdown_content = self._extract_plain_text_body(structured_macro)
+                if markdown_content:
+                    return markdown_content
+
+            # Try parameter for mohamicorp-markdown
+            markdown_content = self._extract_markdown_parameter(el)
+            if markdown_content:
+                return markdown_content
+
+            # Check parameter in structured-macro child
+            if structured_macro:
+                markdown_content = self._extract_markdown_parameter(structured_macro)
+                if markdown_content:
+                    return markdown_content
+
+            return None
+
+        def _extract_markdown_from_editor2(
+            self, macro_id: str
+        ) -> str | None:
+            """Extract markdown content from editor2 XML."""
+            wrapped_editor2 = f"<root>{self.page.editor2}</root>"
+            soup_editor2 = BeautifulSoup(wrapped_editor2, "xml")
+
+            # BeautifulSoup strips namespace prefixes, so ac:structured-macro
+            # becomes structured-macro
+            markdown_macros = soup_editor2.find_all("structured-macro")
+            for macro in markdown_macros:
+                if (
+                    macro.get("name") in ("markdown", "mohamicorp-markdown")
+                    and macro.get("macro-id") == macro_id
+                ):
+                    # Try plain-text-body first
+                    plain_text_body = macro.find("plain-text-body")
+                    if plain_text_body:
+                        return plain_text_body.get_text(strip=True)
+
+                    # Try parameter for mohamicorp-markdown
+                    param = macro.find("parameter", {"name": "markdown"})
+                    if param:
+                        return param.get_text(strip=True)
+
+            return None
+
+        def convert_markdown(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert Markdown macro fragments to Markdown.
+
+            Supports both standard 'markdown' macro and 'mohamicorp-markdown'
+            macro. The content is already in Markdown format, so we just extract
+            and return it.
+            """
+            macro_name = el.get("data-macro-name", "")
+
+            # First, try to extract from body HTML
+            markdown_content = self._extract_markdown_from_body(el)
+
+            # If not found, try editor2 XML (similar to plantuml)
+            if not markdown_content:
+                macro_id = el.get("data-macro-id")
+                if macro_id:
+                    markdown_content = self._extract_markdown_from_editor2(macro_id)
+
+            if not markdown_content:
+                logger.warning(
+                    f"Markdown macro ({macro_name}) found but no content could be extracted"
+                )
+                return f"\n<!-- Markdown macro ({macro_name}) content not found -->\n\n"
+
+            # Return the markdown content directly (it's already in markdown format)
+            # Add newlines for proper spacing
+            return f"\n{markdown_content}\n\n"
 
         def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("class") and "metadata-summary-macro" in el["class"]:
