@@ -509,14 +509,15 @@ class Page(Document):
 
     @classmethod
     @functools.lru_cache(maxsize=1000)
-    def from_id(cls, page_id: int) -> "Page":
+    def from_id(cls, page_id: int, expand: str | None = None) -> "Page":
         try:
             return cls.from_json(
                 cast(
                     "JsonResponse",
                     confluence.get_page_by_id(
                         page_id,
-                        expand="body.view,body.export_view,body.editor2,metadata.labels,"
+                        expand=expand
+                        or "body.view,body.export_view,body.editor2,metadata.labels,"
                         "metadata.properties,ancestors,version",
                     ),
                 )
@@ -538,7 +539,7 @@ class Page(Document):
             )
 
     @classmethod
-    def from_url(cls, page_url: str) -> "Page":
+    def from_url(cls, page_url: str, expand: str | None = None) -> "Page":
         """Retrieve a Page object given a Confluence page URL."""
         url = urllib.parse.urlparse(page_url)
         hostname = url.hostname
@@ -550,16 +551,19 @@ class Page(Document):
         path = url.path.rstrip("/")
         if match := re.search(r"/wiki/.+?/pages/(\d+)", path):
             page_id = match.group(1)
-            return Page.from_id(int(page_id))
+            return Page.from_id(int(page_id), expand=expand)
 
         if match := re.search(r"^/([^/]+?)/([^/]+)$", path):
             space_key = urllib.parse.unquote_plus(match.group(1))
             page_title = urllib.parse.unquote_plus(match.group(2))
-            page_data = cast(
-                "JsonResponse",
-                confluence.get_page_by_title(space=space_key, title=page_title, expand="version"),
+            return cls.from_json(
+                cast(
+                    "JsonResponse",
+                    confluence.get_page_by_title(
+                        space=space_key, title=page_title, expand=expand or "version"
+                    ),
+                )
             )
-            return Page.from_id(page_data["id"])
 
         msg = f"Could not parse page URL {page_url}."
         raise ValueError(msg)
@@ -1099,28 +1103,17 @@ class Page(Document):
             return result
 
 
-def export_page(page_id: int) -> None:
-    """Export a Confluence page to Markdown.
-
-    Args:
-        page_id: The page id.
-        output_path: The output path.
-    """
-    page = Page.from_id(page_id)
-    page.export()
-
-
 def export_pages(pages: list["Page"]) -> None:
     """Export a list of Confluence pages to Markdown.
 
     Args:
         pages: List of pages to export.
-        output_path: The output path.
     """
     for page in (pbar := tqdm(pages, smoothing=0.05)):
         # filter pages new and updated only
         if LockfileManager.should_export(page):
             pbar.set_postfix_str(f"Exporting page {page.id}")
-            export_page(page.id)
+            _page = Page.from_id(page.id)
+            _page.export()
         else:
             pbar.set_postfix_str(f"Skipping page {page.id} (no changes)")

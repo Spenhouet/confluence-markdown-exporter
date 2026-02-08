@@ -34,11 +34,11 @@ def pages(
         ),
     ] = None,
     *,
-    lockfile: Annotated[
+    incremental: Annotated[
         bool,
         typer.Option(
-            "--lockfile",
-            help="Enable lock file tracking for exported pages.",
+            "--incremental",
+            help="Only export pages that have changed since last export.",
         ),
     ] = False,
 ) -> None:
@@ -46,11 +46,20 @@ def pages(
 
     with measure(f"Export pages {', '.join(pages)}"):
         override_output_path_config(output_path)
-        if lockfile:
+        if incremental:
             LockfileManager.init()
         for page in pages:
-            _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
-            _page.export()
+            if incremental:
+                _page_with_version = (
+                    Page.from_id(int(page), expand="version")
+                    if page.isdigit()
+                    else Page.from_url(page, expand="version")
+                )
+                _page = Page.from_id(_page_with_version.id)
+                _page.export()
+            else:
+                _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
+                _page.export()
 
 
 @app.command(help="Export Confluence pages and their descendant pages by ID or URL to Markdown.")
@@ -63,13 +72,6 @@ def pages_with_descendants(
         ),
     ] = None,
     *,
-    lockfile: Annotated[
-        bool,
-        typer.Option(
-            "--lockfile",
-            help="Enable lock file tracking for exported pages.",
-        ),
-    ] = False,
     incremental: Annotated[
         bool,
         typer.Option(
@@ -82,10 +84,14 @@ def pages_with_descendants(
 
     with measure(f"Export pages {', '.join(pages)} with descendants"):
         override_output_path_config(output_path)
-        if lockfile or incremental:
+        if incremental:
             LockfileManager.init()
         for page in pages:
-            _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
+            _page = (
+                Page.from_id(int(page), expand="version")
+                if page.isdigit()
+                else Page.from_url(page, expand="version")
+            )
             _page.export_with_descendants()
 
 
@@ -99,13 +105,6 @@ def spaces(
         ),
     ] = None,
     *,
-    lockfile: Annotated[
-        bool,
-        typer.Option(
-            "--lockfile",
-            help="Enable lock file tracking for exported pages.",
-        ),
-    ] = False,
     incremental: Annotated[
         bool,
         typer.Option(
@@ -122,7 +121,7 @@ def spaces(
 
     with measure(f"Export spaces {', '.join(normalized_space_keys)}"):
         override_output_path_config(output_path)
-        if lockfile or incremental:
+        if incremental:
             LockfileManager.init()
         for space_key in normalized_space_keys:
             space = Space.from_key(space_key)
@@ -138,13 +137,6 @@ def all_spaces(
         ),
     ] = None,
     *,
-    lockfile: Annotated[
-        bool,
-        typer.Option(
-            "--lockfile",
-            help="Enable lock file tracking for exported pages.",
-        ),
-    ] = False,
     incremental: Annotated[
         bool,
         typer.Option(
@@ -157,7 +149,7 @@ def all_spaces(
 
     with measure("Export all spaces"):
         override_output_path_config(output_path)
-        if lockfile or incremental:
+        if incremental:
             LockfileManager.init()
         org = Organization.from_api()
         org.export()
