@@ -122,7 +122,7 @@ def _replay_pages_scope(args: list[str]) -> dict[str, int]:
 
 
 def _replay_pages_with_descendants_scope(args: list[str]) -> dict[str, int]:
-    """Replay a 'pages_with_descendants' scope entry.
+    """Replay a 'pages-with-descendants' scope entry.
 
     For each page ID, fetches the page and all its descendants,
     then returns their versions.

@@ -6,6 +6,7 @@ run are re-exported.
 """
 
 import json
+import tempfile
 from dataclasses import dataclass
 from dataclasses import field
 from datetime import datetime
@@ -82,10 +83,11 @@ def load_state(output_path: Path) -> ExportState | None:
 
 
 def save_state(output_path: Path, state: ExportState) -> None:
-    """Save export state to the output directory.
+    """Save export state to the output directory atomically.
 
-    Writes the state as indented JSON with field order matching the schema:
-    schema_version, confluence_url, scopes, min_export_timestamp, pages.
+    Writes the state as indented JSON to a temporary file, then atomically
+    replaces the target file using os.replace(). This prevents partial writes
+    from corrupting the state file if the process is interrupted.
 
     Args:
         output_path: Directory where the state file will be written.
@@ -94,7 +96,22 @@ def save_state(output_path: Path, state: ExportState) -> None:
     output_path.mkdir(parents=True, exist_ok=True)
     state_file = output_path / STATE_FILENAME
     json_str = state.model_dump_json(indent=2)
-    state_file.write_text(json_str, encoding="utf-8")
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=output_path,
+            suffix=".tmp",
+            delete=False,
+            encoding="utf-8",
+        ) as fd:
+            tmp_path = Path(fd.name)
+            fd.write(json_str)
+        tmp_path.replace(state_file)
+    except BaseException:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def update_page_state(
@@ -187,7 +204,7 @@ def compute_delta(
         current_pages: Mapping of page_id to current Confluence version number.
 
     Returns:
-        A SyncDelta with page IDs sorted into the five categories.
+        A SyncDelta with page IDs grouped into the five categories.
     """
     delta = SyncDelta()
 
