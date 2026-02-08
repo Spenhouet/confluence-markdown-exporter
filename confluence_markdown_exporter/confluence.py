@@ -214,6 +214,7 @@ class Document(BaseModel):
     title: str
     space: Space
     ancestors: list[int]
+    version: Version
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -238,7 +239,6 @@ class Attachment(Document):
     collection_name: str
     download_link: str
     comment: str
-    version: Version
 
     @property
     def extension(self) -> str:
@@ -336,7 +336,6 @@ class Attachment(Document):
 
 class Descendant(Document):
     id: int
-    version: Version
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -369,7 +368,6 @@ class Page(Document):
     editor2: str
     labels: list["Label"]
     attachments: list["Attachment"]
-    version: Version
 
     @property
     def descendants(self) -> list["Descendant"]:
