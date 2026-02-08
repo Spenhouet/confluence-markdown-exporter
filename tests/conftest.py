@@ -97,6 +97,15 @@ def restore_api_functions_for_specific_tests(
         confluence_markdown_exporter.api_clients.get_jira_instance = lambda: mock_jira
 
 
+@pytest.fixture(autouse=True)
+def isolate_app_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Redirect APP_CONFIG_PATH to a temp file so tests never touch the real config."""
+    monkeypatch.setattr(
+        "confluence_markdown_exporter.utils.app_data_store.APP_CONFIG_PATH",
+        tmp_path / "app_data.json",
+    )
+
+
 @pytest.fixture
 def temp_config_dir() -> Generator[Path, None, None]:
     """Create a temporary directory for test configuration."""

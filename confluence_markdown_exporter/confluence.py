@@ -335,6 +335,7 @@ class Attachment(Document):
 
 class Page(Document):
     id: int
+    page_version: int
     body: str
     body_export: str
     editor2: str
@@ -488,6 +489,7 @@ class Page(Document):
     def from_json(cls, data: JsonResponse) -> "Page":
         return cls(
             id=data.get("id", 0),
+            page_version=data.get("version", {}).get("number", 0),
             title=data.get("title", ""),
             space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
             body=data.get("body", {}).get("view", {}).get("value", ""),
@@ -511,7 +513,7 @@ class Page(Document):
                     confluence.get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                        "metadata.properties,ancestors",
+                        "metadata.properties,ancestors,version",
                     ),
                 )
             )
@@ -520,6 +522,7 @@ class Page(Document):
             # Return a minimal page object with error information
             return cls(
                 id=page_id,
+                page_version=0,
                 title="Page not accessible",
                 space=Space(key="", name="", description="", homepage=0),
                 body="",
@@ -1097,7 +1100,6 @@ def export_page(page_id: int) -> None:
 
     Args:
         page_id: The page id.
-        output_path: The output path.
     """
     page = Page.from_id(page_id)
     page.export()
@@ -1108,8 +1110,10 @@ def export_pages(page_ids: list[int]) -> None:
 
     Args:
         page_ids: List of pages to export.
-        output_path: The output path.
     """
-    for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
+    if not page_ids:
+        return
+
+    for page_id in (pbar := tqdm(page_ids, unit="pages", smoothing=0.05)):
         pbar.set_postfix_str(f"Exporting page {page_id}")
         export_page(page_id)
