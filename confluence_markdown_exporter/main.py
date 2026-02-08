@@ -49,17 +49,8 @@ def pages(
         if incremental:
             LockfileManager.init()
         for page in pages:
-            if incremental:
-                _page_with_version = (
-                    Page.from_id(int(page), expand="version")
-                    if page.isdigit()
-                    else Page.from_url(page, expand="version")
-                )
-                _page = Page.from_id(_page_with_version.id)
-                _page.export()
-            else:
-                _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
-                _page.export()
+            _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
+            _page.export()
 
 
 @app.command(help="Export Confluence pages and their descendant pages by ID or URL to Markdown.")
@@ -87,11 +78,7 @@ def pages_with_descendants(
         if incremental:
             LockfileManager.init()
         for page in pages:
-            _page = (
-                Page.from_id(int(page), expand="version")
-                if page.isdigit()
-                else Page.from_url(page, expand="version")
-            )
+            _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             _page.export_with_descendants()
 
 

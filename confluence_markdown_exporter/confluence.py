@@ -547,15 +547,14 @@ class Page(Document):
 
     @classmethod
     @functools.lru_cache(maxsize=1000)
-    def from_id(cls, page_id: int, expand: str | None = None) -> "Page":
+    def from_id(cls, page_id: int) -> "Page":
         try:
             return cls.from_json(
                 cast(
                     "JsonResponse",
                     confluence.get_page_by_id(
                         page_id,
-                        expand=expand
-                        or "body.view,body.export_view,body.editor2,metadata.labels,"
+                        expand="body.view,body.export_view,body.editor2,metadata.labels,"
                         "metadata.properties,ancestors,version",
                     ),
                 )
@@ -577,7 +576,7 @@ class Page(Document):
             )
 
     @classmethod
-    def from_url(cls, page_url: str, expand: str | None = None) -> "Page":
+    def from_url(cls, page_url: str) -> "Page":
         """Retrieve a Page object given a Confluence page URL."""
         url = urllib.parse.urlparse(page_url)
         hostname = url.hostname
@@ -589,19 +588,16 @@ class Page(Document):
         path = url.path.rstrip("/")
         if match := re.search(r"/wiki/.+?/pages/(\d+)", path):
             page_id = match.group(1)
-            return Page.from_id(int(page_id), expand=expand)
+            return Page.from_id(int(page_id))
 
         if match := re.search(r"^/([^/]+?)/([^/]+)$", path):
             space_key = urllib.parse.unquote_plus(match.group(1))
             page_title = urllib.parse.unquote_plus(match.group(2))
-            return cls.from_json(
-                cast(
-                    "JsonResponse",
-                    confluence.get_page_by_title(
-                        space=space_key, title=page_title, expand=expand or "version"
-                    ),
-                )
+            page_data = cast(
+                "JsonResponse",
+                confluence.get_page_by_title(space=space_key, title=page_title, expand="version"),
             )
+            return Page.from_id(page_data["id"])
 
         msg = f"Could not parse page URL {page_url}."
         raise ValueError(msg)
