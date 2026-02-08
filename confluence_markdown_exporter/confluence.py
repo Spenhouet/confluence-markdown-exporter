@@ -210,10 +210,15 @@ class Label(BaseModel):
         )
 
 
+class Ancestor(BaseModel):
+    id: int
+    title: str
+
+
 class Document(BaseModel):
     title: str
     space: Space
-    ancestors: list[int]
+    ancestors: list[Ancestor]
     version: Version
 
     @property
@@ -223,10 +228,8 @@ class Document(BaseModel):
             "space_name": sanitize_filename(self.space.name),
             "homepage_id": str(self.space.homepage),
             "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title),
-            "ancestor_ids": "/".join(str(a) for a in self.ancestors),
-            "ancestor_titles": "/".join(
-                sanitize_filename(Page.from_id(a).title) for a in self.ancestors
-            ),
+            "ancestor_ids": "/".join(str(a.id) for a in self.ancestors),
+            "ancestor_titles": "/".join(sanitize_filename(a.title) for a in self.ancestors),
         }
 
 
@@ -285,8 +288,11 @@ class Attachment(Document):
             download_link=data.get("_links", {}).get("download", ""),
             comment=extensions.get("comment", ""),
             ancestors=[
-                *[ancestor.get("id") for ancestor in container.get("ancestors", [])],
-                container.get("id"),
+                *[
+                    Ancestor(id=ancestor.get("id"), title=ancestor.get("title", ""))
+                    for ancestor in container.get("ancestors", [])
+                ],
+                Ancestor(id=container.get("id"), title=container.get("title", "")),
             ][1:],
             version=Version.from_json(data.get("version", {})),
         )
@@ -356,7 +362,10 @@ class Descendant(Document):
             id=data.get("id", 0),
             title=data.get("title", ""),
             space=space,
-            ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
+            ancestors=[
+                Ancestor(id=ancestor.get("id"), title=ancestor.get("title", ""))
+                for ancestor in data.get("ancestors", [])
+            ][1:],
             version=Version.from_json(data.get("version", {})),
         )
 
@@ -529,7 +538,10 @@ class Page(Document):
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
             attachments=Attachment.from_page_id(data.get("id", 0)),
-            ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
+            ancestors=[
+                Ancestor(id=ancestor.get("id"), title=ancestor.get("title", ""))
+                for ancestor in data.get("ancestors", [])
+            ][1:],
             version=Version.from_json(data.get("version", {})),
         )
 
@@ -633,7 +645,9 @@ class Page(Document):
         @property
         def breadcrumbs(self) -> str:
             return (
-                " > ".join([self.convert_page_link(ancestor) for ancestor in self.page.ancestors])
+                " > ".join(
+                    [self.convert_page_link(ancestor.id) for ancestor in self.page.ancestors]
+                )
                 + "\n"
             )
 
