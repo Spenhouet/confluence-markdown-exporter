@@ -134,7 +134,7 @@ class Organization(BaseModel):
     spaces: list["Space"]
 
     @property
-    def pages(self) -> list["Page"]:
+    def pages(self) -> list["Page | Descendant"]:
         return [page for space in self.spaces for page in space.pages]
 
     def export(self) -> None:
@@ -166,7 +166,7 @@ class Space(BaseModel):
     homepage: int | None
 
     @property
-    def pages(self) -> list["Page"]:
+    def pages(self) -> list["Page | Descendant"]:
         if self.homepage is None:
             logger.warning(
                 f"Space '{self.name}' (key: {self.key}) has no homepage. No pages will be exported."
@@ -334,6 +334,34 @@ class Attachment(Document):
         )
 
 
+class Descendant(Document):
+    id: int
+    version: Version
+
+    @property
+    def _template_vars(self) -> dict[str, str]:
+        return {
+            **super()._template_vars,
+            "page_id": str(self.id),
+            "page_title": sanitize_filename(self.title),
+        }
+
+    @property
+    def export_path(self) -> Path:
+        filepath_template = Template(settings.export.page_path.replace("{", "${"))
+        return Path(filepath_template.safe_substitute(self._template_vars))
+
+    @classmethod
+    def from_json(cls, data: JsonResponse, space: Space) -> "Descendant":
+        return cls(
+            id=data.get("id", 0),
+            title=data.get("title", ""),
+            space=space,
+            ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
+            version=Version.from_json(data.get("version", {})),
+        )
+
+
 class Page(Document):
     id: int
     body: str
@@ -344,7 +372,7 @@ class Page(Document):
     version: Version
 
     @property
-    def descendants(self) -> list["Page"]:
+    def descendants(self) -> list["Descendant"]:
         url = "rest/api/content/search"
         params = {
             "cql": f"type=page AND ancestor={self.id}",
@@ -375,7 +403,7 @@ class Page(Document):
                 f"Unexpected error when fetching descendants for content ID {self.id}."
             )
             return []
-        return [self.from_json(result) for result in results]
+        return [Descendant.from_json(result, space=self.space) for result in results]
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -1103,7 +1131,7 @@ class Page(Document):
             return result
 
 
-def export_pages(pages: list["Page"]) -> None:
+def export_pages(pages: list["Page | Descendant"]) -> None:
     """Export a list of Confluence pages to Markdown.
 
     Args:

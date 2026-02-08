@@ -14,6 +14,7 @@ from pydantic import ValidationError
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from confluence_markdown_exporter.confluence import Descendant
     from confluence_markdown_exporter.confluence import Page
 
 logger = logging.getLogger(__name__)
@@ -113,7 +114,7 @@ class LockfileManager:
         cls._lock.save(cls._lockfile_path)
 
     @classmethod
-    def should_export(cls, page: Page) -> bool:
+    def should_export(cls, page: Page | Descendant) -> bool:
         """Check if a page should be exported based on lockfile state.
 
         Returns True if the page should be exported (not in lockfile or changed).
