@@ -64,6 +64,7 @@ class TestAppConfiguration:
         expected_commands = [
             "pages",
             "pages-with-descendants",
+            "folders",
             "spaces",
             "all-spaces",
             "config",
