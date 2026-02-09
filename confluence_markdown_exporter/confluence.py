@@ -211,7 +211,7 @@ class Label(BaseModel):
 
 
 class Ancestor(BaseModel):
-    id: int
+    id: str
     title: str
 
 
@@ -288,11 +288,8 @@ class Attachment(Document):
             download_link=data.get("_links", {}).get("download", ""),
             comment=extensions.get("comment", ""),
             ancestors=[
-                *[
-                    Ancestor(id=ancestor.get("id"), title=ancestor.get("title", ""))
-                    for ancestor in container.get("ancestors", [])
-                ],
-                Ancestor(id=container.get("id"), title=container.get("title", "")),
+                *[Ancestor(**ancestor) for ancestor in container.get("ancestors", [])],
+                Ancestor(**container),
             ][1:],
             version=Version.from_json(data.get("version", {})),
         )
@@ -362,10 +359,7 @@ class Descendant(Document):
             id=data.get("id", 0),
             title=data.get("title", ""),
             space=space,
-            ancestors=[
-                Ancestor(id=ancestor.get("id"), title=ancestor.get("title", ""))
-                for ancestor in data.get("ancestors", [])
-            ][1:],
+            ancestors=[Ancestor(**ancestor) for ancestor in data.get("ancestors", [])][1:],
             version=Version.from_json(data.get("version", {})),
         )
 
@@ -535,10 +529,7 @@ class Page(Document):
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
             attachments=Attachment.from_page_id(data.get("id", 0)),
-            ancestors=[
-                Ancestor(id=ancestor.get("id"), title=ancestor.get("title", ""))
-                for ancestor in data.get("ancestors", [])
-            ][1:],
+            ancestors=[Ancestor(**ancestor) for ancestor in data.get("ancestors", [])][1:],
             version=Version.from_json(data.get("version", {})),
         )
 
