@@ -51,6 +51,8 @@ def pages(
         for page in pages:
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             _page.export()
+            # Record to lockfile if enabled
+            LockfileManager.record_page(_page)
 
 
 @app.command(help="Export Confluence pages and their descendant pages by ID or URL to Markdown.")

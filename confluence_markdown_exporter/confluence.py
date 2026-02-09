@@ -446,9 +446,6 @@ class Page(Document):
         self.export_attachments()
         self.export_markdown()
 
-        # Record to lockfile if enabled
-        LockfileManager.record_page(self)
-
     def export_with_descendants(self) -> None:
         export_pages([self, *self.descendants])
 
@@ -1151,5 +1148,7 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
             pbar.set_postfix_str(f"Exporting page {page.id}")
             _page = Page.from_id(page.id)
             _page.export()
+            # Record to lockfile if enabled
+            LockfileManager.record_page(_page)
         else:
             pbar.set_postfix_str(f"Skipping page {page.id} (no changes)")
