@@ -168,12 +168,34 @@ class Space(BaseModel):
     def pages(self) -> list[int]:
         if self.homepage is None:
             logger.warning(
-                f"Space '{self.name}' (key: {self.key}) has no homepage. No pages will be exported."
+                f"Space '{self.name}' (key: {self.key}) has no homepage. Exporting by space key."
             )
+
+        url = "rest/api/content/search"
+        params = {
+            "cql": f'type=page AND space="{self.key}"',
+            "limit": 100,
+        }
+        results = []
+
+        try:
+            response = confluence.get(url, params=params)
+            results.extend(response.get("results", []))
+            next_path = response.get("_links", {}).get("next")
+
+            while next_path:
+                response = confluence.get(next_path)
+                results.extend(response.get("results", []))
+                next_path = response.get("_links", {}).get("next")
+
+        except HTTPError:
+            logger.warning(f"Unexpected error when fetching pages for space '{self.key}'.")
+            return []
+        except Exception:
+            logger.exception(f"Unexpected error when fetching pages for space '{self.key}'.")
             return []
 
-        homepage = Page.from_id(self.homepage)
-        return [self.homepage, *homepage.descendants]
+        return [int(result["id"]) for result in results]
 
     def export(self) -> None:
         export_pages(self.pages)
@@ -216,11 +238,18 @@ class Document(BaseModel):
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        homepage_id = self.space.homepage
+        homepage_title = ""
+        if homepage_id is not None:
+            homepage_title = sanitize_filename(Page.from_id(homepage_id).title)
+        else:
+            homepage_title = sanitize_filename(self.space.name or self.space.key)
+
         return {
             "space_key": sanitize_filename(self.space.key),
             "space_name": sanitize_filename(self.space.name),
-            "homepage_id": str(self.space.homepage),
-            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title),
+            "homepage_id": str(homepage_id) if homepage_id is not None else "",
+            "homepage_title": homepage_title,
             "ancestor_ids": "/".join(str(a) for a in self.ancestors),
             "ancestor_titles": "/".join(
                 sanitize_filename(Page.from_id(a).title) for a in self.ancestors
@@ -401,6 +430,12 @@ class Page(Document):
     def export(self) -> None:
         if self.title == "Page not accessible":
             logger.warning(f"Skipping export for inaccessible page with ID {self.id}")
+            return
+
+        # Skip if already exported
+        output_file = settings.export.output_path / self.export_path
+        if output_file.exists():
+            logger.debug(f"Skipping already exported page: {self.title}")
             return
 
         if DEBUG:
@@ -1092,6 +1127,25 @@ class Page(Document):
             return result
 
 
+def _get_exported_pages_file() -> Path:
+    return settings.export.output_path / ".exported_pages"
+
+
+def _load_exported_pages() -> set[int]:
+    """Load set of already exported page IDs."""
+    cache_file = _get_exported_pages_file()
+    if cache_file.exists():
+        return {int(line.strip()) for line in cache_file.read_text().splitlines() if line.strip()}
+    return set()
+
+
+def _mark_page_exported(page_id: int) -> None:
+    """Mark a page as exported."""
+    cache_file = _get_exported_pages_file()
+    with cache_file.open("a") as f:
+        f.write(f"{page_id}\n")
+
+
 def export_page(page_id: int) -> None:
     """Export a Confluence page to Markdown.
 
@@ -1110,6 +1164,11 @@ def export_pages(page_ids: list[int]) -> None:
         page_ids: List of pages to export.
         output_path: The output path.
     """
+    exported = _load_exported_pages()
     for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
+        if page_id in exported:
+            pbar.set_postfix_str(f"Skipping page {page_id} (cached)")
+            continue
         pbar.set_postfix_str(f"Exporting page {page_id}")
         export_page(page_id)
+        _mark_page_exported(page_id)
