@@ -403,6 +403,12 @@ class Page(Document):
             logger.warning(f"Skipping export for inaccessible page with ID {self.id}")
             return
 
+        # Skip if already exported
+        output_file = settings.export.output_path / self.export_path
+        if output_file.exists():
+            logger.debug(f"Skipping already exported page: {self.title}")
+            return
+
         if DEBUG:
             self.export_body()
         # Export attachments first so the files can be utilized during markdown conversion
@@ -1092,6 +1098,25 @@ class Page(Document):
             return result
 
 
+def _get_exported_pages_file() -> Path:
+    return settings.export.output_path / ".exported_pages"
+
+
+def _load_exported_pages() -> set[int]:
+    """Load set of already exported page IDs."""
+    cache_file = _get_exported_pages_file()
+    if cache_file.exists():
+        return {int(line.strip()) for line in cache_file.read_text().splitlines() if line.strip()}
+    return set()
+
+
+def _mark_page_exported(page_id: int) -> None:
+    """Mark a page as exported."""
+    cache_file = _get_exported_pages_file()
+    with cache_file.open("a") as f:
+        f.write(f"{page_id}\n")
+
+
 def export_page(page_id: int) -> None:
     """Export a Confluence page to Markdown.
 
@@ -1110,6 +1135,11 @@ def export_pages(page_ids: list[int]) -> None:
         page_ids: List of pages to export.
         output_path: The output path.
     """
+    exported = _load_exported_pages()
     for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
+        if page_id in exported:
+            pbar.set_postfix_str(f"Skipping page {page_id} (cached)")
+            continue
         pbar.set_postfix_str(f"Exporting page {page_id}")
         export_page(page_id)
+        _mark_page_exported(page_id)
