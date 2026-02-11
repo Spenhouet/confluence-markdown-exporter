@@ -190,7 +190,10 @@ class ExportConfig(BaseModel):
             "  - {homepage_id}: The ID of the homepage of the Confluence space.\n"
             "  - {homepage_title}: The title of the homepage of the Confluence space.\n"
             "  - {ancestor_ids}: A slash-separated list of ancestor page IDs.\n"
-            "  - {ancestor_titles}: A slash-separated list of ancestor page titles.\n"
+            "  - {ancestor_titles}: A slash-separated list of ancestor page titles (includes containing page).\n"
+            "  - {page_ancestor_titles}: Ancestor titles excluding the containing page (for co-located attachments).\n"
+            "  - {page_id}: The ID of the containing page.\n"
+            "  - {page_title}: The title of the containing page.\n"
             "  - {attachment_id}: The unique ID of the attachment.\n"
             "  - {attachment_title}: The title of the attachment.\n"
             "  - {attachment_file_id}: The file ID of the attachment.\n"
@@ -212,6 +215,11 @@ class ExportConfig(BaseModel):
         default=True,
         title="Page Breadcrumbs",
         description="Whether to include breadcrumb links at the top of the page.",
+    )
+    page_frontmatter: bool = Field(
+        default=True,
+        title="Page Frontmatter",
+        description="Whether to include YAML frontmatter with labels and page properties.",
     )
     filename_encoding: str = Field(
         default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_"',

@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 import yaml
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
+from atlassian.errors import ApiPermissionError
 from bs4 import BeautifulSoup
 from bs4 import Tag
 from markdownify import ATX
@@ -51,7 +52,6 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 confluence = get_confluence_instance()
-
 
 class JiraIssue(BaseModel):
     key: str
@@ -238,6 +238,7 @@ class Attachment(Document):
     download_link: str
     comment: str
     version: Version
+    container_id: int
 
     @property
     def extension(self) -> str:
@@ -254,13 +255,22 @@ class Attachment(Document):
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        container_page = Page.from_id(self.container_id)
+        # Get ancestor IDs without the containing page (for co-located attachments)
+        page_ancestor_ids = self.ancestors[:-1] if self.ancestors else []
         return {
             **super()._template_vars,
+            "page_id": str(self.container_id),
+            "page_title": sanitize_filename(container_page.title),
             "attachment_id": str(self.id),
             "attachment_title": sanitize_filename(self.title),
             # file_id is a GUID and does not need sanitized.
             "attachment_file_id": self.file_id,
             "attachment_extension": self.extension,
+            # page_ancestor_titles excludes the containing page, matching page's ancestor_titles
+            "page_ancestor_titles": "/".join(
+                sanitize_filename(Page.from_id(a).title) for a in page_ancestor_ids
+            ),
         }
 
     @property
@@ -283,6 +293,7 @@ class Attachment(Document):
             collection_name=extensions.get("collectionName", ""),
             download_link=data.get("_links", {}).get("download", ""),
             comment=extensions.get("comment", ""),
+            container_id=int(container.get("id", 0)),
             ancestors=[
                 *[ancestor.get("id") for ancestor in container.get("ancestors", [])],
                 container.get("id"),
@@ -340,6 +351,7 @@ class Page(Document):
     editor2: str
     labels: list["Label"]
     attachments: list["Attachment"]
+    version: Version
 
     @property
     def descendants(self) -> list[int]:
@@ -374,6 +386,28 @@ class Page(Document):
             return []
 
         return [result["id"] for result in results]
+
+    @property
+    def children(self) -> list[dict]:
+        """Get direct child pages (id, title only)."""
+        url = f"rest/api/content/{self.id}/child/page"
+        params = {"limit": 100}
+        results = []
+
+        try:
+            response = confluence.get(url, params=params)
+            results.extend(response.get("results", []))
+            next_path = response.get("_links", {}).get("next")
+
+            while next_path:
+                response = confluence.get(next_path)
+                results.extend(response.get("results", []))
+                next_path = response.get("_links", {}).get("next")
+        except Exception:
+            logger.exception(f"Error fetching children for page {self.id}")
+            return []
+
+        return [{"id": r["id"], "title": r["title"]} for r in results]
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -499,6 +533,7 @@ class Page(Document):
             ],
             attachments=Attachment.from_page_id(data.get("id", 0)),
             ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
+            version=Version.from_json(data.get("version", {})),
         )
 
     @classmethod
@@ -511,12 +546,14 @@ class Page(Document):
                     confluence.get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                        "metadata.properties,ancestors",
+                        "metadata.properties,ancestors,version",
                     ),
                 )
             )
-        except (ApiError, HTTPError):
-            logger.warning(f"Could not access page with ID {page_id}")
+        except (ApiError, HTTPError) as e:
+            # Log more details to help diagnose the issue
+            status_code = getattr(getattr(e, 'response', None), 'status_code', 'unknown')
+            logger.warning(f"Could not access page with ID {page_id} (HTTP {status_code}): {e}")
             # Return a minimal page object with error information
             return cls(
                 id=page_id,
@@ -528,6 +565,12 @@ class Page(Document):
                 labels=[],
                 attachments=[],
                 ancestors=[],
+                version=Version(
+                    number=0,
+                    by=User(account_id="", username="", display_name="", public_name="", email=""),
+                    when="",
+                    friendly_when="",
+                ),
             )
 
     @classmethod
@@ -574,7 +617,9 @@ class Page(Document):
         @property
         def markdown(self) -> str:
             md_body = self.convert(self.page.html)
-            markdown = f"{self.front_matter}\n"
+            markdown = ""
+            if settings.export.page_frontmatter:
+                markdown = f"{self.front_matter}\n"
             if settings.export.page_breadcrumbs:
                 markdown += f"{self.breadcrumbs}\n"
             markdown += f"{md_body}\n"
@@ -584,6 +629,21 @@ class Page(Document):
         def front_matter(self) -> str:
             indent = self.options["front_matter_indent"]
             self.set_page_properties(tags=self.labels)
+
+            # Extract date only from ISO datetime (e.g., "2026-02-02T08:58:40.636Z" -> "2026-02-02")
+            last_updated_date = self.page.version.when.split("T")[0] if self.page.version.when else ""
+
+            # Only add non-empty values, strip trailing whitespace
+            if last_updated_date:
+                self.set_page_properties(last_updated=last_updated_date)
+
+            author_name = self.page.version.by.display_name.strip()
+            if author_name:
+                self.set_page_properties(author=author_name)
+
+            author_email = self.page.version.by.email.strip()
+            if author_email:
+                self.set_page_properties(author_email=author_email)
 
             if not self.page_properties:
                 return ""
@@ -666,6 +726,8 @@ class Page(Document):
                     "toc": self.convert_toc,
                     "jira": self.convert_jira_table,
                     "attachments": self.convert_attachments,
+                    "pagetree": self.convert_children,
+                    "children": self.convert_children,
                 }
                 if macro_name in macro_handlers:
                     return macro_handlers[macro_name](el, text, parent_tags)
@@ -777,6 +839,24 @@ class Page(Document):
 
             return self.process_tag(tocs[0], parent_tags)
 
+        def convert_children(
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+        ) -> str:
+            """Convert children/pagetree macro to markdown links."""
+            children = self.page.children
+            if not children:
+                return ""
+
+            lines = []
+            for child in children:
+                child_page = Page.from_id(child["id"])
+                page_path = self._get_path_for_href(
+                    child_page.export_path, settings.export.page_href
+                )
+                lines.append(f"- [{child['title']}]({page_path.replace(' ', '%20')})")
+
+            return "\n".join(lines) + "\n"
+
         def convert_hidden_content(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
@@ -837,34 +917,61 @@ class Page(Document):
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = str(el.get("data-linked-resource-id", ""))
                 if page_id and page_id != "null":
-                    return self.convert_page_link(int(page_id))
+                    return self.convert_page_link(int(page_id), el.get("href"), text)
             if "attachment" in str(el.get("data-linked-resource-type")):
                 link = self.convert_attachment_link(el, text, parent_tags)
                 # convert_attachment_link may return None if the attachment meta is incomplete
                 return link or f"[{text}]({el.get('href')})"
             if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el.get("href", ""))):
                 page_id = match.group(1)
-                return self.convert_page_link(int(page_id))
+                original_href = el.get("href", "")
+                return self.convert_page_link(int(page_id), original_href, text)
             if str(el.get("href", "")).startswith("#"):
                 # Handle heading links
                 return f"[{text}](#{sanitize_key(text, '-')})"
 
             return super().convert_a(el, text, parent_tags)
 
-        def convert_page_link(self, page_id: int) -> str:
+        def convert_page_link(
+            self, page_id: int, original_href: str | None = None, original_text: str | None = None
+        ) -> str:
             if not page_id:
                 msg = "Page link does not have valid page_id."
                 raise ValueError(msg)
 
             page = Page.from_id(page_id)
+            confluence_url = str(settings.auth.confluence.url).rstrip("/")
 
+            # Helper to make href absolute
+            def make_absolute(href: str) -> str:
+                if href.startswith("/"):
+                    return f"{confluence_url}{href}"
+                return href
+
+            # Inaccessible page - use original href if available
             if page.title == "Page not accessible":
-                logger.warning(
-                    f"Confluence page link (ID: {page_id}) is not accessible, "
-                    f"referenced from page '{self.page.title}' (ID: {self.page.id})"
+                logger.info(
+                    f"Page (ID: {page_id}) not accessible, keeping original link. "
+                    f"Referenced from '{self.page.title}'"
                 )
-                return f"[Page not accessible (ID: {page_id})]"
+                link_text = original_text or f"Page {page_id}"
+                if original_href:
+                    return f"[{link_text}]({make_absolute(original_href)})"
+                # Fallback if no original href
+                return f"[{link_text}]({confluence_url}/wiki/pages/viewpage.action?pageId={page_id})"
 
+            # Cross-space page - use original href if available
+            if page.space.key != self.page.space.key:
+                logger.info(
+                    f"Cross-space link to '{page.title}' (space: {page.space.key}), keeping original link. "
+                    f"Referenced from '{self.page.title}'"
+                )
+                if original_href:
+                    return f"[{page.title}]({make_absolute(original_href)})"
+                # Fallback if no original href
+                return f"[{page.title}]({confluence_url}/wiki/spaces/{page.space.key}/pages/{page_id})"
+
+            # Same-space page - use relative path
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
 
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
@@ -904,6 +1011,8 @@ class Page(Document):
                     return self.convert_user(User.from_accountid(str(aid)))
                 except ApiNotFoundError:
                     logger.warning(f"User {aid} not found. Using text instead.")
+                except ApiPermissionError:
+                    logger.warning(f"No permission to view user {aid}. Using text instead.")
 
             return self.convert_user_name(text)
 
@@ -1089,7 +1198,8 @@ class Page(Document):
                 result = "/" + str(path).lstrip("/")
             else:
                 result = os.path.relpath(path, self.page.export_path.parent)
-            return result
+            # Normalize to forward slashes for markdown compatibility
+            return result.replace("\\", "/")
 
 
 def export_page(page_id: int) -> None:
