@@ -256,6 +256,8 @@ class Attachment(Document):
     @property
     def _template_vars(self) -> dict[str, str]:
         container_page = Page.from_id(self.container_id)
+        # Get ancestor IDs without the containing page (for co-located attachments)
+        page_ancestor_ids = self.ancestors[:-1] if self.ancestors else []
         return {
             **super()._template_vars,
             "page_id": str(self.container_id),
@@ -265,6 +267,10 @@ class Attachment(Document):
             # file_id is a GUID and does not need sanitized.
             "attachment_file_id": self.file_id,
             "attachment_extension": self.extension,
+            # page_ancestor_titles excludes the containing page, matching page's ancestor_titles
+            "page_ancestor_titles": "/".join(
+                sanitize_filename(Page.from_id(a).title) for a in page_ancestor_ids
+            ),
         }
 
     @property
@@ -345,6 +351,7 @@ class Page(Document):
     editor2: str
     labels: list["Label"]
     attachments: list["Attachment"]
+    version: Version
 
     @property
     def descendants(self) -> list[int]:
@@ -526,6 +533,7 @@ class Page(Document):
             ],
             attachments=Attachment.from_page_id(data.get("id", 0)),
             ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
+            version=Version.from_json(data.get("version", {})),
         )
 
     @classmethod
@@ -538,7 +546,7 @@ class Page(Document):
                     confluence.get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                        "metadata.properties,ancestors",
+                        "metadata.properties,ancestors,version",
                     ),
                 )
             )
@@ -557,6 +565,12 @@ class Page(Document):
                 labels=[],
                 attachments=[],
                 ancestors=[],
+                version=Version(
+                    number=0,
+                    by=User(account_id="", username="", display_name="", public_name="", email=""),
+                    when="",
+                    friendly_when="",
+                ),
             )
 
     @classmethod
@@ -615,6 +629,21 @@ class Page(Document):
         def front_matter(self) -> str:
             indent = self.options["front_matter_indent"]
             self.set_page_properties(tags=self.labels)
+
+            # Extract date only from ISO datetime (e.g., "2026-02-02T08:58:40.636Z" -> "2026-02-02")
+            last_updated_date = self.page.version.when.split("T")[0] if self.page.version.when else ""
+
+            # Only add non-empty values, strip trailing whitespace
+            if last_updated_date:
+                self.set_page_properties(last_updated=last_updated_date)
+
+            author_name = self.page.version.by.display_name.strip()
+            if author_name:
+                self.set_page_properties(author=author_name)
+
+            author_email = self.page.version.by.email.strip()
+            if author_email:
+                self.set_page_properties(author_email=author_email)
 
             if not self.page_properties:
                 return ""
