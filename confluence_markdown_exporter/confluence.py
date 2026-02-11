@@ -210,15 +210,10 @@ class Label(BaseModel):
         )
 
 
-class Ancestor(BaseModel):
-    id: str
-    title: str
-
-
 class Document(BaseModel):
     title: str
     space: Space
-    ancestors: list[Ancestor]
+    ancestors: list["Ancestor"]
     version: Version
 
     @property
@@ -288,8 +283,8 @@ class Attachment(Document):
             download_link=data.get("_links", {}).get("download", ""),
             comment=extensions.get("comment", ""),
             ancestors=[
-                *[Ancestor(**ancestor) for ancestor in container.get("ancestors", [])],
-                Ancestor(**container),
+                *[Ancestor.from_json(ancestor) for ancestor in container.get("ancestors", [])],
+                Ancestor.from_json(container),
             ][1:],
             version=Version.from_json(data.get("version", {})),
         )
@@ -337,6 +332,20 @@ class Attachment(Document):
         )
 
 
+class Ancestor(Document):
+    id: str
+
+    @classmethod
+    def from_json(cls, data: JsonResponse) -> "Ancestor":
+        return cls(
+            id=data.get("id", 0),
+            title=data.get("title", ""),
+            space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
+            ancestors=[],  # Ancestors of ancestor is not needed for now.
+            version=Version.from_json({}),  # Version of ancestor is not needed for now.
+        )
+
+
 class Descendant(Document):
     id: int
 
@@ -354,12 +363,12 @@ class Descendant(Document):
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
-    def from_json(cls, data: JsonResponse, space: Space) -> "Descendant":
+    def from_json(cls, data: JsonResponse) -> "Descendant":
         return cls(
             id=data.get("id", 0),
             title=data.get("title", ""),
-            space=space,
-            ancestors=[Ancestor(**ancestor) for ancestor in data.get("ancestors", [])][1:],
+            space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
+            ancestors=[Ancestor.from_json(ancestor) for ancestor in data.get("ancestors", [])][1:],
             version=Version.from_json(data.get("version", {})),
         )
 
@@ -404,7 +413,7 @@ class Page(Document):
                 f"Unexpected error when fetching descendants for content ID {self.id}."
             )
             return []
-        return [Descendant.from_json(result, space=self.space) for result in results]
+        return [Descendant.from_json(result) for result in results]
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -529,7 +538,7 @@ class Page(Document):
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
             attachments=Attachment.from_page_id(data.get("id", 0)),
-            ancestors=[Ancestor(**ancestor) for ancestor in data.get("ancestors", [])][1:],
+            ancestors=[Ancestor.from_json(ancestor) for ancestor in data.get("ancestors", [])][1:],
             version=Version.from_json(data.get("version", {})),
         )
 
