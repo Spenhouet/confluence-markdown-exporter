@@ -100,11 +100,6 @@ class LockfileManager:
         cls._lock = ConfluenceLock.load(cls._lockfile_path)
 
     @classmethod
-    def is_enabled(cls) -> bool:
-        """Check if lockfile tracking is enabled."""
-        return cls._lockfile_path is not None and cls._lock is not None
-
-    @classmethod
     def record_page(cls, page: Page) -> None:
         """Record a page export to the lock file."""
         if cls._lock is None or cls._lockfile_path is None:
