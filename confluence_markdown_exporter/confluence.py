@@ -71,8 +71,11 @@ class JiraIssue(BaseModel):
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def from_key(cls, issue_key: str) -> "JiraIssue":
-        issue_data = cast("JsonResponse", get_jira_instance().get_issue(issue_key))
+    def from_key(cls, issue_key: str) -> "JiraIssue | None":
+        jira_instance = get_jira_instance()
+        if jira_instance is None:
+            return None
+        issue_data = cast("JsonResponse", jira_instance.get_issue(issue_key))
         return cls.from_json(issue_data)
 
 
@@ -793,7 +796,10 @@ class Page(Document):
 
             try:
                 issue = JiraIssue.from_key(str(issue_key))
-                return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
+                if issue:
+                    return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
+                # If JIRA enrichment is disabled, return simple link
+                return f"[[{issue_key}]]({link.get('href')})"
             except HTTPError:
                 return f"[[{issue_key}]]({link.get('href')})"
 
