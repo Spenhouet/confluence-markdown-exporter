@@ -77,8 +77,8 @@ class TableConverter(MarkdownConverter):
 
     def convert_th(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <th> tag."""
-        # return the html as is
-        return text
+        # return the html as is, but escape pipe characters
+        return text.replace("|", "\\|")
 
     def convert_tr(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <tr> tag."""
@@ -86,7 +86,9 @@ class TableConverter(MarkdownConverter):
 
     def convert_td(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <td> tag."""
-        return text.replace("\n", "<br/>").removesuffix("<br/>").removeprefix("<br/>")
+        # Escape pipe characters to prevent them from being interpreted as column separators
+        return (text.replace("|", "\\|").replace("\n", "<br/>").removesuffix("<br/>")
+                .removeprefix("<br/>"))
 
     def convert_thead(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <thead> tag."""
