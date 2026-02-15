@@ -8,6 +8,7 @@ from confluence_markdown_exporter import __version__
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
+from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.measure_time import measure
 from confluence_markdown_exporter.utils.platform_compat import handle_powershell_tilde_expansion
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
@@ -32,14 +33,26 @@ def pages(
             help="Directory to write exported Markdown files to. Overrides config if set."
         ),
     ] = None,
+    *,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help="Only export pages that have changed since last export.",
+        ),
+    ] = False,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
 
     with measure(f"Export pages {', '.join(pages)}"):
+        override_output_path_config(output_path)
+        if incremental:
+            LockfileManager.init()
         for page in pages:
-            override_output_path_config(output_path)
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             _page.export()
+            # Record to lockfile if enabled
+            LockfileManager.record_page(_page)
 
 
 @app.command(help="Export Confluence pages and their descendant pages by ID or URL to Markdown.")
@@ -51,12 +64,22 @@ def pages_with_descendants(
             help="Directory to write exported Markdown files to. Overrides config if set."
         ),
     ] = None,
+    *,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help="Only export pages that have changed since last export.",
+        ),
+    ] = False,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
 
     with measure(f"Export pages {', '.join(pages)} with descendants"):
+        override_output_path_config(output_path)
+        if incremental:
+            LockfileManager.init()
         for page in pages:
-            override_output_path_config(output_path)
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             _page.export_with_descendants()
 
@@ -70,6 +93,14 @@ def spaces(
             help="Directory to write exported Markdown files to. Overrides config if set."
         ),
     ] = None,
+    *,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help="Only export pages that have changed since last export.",
+        ),
+    ] = False,
 ) -> None:
     from confluence_markdown_exporter.confluence import Space
 
@@ -78,8 +109,10 @@ def spaces(
     normalized_space_keys = [handle_powershell_tilde_expansion(key) for key in space_keys]
 
     with measure(f"Export spaces {', '.join(normalized_space_keys)}"):
+        override_output_path_config(output_path)
+        if incremental:
+            LockfileManager.init()
         for space_key in normalized_space_keys:
-            override_output_path_config(output_path)
             space = Space.from_key(space_key)
             space.export()
 
@@ -92,11 +125,21 @@ def all_spaces(
             help="Directory to write exported Markdown files to. Overrides config if set."
         ),
     ] = None,
+    *,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help="Only export pages that have changed since last export.",
+        ),
+    ] = False,
 ) -> None:
     from confluence_markdown_exporter.confluence import Organization
 
     with measure("Export all spaces"):
         override_output_path_config(output_path)
+        if incremental:
+            LockfileManager.init()
         org = Organization.from_api()
         org.export()
 
@@ -123,6 +166,33 @@ def config(
         typer.echo(f"```json\n{json_output}\n```")
     else:
         main_config_menu_loop(jump_to)
+
+
+@app.command(help="Delete exported files that are not tracked in the lockfile.")
+def prune(
+    output_path: Annotated[
+        Path | None,
+        typer.Option(help="Directory containing exported Markdown files. Overrides config if set."),
+    ] = None,
+    *,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Show files that would be deleted without actually deleting them.",
+        ),
+    ] = False,
+) -> None:
+    """Delete exported files not tracked in the lockfile."""
+    override_output_path_config(output_path)
+    LockfileManager.init()
+    deleted = LockfileManager.cleanup_untracked(dry_run=dry_run)
+    if dry_run:
+        typer.echo(f"Would delete {len(deleted)} file(s):")
+        for path in deleted:
+            typer.echo(f"  {path}")
+    else:
+        typer.echo(f"Deleted {len(deleted)} file(s).")
 
 
 @app.command(help="Show the current version of confluence-markdown-exporter.")
