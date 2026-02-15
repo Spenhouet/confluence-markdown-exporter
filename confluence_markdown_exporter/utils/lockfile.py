@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from datetime import datetime
 from datetime import timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
@@ -12,8 +14,6 @@ from pydantic import Field
 from pydantic import ValidationError
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from confluence_markdown_exporter.confluence import Descendant
     from confluence_markdown_exporter.confluence import Page
 
@@ -62,10 +62,23 @@ class ConfluenceLock(BaseModel):
         existing.pages.update(self.pages)
         existing.last_export = datetime.now(timezone.utc).isoformat()
 
-        lockfile_path.write_text(
-            existing.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
+        json_str = existing.model_dump_json(indent=2)
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                dir=lockfile_path.parent,
+                suffix=".tmp",
+                delete=False,
+                encoding="utf-8",
+            ) as fd:
+                tmp_path = Path(fd.name)
+                fd.write(json_str)
+            tmp_path.replace(lockfile_path)
+        except BaseException:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+            raise
 
         # Update self to reflect merged state
         self.pages = existing.pages
@@ -137,8 +150,6 @@ class LockfileManager:
 
         Returns list of deleted (or would-be-deleted) file paths.
         """
-        from pathlib import Path
-
         from confluence_markdown_exporter.utils.app_data_store import get_settings
 
         if cls._lock is None:

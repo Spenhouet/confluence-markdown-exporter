@@ -178,3 +178,91 @@ class TestLockfileManagerShouldExport:
 
         page = _make_mock_page(page_id=123, version_number=1, export_path="space/Page A.md")
         assert LockfileManager.should_export(page) is True
+
+
+class TestConfluenceLockAtomicSave:
+    """Test cases for atomic write behaviour in ConfluenceLock.save."""
+
+    def test_save_is_atomic_on_success(self) -> None:
+        """After save, the file contains valid, complete JSON."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / ".confluence-lock.json"
+            lock = ConfluenceLock(
+                pages={
+                    "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
+                }
+            )
+
+            lock.save(lockfile_path)
+
+            content = lockfile_path.read_text(encoding="utf-8")
+            data = json.loads(content)
+            assert data["pages"]["100"]["version"] == 1
+            # No .tmp files left behind
+            tmp_files = list(Path(tmp).glob("*.tmp"))
+            assert tmp_files == []
+
+    def test_save_cleans_up_tmp_on_error(self) -> None:
+        """When writing fails, no .tmp files are left behind."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / ".confluence-lock.json"
+            lock = ConfluenceLock(
+                pages={
+                    "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
+                }
+            )
+
+            with (
+                patch(
+                    "confluence_markdown_exporter.utils.lockfile.Path.replace",
+                    side_effect=OSError("disk error"),
+                ),
+                pytest.raises(OSError, match="disk error"),
+            ):
+                lock.save(lockfile_path)
+
+            tmp_files = list(Path(tmp).glob("*.tmp"))
+            assert tmp_files == []
+
+    def test_save_preserves_original_on_error(self) -> None:
+        """When writing fails, the original lockfile is not corrupted."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / ".confluence-lock.json"
+            original_data = {
+                "lockfile_version": 1,
+                "last_export": "2025-01-01T00:00:00+00:00",
+                "pages": {
+                    "100": {
+                        "title": "Page A",
+                        "version": 1,
+                        "export_path": "space/Page A.md",
+                    }
+                },
+            }
+            lockfile_path.write_text(
+                json.dumps(original_data), encoding="utf-8"
+            )
+
+            lock = ConfluenceLock(
+                pages={
+                    "200": PageEntry(
+                        title="Page B",
+                        version=1,
+                        export_path="space/Page B.md",
+                    ),
+                }
+            )
+
+            with (
+                patch(
+                    "confluence_markdown_exporter.utils.lockfile.Path.replace",
+                    side_effect=OSError("disk error"),
+                ),
+                pytest.raises(OSError, match="disk error"),
+            ):
+                lock.save(lockfile_path)
+
+            # Original file should be intact
+            content = lockfile_path.read_text(encoding="utf-8")
+            data = json.loads(content)
+            assert data == original_data
