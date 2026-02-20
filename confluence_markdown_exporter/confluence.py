@@ -321,7 +321,8 @@ class Attachment(Document):
             return
 
         try:
-            response = confluence._session.get(str(confluence.url + self.download_link))
+            verify_ssl = settings.connection_config.verify_ssl
+            response = confluence._session.get(str(confluence.url + self.download_link), verify_ssl)
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
             logger.warning(f"There is no attachment with title '{self.title}'. Skipping export.")
