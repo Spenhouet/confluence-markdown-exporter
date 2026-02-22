@@ -957,7 +957,7 @@ class Page(Document):
             return super().convert_img(el, text, parent_tags)
 
         def _normalize_unicode_whitespace(self, text: str) -> str:
-            """Normalize Unicode whitespace to regular spaces.
+            r"""Normalize Unicode whitespace to regular spaces.
 
             This fixes an issue where markdownify's chomp() function strips Unicode
             whitespace characters (like \xa0 from &nbsp;) entirely, causing missing
@@ -1058,7 +1058,7 @@ class Page(Document):
 
             return ""
 
-        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str: # noqa: PLR0911
+        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
             """Convert PlantUML diagrams from editor2 XML to Markdown code blocks.
 
             PlantUML diagrams are stored in the editor2 XML as structured macros with

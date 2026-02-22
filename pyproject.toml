@@ -175,4 +175,6 @@ skip-magic-trailing-comma = false # respects magic trailing commas
   "S110",    # try-except-pass detected
   "FBT001",  # Often conflicts in tests
   "PLR2004", # Magic numbers are acceptable in tests
+  "F821",    # Forward references in type hints are common in tests
+  "ANN",     # Type annotations in tests are helpful but not required
 ]
