@@ -70,6 +70,13 @@ def spaces(
             help="Directory to write exported Markdown files to. Overrides config if set."
         ),
     ] = None,
+    workers: Annotated[
+        int | None,
+        typer.Option(
+            help="Number of parallel workers for page export. "
+            "Default: 20. Set to 1 for serial mode."
+        ),
+    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Space
 
@@ -81,7 +88,7 @@ def spaces(
         for space_key in normalized_space_keys:
             override_output_path_config(output_path)
             space = Space.from_key(space_key)
-            space.export()
+            space.export(max_workers=workers)
 
 
 @app.command(help="Export all Confluence pages across all spaces to Markdown.")

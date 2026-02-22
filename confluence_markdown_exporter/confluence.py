@@ -11,9 +11,12 @@ import os
 import re
 import urllib.parse
 from collections.abc import Set
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 from os import PathLike
 from pathlib import Path
 from string import Template
+from threading import local
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
@@ -21,6 +24,7 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 
 import yaml
+from atlassian import Confluence as ConfluenceApiSdk
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
 from bs4 import BeautifulSoup
@@ -51,6 +55,23 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 confluence = get_confluence_instance()
+
+# Thread-local storage for API client instances (one per worker thread)
+_thread_local = local()
+
+
+def get_thread_confluence() -> ConfluenceApiSdk:
+    """Get or create Confluence instance for current thread.
+
+    The atlassian-python-api Confluence client uses requests.Session,
+    which is NOT thread-safe. Each worker thread needs its own instance.
+
+    Returns:
+        Confluence: A thread-local Confluence API client instance.
+    """
+    if not hasattr(_thread_local, "confluence"):
+        _thread_local.confluence = get_confluence_instance()
+    return _thread_local.confluence
 
 
 class JiraIssue(BaseModel):
@@ -175,8 +196,8 @@ class Space(BaseModel):
         homepage = Page.from_id(self.homepage)
         return [self.homepage, *homepage.descendants]
 
-    def export(self) -> None:
-        export_pages(self.pages)
+    def export(self, max_workers: int | None = None) -> None:
+        export_pages(self.pages, max_workers=max_workers)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Space":
@@ -1001,7 +1022,7 @@ class Page(Document):
 
             return ""
 
-        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str: # noqa: PLR0911
+        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
             """Convert PlantUML diagrams from editor2 XML to Markdown code blocks.
 
             PlantUML diagrams are stored in the editor2 XML as structured macros with
@@ -1092,24 +1113,70 @@ class Page(Document):
             return result
 
 
-def export_page(page_id: int) -> None:
+def export_page(page_id: int, use_thread_local: bool = False) -> None:  # noqa: FBT001, FBT002
     """Export a Confluence page to Markdown.
 
     Args:
         page_id: The page id.
-        output_path: The output path.
+        use_thread_local: If True, use thread-local Confluence instance
+                         (required for parallel export).
     """
-    page = Page.from_id(page_id)
-    page.export()
+    if use_thread_local:
+        # Use thread-local confluence instance for thread safety
+        global confluence  # noqa: PLW0603
+        old_confluence = confluence
+        confluence = get_thread_confluence()
+        try:
+            page = Page.from_id(page_id)
+            page.export()
+        finally:
+            confluence = old_confluence
+    else:
+        # Serial mode - use global confluence instance
+        page = Page.from_id(page_id)
+        page.export()
 
 
-def export_pages(page_ids: list[int]) -> None:
+def export_pages(page_ids: list[int], max_workers: int | None = None) -> None:
     """Export a list of Confluence pages to Markdown.
 
+    Pages are exported in parallel using ThreadPoolExecutor for significant
+    performance improvement. Use max_workers=1 for serial mode (debugging).
+
     Args:
-        page_ids: List of pages to export.
-        output_path: The output path.
+        page_ids: List of page IDs to export.
+        max_workers: Number of parallel workers. If None, uses
+                    CONFLUENCE_EXPORT_WORKERS env var or --workers CLI flag.
+                    Set to 1 for serial mode.
     """
-    for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
-        pbar.set_postfix_str(f"Exporting page {page_id}")
-        export_page(page_id)
+    # Get worker count from environment or use default
+    if max_workers is None:
+        max_workers = int(os.getenv("CONFLUENCE_EXPORT_WORKERS", "20"))
+
+    # Serial mode for debugging or single worker
+    if max_workers <= 1:
+        logger.info("Using serial export mode (max_workers=1)")
+        for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
+            pbar.set_postfix_str(f"Exporting page {page_id}")
+            export_page(page_id, use_thread_local=False)
+        return
+
+    # Parallel mode
+    logger.info(f"Using parallel export mode ({max_workers} workers)")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all export tasks
+        futures = {
+            executor.submit(export_page, pid, use_thread_local=True): pid for pid in page_ids
+        }
+
+        # Track progress with tqdm
+        with tqdm(total=len(page_ids), smoothing=0.05) as pbar:
+            for future in as_completed(futures):
+                page_id = futures[future]
+                try:
+                    future.result()  # Raise exception if export failed
+                    pbar.set_postfix_str(f"Completed page {page_id}")
+                except Exception:
+                    logger.exception(f"Failed to export page {page_id}")
+                finally:
+                    pbar.update(1)
