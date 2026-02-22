@@ -818,7 +818,7 @@ class Page(Document):
                 return f"[^{text}]:"  # Footnote definition
             return f"[^{text}]"  # f"<sup>{text}</sup>"
 
-        def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
+        def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911, C901
             if "user-mention" in str(el.get("class")):
                 return self.convert_user_mention(el, text, parent_tags)
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
@@ -827,12 +827,25 @@ class Page(Document):
                     f"(ID: {self.page.id}). This is likely a Confluence bug. "
                     f"Please report this issue to Atlassian Support."
                 )
-                if fallback := BeautifulSoup(self.page.editor2, "html.parser").find(
-                    "a", string=text
-                ):
-                    # Prevent infinite recursion if fallback is the same element
-                    if isinstance(fallback, Tag) and fallback.get("href") != el.get("href"):
-                        return self.convert_a(fallback, text, parent_tags)  # type: ignore -
+                # Find fallback link without using string= parameter to avoid
+                # BeautifulSoup recursion bug. The string= parameter triggers
+                # recursive .string property access which fails on Fabric
+                # Editor v2 HTML with fab:media tags
+                try:
+                    soup = BeautifulSoup(self.page.editor2, "html.parser")
+                    for link in soup.find_all("a"):
+                        # Use get_text() instead of .string to avoid recursion issues
+                        link_text = link.get_text(strip=True)
+                        if link_text == text:
+                            # Prevent infinite recursion if fallback is the same element
+                            if isinstance(link, Tag) and link.get("href") != el.get("href"):
+                                return self.convert_a(link, text, parent_tags)  # type: ignore[arg-type]
+                except RecursionError:
+                    # editor2 HTML contains problematic tags (e.g., fab:media)
+                    # that cause BS4 recursion. Skip fallback and return
+                    # wiki-style link
+                    pass
+                # If no matching link found, return wiki-style link
                 return f"[[{text}]]"
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = str(el.get("data-linked-resource-id", ""))
@@ -1001,7 +1014,7 @@ class Page(Document):
 
             return ""
 
-        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str: # noqa: PLR0911
+        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
             """Convert PlantUML diagrams from editor2 XML to Markdown code blocks.
 
             PlantUML diagrams are stored in the editor2 XML as structured macros with
