@@ -11,7 +11,8 @@ import os
 import re
 import urllib.parse
 from collections.abc import Set
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 from os import PathLike
 from pathlib import Path
 from string import Template
@@ -23,6 +24,7 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 
 import yaml
+from atlassian import Confluence as ConfluenceApiSdk
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
 from bs4 import BeautifulSoup
@@ -58,11 +60,14 @@ confluence = get_confluence_instance()
 _thread_local = local()
 
 
-def get_thread_confluence():
+def get_thread_confluence() -> ConfluenceApiSdk:
     """Get or create Confluence instance for current thread.
 
     The atlassian-python-api Confluence client uses requests.Session,
     which is NOT thread-safe. Each worker thread needs its own instance.
+
+    Returns:
+        Confluence: A thread-local Confluence API client instance.
     """
     if not hasattr(_thread_local, "confluence"):
         _thread_local.confluence = get_confluence_instance()
@@ -1108,7 +1113,7 @@ class Page(Document):
             return result
 
 
-def export_page(page_id: int, use_thread_local: bool = False) -> None:
+def export_page(page_id: int, use_thread_local: bool = False) -> None:  # noqa: FBT001, FBT002
     """Export a Confluence page to Markdown.
 
     Args:
@@ -1118,7 +1123,7 @@ def export_page(page_id: int, use_thread_local: bool = False) -> None:
     """
     if use_thread_local:
         # Use thread-local confluence instance for thread safety
-        global confluence
+        global confluence  # noqa: PLW0603
         old_confluence = confluence
         confluence = get_thread_confluence()
         try:
@@ -1171,7 +1176,7 @@ def export_pages(page_ids: list[int], max_workers: int | None = None) -> None:
                 try:
                     future.result()  # Raise exception if export failed
                     pbar.set_postfix_str(f"Completed page {page_id}")
-                except Exception as e:
-                    logger.error(f"Failed to export page {page_id}: {e}")
+                except Exception:
+                    logger.exception(f"Failed to export page {page_id}")
                 finally:
                     pbar.update(1)

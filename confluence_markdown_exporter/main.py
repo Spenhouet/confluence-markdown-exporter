@@ -73,7 +73,8 @@ def spaces(
     workers: Annotated[
         int | None,
         typer.Option(
-            help="Number of parallel workers for page export. Default: 20. Set to 1 for serial mode."
+            help="Number of parallel workers for page export. "
+            "Default: 20. Set to 1 for serial mode."
         ),
     ] = None,
 ) -> None:
