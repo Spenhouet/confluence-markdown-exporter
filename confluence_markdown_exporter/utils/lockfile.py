@@ -9,6 +9,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
+from typing import ClassVar
 
 from pydantic import BaseModel
 from pydantic import Field
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 LOCKFILE_FILENAME = "confluence-lock.json"
 LOCKFILE_VERSION = 1
+_BATCH_SIZE = 250
 
 
 class PageEntry(BaseModel):
@@ -50,7 +52,7 @@ class ConfluenceLock(BaseModel):
                 logger.warning(f"Failed to parse lock file: {lockfile_path}. Starting fresh.")
         return cls()
 
-    def save(self, lockfile_path: Path) -> None:
+    def save(self, lockfile_path: Path, *, delete_ids: set[str] | None = None) -> None:
         """Save lock file to disk.
 
         To handle concurrent writes, this method reads the existing lock file
@@ -61,9 +63,12 @@ class ConfluenceLock(BaseModel):
         # Read existing lock file and merge to handle concurrent writes
         existing = ConfluenceLock.load(lockfile_path)
         existing.pages = dict(sorted({**existing.pages, **self.pages}.items()))
+        if delete_ids:
+            for page_id in delete_ids:
+                existing.pages.pop(page_id, None)
         existing.last_export = datetime.now(timezone.utc).isoformat()
 
-        json_str = json.dumps(existing.model_dump(), indent=2)
+        json_str = json.dumps(existing.model_dump(), indent=2, ensure_ascii=False)
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -101,8 +106,11 @@ class ConfluenceLock(BaseModel):
 class LockfileManager:
     """Manager for lock file operations during export."""
 
-    _lockfile_path: Path | None = None
-    _lock: ConfluenceLock | None = None
+    _lockfile_path: ClassVar[Path | None] = None
+    _lock: ClassVar[ConfluenceLock | None] = None
+    _output_path: ClassVar[Path | None] = None
+    _all_entries_snapshot: ClassVar[dict[str, PageEntry]] = {}
+    _seen_page_ids: ClassVar[set[str]] = set()
 
     @classmethod
     def init(cls) -> None:
@@ -113,8 +121,11 @@ class LockfileManager:
         if not settings.export.skip_unchanged:
             return
 
-        cls._lockfile_path = settings.export.output_path / LOCKFILE_FILENAME
+        cls._output_path = settings.export.output_path
+        cls._lockfile_path = cls._output_path / LOCKFILE_FILENAME
         cls._lock = ConfluenceLock.load(cls._lockfile_path)
+        cls._all_entries_snapshot = dict(cls._lock.pages)
+        cls._seen_page_ids = set()
 
     @classmethod
     def record_page(cls, page: Page) -> None:
@@ -124,6 +135,16 @@ class LockfileManager:
 
         cls._lock.add_page(page)
         cls._lock.save(cls._lockfile_path)
+        cls._seen_page_ids.add(str(page.id))
+
+    @classmethod
+    def mark_seen(cls, page_ids: list[int]) -> None:
+        """Mark page IDs as seen in the current export run.
+
+        This avoids unnecessary API existence checks during cleanup for pages
+        that were encountered but skipped (e.g. unchanged pages).
+        """
+        cls._seen_page_ids.update(str(pid) for pid in page_ids)
 
     @classmethod
     def should_export(cls, page: Page | Descendant) -> bool:
@@ -146,33 +167,68 @@ class LockfileManager:
         return entry.version != page.version.number or entry.export_path != str(page.export_path)
 
     @classmethod
-    def cleanup_untracked(cls, *, dry_run: bool = False) -> list[Path]:
-        """Delete exported files that are not in the lockfile.
+    def _check_pages_exist(cls, page_ids: set[str]) -> set[str]:
+        """Check which page IDs still exist on Confluence via CQL batch queries."""
+        if not page_ids:
+            return set()
 
-        Args:
-            dry_run: If True, only return files that would be deleted without deleting.
+        from confluence_markdown_exporter.confluence import confluence
 
-        Returns list of deleted (or would-be-deleted) file paths.
-        """
+        existing: set[str] = set()
+        id_list = sorted(page_ids)
+
+        for i in range(0, len(id_list), _BATCH_SIZE):
+            batch = id_list[i : i + _BATCH_SIZE]
+            cql = "id in ({})".format(",".join(batch))
+            try:
+                response = confluence.get(
+                    "wiki/api/v2/pages",
+                    params={"cql": cql, "limit": len(batch)},
+                )
+                for result in response.get("results", []):
+                    existing.add(str(result["id"]))
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    f"Failed to check page existence for batch ({len(batch)} IDs). "
+                    "Skipping deletion for these pages."
+                )
+                existing.update(batch)
+
+        return existing
+
+    @classmethod
+    def cleanup(cls) -> None:
+        """Remove lockfile entries and files for pages deleted from Confluence."""
         from confluence_markdown_exporter.utils.app_data_store import get_settings
 
-        if cls._lock is None:
-            return []
+        if cls._lock is None or cls._lockfile_path is None or cls._output_path is None:
+            return
 
-        settings = get_settings()
-        output_path = settings.export.output_path
+        if not get_settings().export.cleanup_stale:
+            return
 
-        # Collect all export_paths from lockfile
-        tracked_paths = {Path(entry.export_path) for entry in cls._lock.pages.values()}
+        delete_ids: set[str] = set()
 
-        # Find all markdown files in output directory
-        untracked: list[Path] = []
-        for md_file in output_path.rglob("*.md"):
-            relative_path = md_file.relative_to(output_path)
-            if relative_path not in tracked_paths:
-                untracked.append(relative_path)
-                if not dry_run:
-                    md_file.unlink()
-                    logger.info(f"Deleted untracked file: {relative_path}")
+        # Handle moved pages: delete old file when export_path changed
+        for page_id in cls._seen_page_ids:
+            if page_id in cls._all_entries_snapshot and page_id in cls._lock.pages:
+                old_entry = cls._all_entries_snapshot[page_id]
+                new_entry = cls._lock.pages[page_id]
+                if old_entry.export_path != new_entry.export_path:
+                    (cls._output_path / old_entry.export_path).unlink(missing_ok=True)
+                    logger.info(f"Deleted old path for moved page: {old_entry.export_path}")
 
-        return untracked
+        # Check unseen lockfile pages against Confluence API
+        unseen_ids = set(cls._lock.pages.keys()) - cls._seen_page_ids
+        if unseen_ids:
+            existing_ids = cls._check_pages_exist(unseen_ids)
+            truly_deleted = unseen_ids - existing_ids
+
+            for page_id in truly_deleted:
+                entry = cls._lock.pages[page_id]
+                (cls._output_path / entry.export_path).unlink(missing_ok=True)
+                logger.info(f"Deleted removed page: {entry.export_path}")
+                delete_ids.add(page_id)
+
+        if delete_ids:
+            cls._lock.save(cls._lockfile_path, delete_ids=delete_ids)

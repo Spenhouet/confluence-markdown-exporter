@@ -387,7 +387,7 @@ class Page(Document):
         params = {
             "cql": f"type=page AND ancestor={self.id}",
             "expand": "metadata.properties,ancestors,version",
-            "limit": 100,
+            "limit": 250,
         }
         results = []
 
@@ -1142,6 +1142,8 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
     Args:
         pages: List of pages to export.
     """
+    # Mark all pages as seen so cleanup skips API checks for unchanged pages
+    LockfileManager.mark_seen([p.id for p in pages])
     pages_to_export = [page for page in pages if LockfileManager.should_export(page)]
 
     if not pages_to_export:
