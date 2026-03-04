@@ -239,6 +239,11 @@ class ExportConfig(BaseModel):
             "If enabled, the title will be added as a top-level heading."
         ),
     )
+    skip_unchanged: bool = Field(
+        default=True,
+        title="Skip Unchanged Pages",
+        description="Skip exporting pages that have not changed since last export.",
+    )
 
 
 class ConfigModel(BaseModel):
