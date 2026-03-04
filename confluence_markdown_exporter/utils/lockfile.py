@@ -106,10 +106,13 @@ class LockfileManager:
 
     @classmethod
     def init(cls) -> None:
-        """Initialize the lockfile manager using settings."""
+        """Initialize the lockfile manager if skip_unchanged is enabled."""
         from confluence_markdown_exporter.utils.app_data_store import get_settings
 
         settings = get_settings()
+        if not settings.export.skip_unchanged:
+            return
+
         cls._lockfile_path = settings.export.output_path / LOCKFILE_FILENAME
         cls._lock = ConfluenceLock.load(cls._lockfile_path)
 
