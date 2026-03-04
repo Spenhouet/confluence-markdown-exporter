@@ -333,7 +333,7 @@ class Attachment(Document):
 
 
 class Ancestor(Document):
-    id: str
+    id: int
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Ancestor":
