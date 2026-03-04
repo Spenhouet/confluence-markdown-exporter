@@ -244,6 +244,14 @@ class ExportConfig(BaseModel):
         title="Skip Unchanged Pages",
         description="Skip exporting pages that have not changed since last export.",
     )
+    cleanup_stale: bool = Field(
+        default=True,
+        title="Cleanup Stale Files",
+        description=(
+            "After export, delete local files for pages that have been removed "
+            "from Confluence or whose export path has changed."
+        ),
+    )
 
 
 class ConfigModel(BaseModel):

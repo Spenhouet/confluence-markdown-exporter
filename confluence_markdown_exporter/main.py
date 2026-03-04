@@ -43,6 +43,7 @@ def pages(
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             _page.export()
             LockfileManager.record_page(_page)
+        LockfileManager.cleanup()
 
 
 @app.command(help="Export Confluence pages and their descendant pages by ID or URL to Markdown.")
@@ -63,6 +64,7 @@ def pages_with_descendants(
         for page in pages:
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             _page.export_with_descendants()
+        LockfileManager.cleanup()
 
 
 @app.command(help="Export all Confluence pages of one or more spaces to Markdown.")
@@ -87,6 +89,7 @@ def spaces(
         for space_key in normalized_space_keys:
             space = Space.from_key(space_key)
             space.export()
+        LockfileManager.cleanup()
 
 
 @app.command(help="Export all Confluence pages across all spaces to Markdown.")
@@ -105,6 +108,7 @@ def all_spaces(
         LockfileManager.init()
         org = Organization.from_api()
         org.export()
+        LockfileManager.cleanup()
 
 
 @app.command(help="Open the interactive configuration menu or display current configuration.")
@@ -129,33 +133,6 @@ def config(
         typer.echo(f"```json\n{json_output}\n```")
     else:
         main_config_menu_loop(jump_to)
-
-
-@app.command(help="Delete exported files that are not tracked in the lockfile.")
-def prune(
-    output_path: Annotated[
-        Path | None,
-        typer.Option(help="Directory containing exported Markdown files. Overrides config if set."),
-    ] = None,
-    *,
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run",
-            help="Show files that would be deleted without actually deleting them.",
-        ),
-    ] = False,
-) -> None:
-    """Delete exported files not tracked in the lockfile."""
-    override_output_path_config(output_path)
-    LockfileManager.init()
-    deleted = LockfileManager.cleanup_untracked(dry_run=dry_run)
-    if dry_run:
-        typer.echo(f"Would delete {len(deleted)} file(s):")
-        for path in deleted:
-            typer.echo(f"  {path}")
-    else:
-        typer.echo(f"Deleted {len(deleted)} file(s).")
 
 
 @app.command(help="Show the current version of confluence-markdown-exporter.")
