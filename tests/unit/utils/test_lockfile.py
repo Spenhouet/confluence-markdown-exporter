@@ -266,3 +266,43 @@ class TestConfluenceLockAtomicSave:
             content = lockfile_path.read_text(encoding="utf-8")
             data = json.loads(content)
             assert data == original_data
+
+
+class TestConfluenceLockSaveSortsKeys:
+    """Test cases for sorted key output in ConfluenceLock.save."""
+
+    def test_save_sorts_page_keys(self) -> None:
+        """Pages in the saved lockfile should be sorted by page ID."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            lock = ConfluenceLock(
+                pages={
+                    "999": PageEntry(title="Page C", version=1, export_path="c.md"),
+                    "123": PageEntry(title="Page A", version=2, export_path="a.md"),
+                    "456": PageEntry(title="Page B", version=1, export_path="b.md"),
+                }
+            )
+
+            lock.save(lockfile_path)
+
+            content = lockfile_path.read_text(encoding="utf-8")
+            data = json.loads(content)
+            page_ids = list(data["pages"].keys())
+            assert page_ids == ["123", "456", "999"]
+
+    def test_save_preserves_model_field_order(self) -> None:
+        """Top-level keys should follow the model field order."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            lock = ConfluenceLock(
+                pages={
+                    "100": PageEntry(title="Page A", version=1, export_path="a.md"),
+                }
+            )
+
+            lock.save(lockfile_path)
+
+            content = lockfile_path.read_text(encoding="utf-8")
+            data = json.loads(content)
+            keys = list(data.keys())
+            assert keys == ["lockfile_version", "last_export", "pages"]

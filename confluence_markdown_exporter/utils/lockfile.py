@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import tempfile
 from datetime import datetime
@@ -59,10 +60,10 @@ class ConfluenceLock(BaseModel):
 
         # Read existing lock file and merge to handle concurrent writes
         existing = ConfluenceLock.load(lockfile_path)
-        existing.pages.update(self.pages)
+        existing.pages = dict(sorted({**existing.pages, **self.pages}.items()))
         existing.last_export = datetime.now(timezone.utc).isoformat()
 
-        json_str = existing.model_dump_json(indent=2)
+        json_str = json.dumps(existing.model_dump(), indent=2)
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(
