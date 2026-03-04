@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-LOCKFILE_FILENAME = ".confluence-lock.json"
+LOCKFILE_FILENAME = "confluence-lock.json"
 LOCKFILE_VERSION = 1
 
 
