@@ -1142,13 +1142,15 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
     Args:
         pages: List of pages to export.
     """
-    for page in (pbar := tqdm(pages, smoothing=0.05)):
-        # filter pages new and updated only
-        if LockfileManager.should_export(page):
-            pbar.set_postfix_str(f"Exporting page {page.id}")
-            _page = Page.from_id(page.id)
-            _page.export()
-            # Record to lockfile if enabled
-            LockfileManager.record_page(_page)
-        else:
-            pbar.set_postfix_str(f"Skipping page {page.id} (no changes)")
+    pages_to_export = [page for page in pages if LockfileManager.should_export(page)]
+
+    if not pages_to_export:
+        logger.info("No pages to export based on lockfile state.")
+        return
+
+    for page in (pbar := tqdm(pages_to_export, smoothing=0.05)):
+        pbar.set_postfix_str(f"Exporting page {page.id}")
+        _page = Page.from_id(page.id)
+        _page.export()
+        # Record to lockfile if enabled
+        LockfileManager.record_page(_page)
