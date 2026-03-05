@@ -1136,6 +1136,85 @@ class Page(Document):
             return result
 
 
+_CQL_MAX_BATCH_SIZE: int = 25
+
+
+def _fetch_page_ids_v2_batch(batch: list[str]) -> set[str]:
+    """Single v2 API request for a batch of page IDs.
+
+    Uses GET /api/v2/pages?id=X&id=Y&...  (Atlassian Cloud).
+    The v2 API accepts multiple ``id`` params, so they are encoded directly
+    into the URL path since the SDK only accepts a dict for ``params``.
+    """
+    query = urllib.parse.urlencode([("id", pid) for pid in batch] + [("limit", len(batch))])
+    response = confluence.get(f"api/v2/pages?{query}")
+    if not response:
+        return set()
+    return {str(item["id"]) for item in response.get("results", [])}
+
+
+def _fetch_page_ids_cql_batch(batch: list[str]) -> set[str]:
+    """Single CQL v1 request for a batch of page IDs.
+
+    Uses GET /rest/api/content/search with id in (...) (self-hosted / fallback).
+    """
+    cql = "id in ({})".format(",".join(batch))
+    response = confluence.get(
+        "rest/api/content/search",
+        params={"cql": cql, "limit": len(batch), "fields": "id"},
+    )
+    if not response:
+        return set()
+    return {str(item["id"]) for item in response.get("results", [])}
+
+
+def fetch_deleted_page_ids(page_ids: list[str]) -> set[str]:
+    """Return the subset of *page_ids* that no longer exist in Confluence.
+
+    Uses the v2 REST API when ``connection_config.use_v2_api`` is enabled
+    (multiple ``id`` query params, up to ``export.existence_check_batch_size``
+    IDs per request), or the v1 CQL content search otherwise (capped at
+    :data:`_CQL_MAX_BATCH_SIZE` IDs per request).
+
+    Per-batch API failures are handled safely: affected IDs are assumed to
+    still exist so they are never accidentally deleted.
+    """
+    if not page_ids:
+        return set()
+
+    use_v2 = settings.connection_config.use_v2_api
+    batch_size = settings.export.existence_check_batch_size
+    effective_batch_size = batch_size if use_v2 else min(batch_size, _CQL_MAX_BATCH_SIZE)
+    existing: set[str] = set()
+
+    for i in range(0, len(page_ids), effective_batch_size):
+        batch = page_ids[i : i + effective_batch_size]
+        try:
+            if use_v2:
+                existing.update(_fetch_page_ids_v2_batch(batch))
+            else:
+                existing.update(_fetch_page_ids_cql_batch(batch))
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to check page existence for batch (%d IDs). "
+                "Skipping deletion for these pages.",
+                len(batch),
+            )
+            existing.update(batch)
+
+    return set(page_ids) - existing
+
+
+def sync_removed_pages() -> None:
+    """Orchestrate stale-file cleanup: check API for deleted pages, then clean up."""
+    if not settings.export.cleanup_stale:
+        return
+
+    unseen = LockfileManager.unseen_ids()
+    deleted = fetch_deleted_page_ids(sorted(unseen)) if unseen else set()
+    LockfileManager.remove_pages(deleted)
+
+
 def export_pages(pages: list["Page | Descendant"]) -> None:
     """Export a list of Confluence pages to Markdown.
 

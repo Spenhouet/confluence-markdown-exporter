@@ -35,6 +35,7 @@ def pages(
     ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
+    from confluence_markdown_exporter.confluence import sync_removed_pages
 
     with measure(f"Export pages {', '.join(pages)}"):
         override_output_path_config(output_path)
@@ -43,7 +44,7 @@ def pages(
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             _page.export()
             LockfileManager.record_page(_page)
-        LockfileManager.cleanup()
+        sync_removed_pages()
 
 
 @app.command(help="Export Confluence pages and their descendant pages by ID or URL to Markdown.")
@@ -57,6 +58,7 @@ def pages_with_descendants(
     ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
+    from confluence_markdown_exporter.confluence import sync_removed_pages
 
     with measure(f"Export pages {', '.join(pages)} with descendants"):
         override_output_path_config(output_path)
@@ -64,7 +66,7 @@ def pages_with_descendants(
         for page in pages:
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
             _page.export_with_descendants()
-        LockfileManager.cleanup()
+        sync_removed_pages()
 
 
 @app.command(help="Export all Confluence pages of one or more spaces to Markdown.")
@@ -78,6 +80,7 @@ def spaces(
     ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Space
+    from confluence_markdown_exporter.confluence import sync_removed_pages
 
     # Personal Confluence spaces start with ~. Exporting them on Windows leads to
     # Powershell expanding tilde to the Users directory, which is handled here
@@ -89,7 +92,7 @@ def spaces(
         for space_key in normalized_space_keys:
             space = Space.from_key(space_key)
             space.export()
-        LockfileManager.cleanup()
+        sync_removed_pages()
 
 
 @app.command(help="Export all Confluence pages across all spaces to Markdown.")
@@ -102,13 +105,14 @@ def all_spaces(
     ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Organization
+    from confluence_markdown_exporter.confluence import sync_removed_pages
 
     with measure("Export all spaces"):
         override_output_path_config(output_path)
         LockfileManager.init()
         org = Organization.from_api()
         org.export()
-        LockfileManager.cleanup()
+        sync_removed_pages()
 
 
 @app.command(help="Open the interactive configuration menu or display current configuration.")
