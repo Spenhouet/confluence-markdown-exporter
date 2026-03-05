@@ -21,9 +21,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-LOCKFILE_FILENAME = "confluence-lock.json"
 LOCKFILE_VERSION = 1
-_BATCH_SIZE = 250
 
 
 class PageEntry(BaseModel):
@@ -122,7 +120,7 @@ class LockfileManager:
             return
 
         cls._output_path = settings.export.output_path
-        cls._lockfile_path = cls._output_path / LOCKFILE_FILENAME
+        cls._lockfile_path = cls._output_path / settings.export.lockfile_name
         cls._lock = ConfluenceLock.load(cls._lockfile_path)
         cls._all_entries_snapshot = dict(cls._lock.pages)
         cls._seen_page_ids = set()
@@ -167,47 +165,23 @@ class LockfileManager:
         return entry.version != page.version.number or entry.export_path != str(page.export_path)
 
     @classmethod
-    def _check_pages_exist(cls, page_ids: set[str]) -> set[str]:
-        """Check which page IDs still exist on Confluence via CQL batch queries."""
-        if not page_ids:
+    def unseen_ids(cls) -> set[str]:
+        """Return lockfile page IDs not encountered during the current export run."""
+        if cls._lock is None:
             return set()
-
-        from confluence_markdown_exporter.confluence import confluence
-
-        existing: set[str] = set()
-        id_list = sorted(page_ids)
-
-        for i in range(0, len(id_list), _BATCH_SIZE):
-            batch = id_list[i : i + _BATCH_SIZE]
-            cql = "id in ({})".format(",".join(batch))
-            try:
-                response = confluence.get(
-                    "wiki/api/v2/pages",
-                    params={"cql": cql, "limit": len(batch)},
-                )
-                for result in response.get("results", []):
-                    existing.add(str(result["id"]))
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    f"Failed to check page existence for batch ({len(batch)} IDs). "
-                    "Skipping deletion for these pages."
-                )
-                existing.update(batch)
-
-        return existing
+        return set(cls._lock.pages.keys()) - cls._seen_page_ids
 
     @classmethod
-    def cleanup(cls) -> None:
-        """Remove lockfile entries and files for pages deleted from Confluence."""
-        from confluence_markdown_exporter.utils.app_data_store import get_settings
+    def remove_pages(cls, deleted_ids: set[str]) -> None:
+        """Remove files and lockfile entries for moved or deleted pages.
 
+        Args:
+            deleted_ids: Page IDs confirmed as deleted from Confluence.
+        """
         if cls._lock is None or cls._lockfile_path is None or cls._output_path is None:
             return
 
-        if not get_settings().export.cleanup_stale:
-            return
-
-        delete_ids: set[str] = set()
+        result_delete_ids: set[str] = set()
 
         # Handle moved pages: delete old file when export_path changed
         for page_id in cls._seen_page_ids:
@@ -218,17 +192,13 @@ class LockfileManager:
                     (cls._output_path / old_entry.export_path).unlink(missing_ok=True)
                     logger.info(f"Deleted old path for moved page: {old_entry.export_path}")
 
-        # Check unseen lockfile pages against Confluence API
-        unseen_ids = set(cls._lock.pages.keys()) - cls._seen_page_ids
-        if unseen_ids:
-            existing_ids = cls._check_pages_exist(unseen_ids)
-            truly_deleted = unseen_ids - existing_ids
-
-            for page_id in truly_deleted:
+        # Remove files and lockfile entries for pages deleted from Confluence
+        for page_id in deleted_ids:
+            if page_id in cls._lock.pages:
                 entry = cls._lock.pages[page_id]
                 (cls._output_path / entry.export_path).unlink(missing_ok=True)
                 logger.info(f"Deleted removed page: {entry.export_path}")
-                delete_ids.add(page_id)
+                result_delete_ids.add(page_id)
 
-        if delete_ids:
-            cls._lock.save(cls._lockfile_path, delete_ids=delete_ids)
+        if result_delete_ids:
+            cls._lock.save(cls._lockfile_path, delete_ids=result_delete_ids)

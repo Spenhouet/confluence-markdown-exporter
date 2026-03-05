@@ -69,6 +69,15 @@ class ConnectionConfig(BaseModel):
             "Set to False only if you are sure about the security of your connection."
         ),
     )
+    use_v2_api: bool = Field(
+        default=False,
+        title="Use Confluence v2 REST API",
+        description=(
+            "Enable Confluence REST API v2 endpoints where available. "
+            "Supported by Atlassian Cloud and Confluence Data Center 8+. "
+            "Must be disabled for older self-hosted Confluence Server instances."
+        ),
+    )
 
 
 class ApiDetails(BaseModel):
@@ -250,6 +259,19 @@ class ExportConfig(BaseModel):
         description=(
             "After export, delete local files for pages that have been removed "
             "from Confluence or whose export path has changed."
+        ),
+    )
+    lockfile_name: str = Field(
+        default="confluence-lock.json",
+        title="Lock File Name",
+        description="Name of the lock file used to track exported pages.",
+    )
+    existence_check_batch_size: int = Field(
+        default=250,
+        title="Existence Check Batch Size",
+        description=(
+            "Number of page IDs per batch when verifying page existence during cleanup. "
+            "For self-hosted Confluence (CQL), this is internally capped at 25."
         ),
     )
 
