@@ -233,6 +233,39 @@ class TestLockfileManagerShouldExport:
         page = _make_mock_page(page_id=123, version_number=1, export_path="space/Page A.md")
         assert LockfileManager.should_export(page) is True
 
+    def test_missing_output_file_should_export(self) -> None:
+        """A page whose output file no longer exists on disk should be re-exported."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            LockfileManager._output_path = output
+            LockfileManager._lock = ConfluenceLock(
+                pages={
+                    "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
+                }
+            )
+
+            # File does NOT exist on disk
+            page = _make_mock_page(page_id=123, version_number=5, export_path="space/Page A.md")
+            assert LockfileManager.should_export(page) is True
+
+    def test_existing_output_file_unchanged_should_not_export(self) -> None:
+        """A page whose output file exists and is up-to-date should NOT be re-exported."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            md_file = output / "space" / "Page A.md"
+            md_file.parent.mkdir(parents=True)
+            md_file.write_text("content")
+
+            LockfileManager._output_path = output
+            LockfileManager._lock = ConfluenceLock(
+                pages={
+                    "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
+                }
+            )
+
+            page = _make_mock_page(page_id=123, version_number=5, export_path="space/Page A.md")
+            assert LockfileManager.should_export(page) is False
+
 
 class TestLockfileManagerMarkSeen:
     """Test cases for LockfileManager.mark_seen."""

@@ -161,6 +161,10 @@ class LockfileManager:
         if page.version is None:
             return True
 
+        # Re-export if the output file is missing from disk
+        if cls._output_path is not None and not (cls._output_path / entry.export_path).exists():
+            return True
+
         # Export if version or export_path has changed
         return entry.version != page.version.number or entry.export_path != str(page.export_path)
 
