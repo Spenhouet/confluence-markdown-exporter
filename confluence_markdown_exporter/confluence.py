@@ -1000,6 +1000,63 @@ class Page(Document):
                 parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
 
+        def _normalize_unicode_whitespace(self, text: str) -> str:
+            r"""Normalize Unicode whitespace to regular spaces.
+
+            This fixes an issue where markdownify's chomp() function strips Unicode
+            whitespace characters (like \xa0 from &nbsp;) entirely, causing missing
+            spaces in markdown output.
+
+            Confluence often uses &nbsp; (non-breaking space, \xa0) inside inline
+            formatting tags like <em>&nbsp;text</em>. BeautifulSoup correctly converts
+            this to \xa0, but markdownify's chomp() doesn't preserve it, resulting in
+            output like "word*text*" instead of "word *text*".
+
+            This method normalizes all Unicode whitespace characters to regular ASCII
+            spaces so they are preserved by markdownify's chomp() function.
+
+            Args:
+                text: Text string to normalize
+
+            Returns:
+                Text with Unicode whitespace replaced by regular spaces
+            """
+            # Normalize all Unicode whitespace to regular space
+            # This includes: \xa0 (nbsp), \u2000-\u200a (various spaces),
+            # \u2028 (line separator), \u2029 (paragraph separator), etc.
+            # Keep \n, \r, \t as-is since they have semantic meaning
+            normalized = text
+            for char in text:
+                if char.isspace() and char not in " \n\r\t":
+                    # Replace Unicode whitespace with regular space
+                    normalized = normalized.replace(char, " ")
+            return normalized
+
+        def convert_em(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert <em> tags, preserving spaces from Unicode whitespace entities."""
+            text = self._normalize_unicode_whitespace(text)
+            return super().convert_em(el, text, parent_tags)
+
+        def convert_strong(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert <strong> tags, preserving spaces from Unicode whitespace entities."""
+            text = self._normalize_unicode_whitespace(text)
+            return super().convert_strong(el, text, parent_tags)
+
+        def convert_code(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert <code> tags, preserving spaces from Unicode whitespace entities."""
+            text = self._normalize_unicode_whitespace(text)
+            return super().convert_code(el, text, parent_tags)
+
+        def convert_i(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert <i> tags, preserving spaces from Unicode whitespace entities."""
+            text = self._normalize_unicode_whitespace(text)
+            return super().convert_i(el, text, parent_tags)
+
+        def convert_b(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert <b> tags, preserving spaces from Unicode whitespace entities."""
+            text = self._normalize_unicode_whitespace(text)
+            return super().convert_b(el, text, parent_tags)
+
         def _convert_drawio_embedded_mermaid(self, filename: str) -> str | None:
             """Extract mermaid diagram from DrawIO PNG preview image.
 
