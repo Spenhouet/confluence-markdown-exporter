@@ -21,7 +21,7 @@
 - Converts Confluence macros to equivalent Markdown syntax where possible.
 - Handles images and attachments by linking them appropriately in the Markdown output.
 - Supports extended Markdown features like tasks, alerts, and front matter.
-- Supports Confluence add-ons: [draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts), [PlantUML](https://marketplace.atlassian.com/apps/1222993/flowchart-plantuml-diagrams-for-confluence)
+- Supports Confluence add-ons: [draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts), [PlantUML](https://marketplace.atlassian.com/apps/1222993/flowchart-plantuml-diagrams-for-confluence), [Markdown Extensions](https://marketplace.atlassian.com/apps/1215703/markdown-extensions-for-confluence)
 
 ## Supported Markdown Elements
 
