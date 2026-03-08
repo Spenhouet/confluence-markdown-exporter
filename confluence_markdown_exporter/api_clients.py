@@ -73,15 +73,15 @@ def get_confluence_instance() -> ConfluenceApiSdk:
     """Get authenticated Confluence API client using current settings."""
     settings = get_settings()
     auth = settings.auth
-    connection_config = settings.connection_config.model_dump()
+    connection_config = settings.connection_config.model_dump(exclude={"use_v2_api"})
 
     while True:
         try:
             confluence = ApiClientFactory(connection_config).create_confluence(auth.confluence)
             break
-        except ConnectionError:
+        except ConnectionError as e:
             questionary.print(
-                "Confluence connection failed: Redirecting to Confluence authentication config...",
+                f"{e}\nRedirecting to Confluence authentication config...",
                 style="fg:red bold",
             )
             main_config_menu_loop("auth.confluence")
@@ -99,7 +99,7 @@ def get_jira_instance() -> JiraApiSdk:
     """Get authenticated Jira API client using current settings with required authentication."""
     settings = get_settings()
     auth = settings.auth
-    connection_config = settings.connection_config.model_dump()
+    connection_config = settings.connection_config.model_dump(exclude={"use_v2_api"})
 
     while True:
         try:
