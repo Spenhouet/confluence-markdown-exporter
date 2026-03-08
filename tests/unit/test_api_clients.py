@@ -157,7 +157,7 @@ class TestGetConfluenceInstance:
 
         assert result == mock_confluence
         mock_factory_class.assert_called_once_with(
-            sample_config_model.connection_config.model_dump()
+            sample_config_model.connection_config.model_dump(exclude={"use_v2_api"})
         )
         mock_factory.create_confluence.assert_called_once_with(sample_config_model.auth.confluence)
 
@@ -219,7 +219,7 @@ class TestGetJiraInstance:
 
         assert result == mock_jira
         mock_factory_class.assert_called_once_with(
-            sample_config_model.connection_config.model_dump()
+            sample_config_model.connection_config.model_dump(exclude={"use_v2_api"})
         )
         mock_factory.create_jira.assert_called_once_with(sample_config_model.auth.jira)
 
