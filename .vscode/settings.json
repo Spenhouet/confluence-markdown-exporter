@@ -7,7 +7,7 @@
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
   "python.analysis.typeCheckingMode": "standard",
-  "python.defaultInterpreterPath": ".venv/bin/python",
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
   "jupyter.notebookFileRoot": "${workspaceFolder}",
   "task.autoDetect": "off",
   "python.analysis.diagnosticSeverityOverrides": {
