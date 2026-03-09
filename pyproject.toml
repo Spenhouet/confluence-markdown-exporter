@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "confluence-markdown-exporter"
-version = "3.1.0"
+version = "3.2.0"
 description = "A tool to export Confluence pages to Markdown"
 keywords = ["confluence", "atlassian", "markdown", "export", "convertion", "download"]
 readme = "README.md"
