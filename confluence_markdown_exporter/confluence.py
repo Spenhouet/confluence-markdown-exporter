@@ -1009,7 +1009,7 @@ class Page(Document):
 
             return md
 
-        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901
             attachment = None
             if fid := el.get("data-media-id"):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
