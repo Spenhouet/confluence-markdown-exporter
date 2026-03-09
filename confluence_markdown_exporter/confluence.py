@@ -219,11 +219,17 @@ class Document(BaseModel):
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        homepage_id = ""
+        homepage_title = ""
+        if self.space.homepage:
+            homepage_id = str(self.space.homepage)
+            homepage_title = sanitize_filename(Page.from_id(self.space.homepage).title)
+
         return {
             "space_key": sanitize_filename(self.space.key),
             "space_name": sanitize_filename(self.space.name),
-            "homepage_id": str(self.space.homepage),
-            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title),
+            "homepage_id": homepage_id,
+            "homepage_title": homepage_title,
             "ancestor_ids": "/".join(str(a.id) for a in self.ancestors),
             "ancestor_titles": "/".join(sanitize_filename(a.title) for a in self.ancestors),
         }
@@ -1250,9 +1256,7 @@ class Page(Document):
 
             return None
 
-        def _extract_markdown_from_editor2(
-            self, macro_id: str
-        ) -> str | None:
+        def _extract_markdown_from_editor2(self, macro_id: str) -> str | None:
             """Extract markdown content from editor2 XML."""
             wrapped_editor2 = f"<root>{self.page.editor2}</root>"
             soup_editor2 = BeautifulSoup(wrapped_editor2, "xml")
