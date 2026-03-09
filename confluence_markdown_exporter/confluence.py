@@ -198,6 +198,7 @@ class Space(BaseModel):
         return [homepage, *homepage.descendants]
 
     def export(self) -> None:
+        """Export all pages in this space to Markdown."""
         export_pages(self.pages)
 
     @classmethod
@@ -1422,24 +1423,56 @@ def _export_page_worker(page: "Page | Descendant", use_thread_local: bool = Fals
         use_thread_local: If True, use thread-local Confluence instance
                          (required for parallel export).
     """
-    if use_thread_local:
-        # Use thread-local confluence instance for thread safety
-        global confluence  # noqa: PLW0603
-        old_confluence = confluence
-        confluence = get_thread_confluence()
+    # Retry configuration from settings
+    retry_config = settings.connection_config
+    max_retries = retry_config.max_backoff_retries if retry_config.backoff_and_retry else 0
+    backoff_factor = retry_config.backoff_factor
+    max_backoff = retry_config.max_backoff_seconds
+    retry_codes = retry_config.retry_status_codes
+
+    for attempt in range(max_retries + 1):
         try:
-            _page = Page.from_id(page.id)
-            _page.export()
-            # Record to lockfile if enabled
-            LockfileManager.record_page(_page)
-        finally:
-            confluence = old_confluence
-    else:
-        # Serial mode - use global confluence instance
-        _page = Page.from_id(page.id)
-        _page.export()
-        # Record to lockfile if enabled
-        LockfileManager.record_page(_page)
+            if use_thread_local:
+                # Use thread-local confluence instance for thread safety
+                global confluence  # noqa: PLW0603
+                old_confluence = confluence
+                confluence = get_thread_confluence()
+                try:
+                    _page = Page.from_id(page.id)
+                    _page.export()
+                    # Record to lockfile if enabled
+                    LockfileManager.record_page(_page)
+                finally:
+                    confluence = old_confluence
+            else:
+                # Serial mode - use global confluence instance
+                _page = Page.from_id(page.id)
+                _page.export()
+                # Record to lockfile if enabled
+                LockfileManager.record_page(_page)
+            # Success - exit retry loop
+            break
+
+        except HTTPError as e:
+            # Check if this is a retriable error
+            if e.response is not None and e.response.status_code in retry_codes:
+                if attempt < max_retries:
+                    # Calculate exponential backoff delay
+                    delay = min(backoff_factor**attempt, max_backoff)
+                    logger.warning(
+                        f"Rate limit/server error (HTTP {e.response.status_code}) "
+                        f"for page {page.id}. Retrying in {delay}s "
+                        f"(attempt {attempt + 1}/{max_retries + 1})"
+                    )
+                    import time
+
+                    time.sleep(delay)
+                    continue
+            # Non-retriable error or max retries exceeded - re-raise
+            raise
+        except Exception:
+            # Non-HTTP errors are not retried
+            raise
 
 
 def export_pages(pages: list["Page | Descendant"]) -> None:
@@ -1460,9 +1493,8 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
         logger.info("No pages to export based on lockfile state.")
         return
 
-    # Get worker count from config (will be available after commit bb78165 is applied)
-    # For now, use environment variable as fallback
-    max_workers = int(os.getenv("CONFLUENCE_EXPORT_WORKERS", "20"))
+    # Get worker count from config
+    max_workers = settings.connection_config.max_workers
 
     # Serial mode for debugging or single worker
     if max_workers <= 1:
