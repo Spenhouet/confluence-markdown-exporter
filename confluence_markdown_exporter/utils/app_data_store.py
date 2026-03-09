@@ -76,6 +76,15 @@ class ConnectionConfig(BaseModel):
             "Timeout in seconds for API requests. Prevents hanging on slow/unresponsive servers."
         ),
     )
+    use_v2_api: bool = Field(
+        default=False,
+        title="Use Confluence v2 REST API",
+        description=(
+            "Enable Confluence REST API v2 endpoints where available. "
+            "Supported by Atlassian Cloud and Confluence Data Center 8+. "
+            "Must be disabled for older self-hosted Confluence Server instances."
+        ),
+    )
 
 
 class ApiDetails(BaseModel):
@@ -244,6 +253,32 @@ class ExportConfig(BaseModel):
         description=(
             "Whether to include the document title in the exported markdown file. "
             "If enabled, the title will be added as a top-level heading."
+        ),
+    )
+    skip_unchanged: bool = Field(
+        default=True,
+        title="Skip Unchanged Pages",
+        description="Skip exporting pages that have not changed since last export.",
+    )
+    cleanup_stale: bool = Field(
+        default=True,
+        title="Cleanup Stale Files",
+        description=(
+            "After export, delete local files for pages that have been removed "
+            "from Confluence or whose export path has changed."
+        ),
+    )
+    lockfile_name: str = Field(
+        default="confluence-lock.json",
+        title="Lock File Name",
+        description="Name of the lock file used to track exported pages.",
+    )
+    existence_check_batch_size: int = Field(
+        default=250,
+        title="Existence Check Batch Size",
+        description=(
+            "Number of page IDs per batch when verifying page existence during cleanup. "
+            "For self-hosted Confluence (CQL), this is internally capped at 25."
         ),
     )
 
