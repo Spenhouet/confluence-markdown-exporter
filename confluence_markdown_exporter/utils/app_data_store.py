@@ -85,6 +85,15 @@ class ConnectionConfig(BaseModel):
             "Must be disabled for older self-hosted Confluence Server instances."
         ),
     )
+    max_workers: int = Field(
+        default=20,
+        title="Max Workers",
+        description=(
+            "Maximum number of parallel workers for page export. "
+            "Set to 1 for serial mode (useful for debugging). "
+            "Higher values improve performance but may hit API rate limits."
+        ),
+    )
 
 
 class ApiDetails(BaseModel):
