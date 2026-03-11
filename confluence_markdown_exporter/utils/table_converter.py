@@ -104,18 +104,24 @@ class TableConverter(MarkdownConverter):
         """This method is empty because we want a No-Op for the <tbody> tag."""
         return text
 
-    def convert_ol(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-        if "td" in parent_tags:
+    def _parent_tags(self, third_arg: list[str] | bool) -> list[str]:
+        """Normalize third convert_* argument: markdownify passes convert_as_inline (bool), we need list."""
+        return third_arg if isinstance(third_arg, list) else []
+
+    def convert_ol(self, el: BeautifulSoup, text: str, parent_tags: list[str] | bool) -> str:
+        tags = self._parent_tags(parent_tags)
+        if "td" in tags:
             return str(el)
         return super().convert_ol(el, text, parent_tags)
 
-    def convert_ul(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-        if "td" in parent_tags:
+    def convert_ul(self, el: BeautifulSoup, text: str, parent_tags: list[str] | bool) -> str:
+        tags = self._parent_tags(parent_tags)
+        if "td" in tags:
             return str(el)
         return super().convert_ul(el, text, parent_tags)
 
-    def convert_p(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+    def convert_p(self, el: BeautifulSoup, text: str, parent_tags: list[str] | bool) -> str:
         md = super().convert_p(el, text, parent_tags)
-        if "td" in parent_tags:
+        if "td" in self._parent_tags(parent_tags):
             md = md.replace("\n", "") + "<br/>"
         return md

@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import Annotated
@@ -18,6 +19,41 @@ DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 app = typer.Typer()
 
 
+def _setup_verbose_logging() -> None:
+    """Configure package logging to INFO with stderr output for progress visibility."""
+    pkg_logger = logging.getLogger("confluence_markdown_exporter")
+    pkg_logger.setLevel(logging.INFO)
+    if not pkg_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+        pkg_logger.addHandler(handler)
+
+
+@app.callback()
+def _main_callback(
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Show progress and timing (INFO logs). Use DEBUG=1 for more detail.",
+        ),
+    ] = False,
+    skip_jira_embeds: Annotated[
+        bool,
+        typer.Option(
+            "--skip-jira-embeds",
+            help="Skip embedded Jira content (macros, tables); output a placeholder instead.",
+        ),
+    ] = False,
+) -> None:
+    if verbose:
+        _setup_verbose_logging()
+    if skip_jira_embeds:
+        set_setting("export.skip_jira_embeds", True)
+
+
 def override_output_path_config(value: Path | None) -> None:
     """Override the default output path if provided."""
     if value is not None:
@@ -34,14 +70,19 @@ def pages(
         ),
     ] = None,
 ) -> None:
+    import logging
+
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
+    log = logging.getLogger("confluence_markdown_exporter")
     with measure(f"Export pages {', '.join(pages)}"):
         override_output_path_config(output_path)
         LockfileManager.init()
         for page in pages:
+            log.info("Resolving page: %s", page)
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
+            log.info("Exporting page: %s (id=%s)", _page.title, _page.id)
             _page.export()
             LockfileManager.record_page(_page)
         sync_removed_pages()
@@ -57,14 +98,19 @@ def pages_with_descendants(
         ),
     ] = None,
 ) -> None:
+    import logging
+
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
+    log = logging.getLogger("confluence_markdown_exporter")
     with measure(f"Export pages {', '.join(pages)} with descendants"):
         override_output_path_config(output_path)
         LockfileManager.init()
         for page in pages:
+            log.info("Resolving page: %s", page)
             _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
+            log.info("Exporting page and descendants: %s (id=%s)", _page.title, _page.id)
             _page.export_with_descendants()
         sync_removed_pages()
 
