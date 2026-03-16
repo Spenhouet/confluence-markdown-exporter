@@ -1,4 +1,4 @@
-"""Lock file handling for tracking exported Confluence pages."""
+"""Lock file handling for tracking exported Confluence pages and attachments."""
 
 from __future__ import annotations
 
@@ -16,12 +16,13 @@ from pydantic import Field
 from pydantic import ValidationError
 
 if TYPE_CHECKING:
+    from confluence_markdown_exporter.confluence import Attachment
     from confluence_markdown_exporter.confluence import Descendant
     from confluence_markdown_exporter.confluence import Page
 
 logger = logging.getLogger(__name__)
 
-LOCKFILE_VERSION = 1
+LOCKFILE_VERSION = 2
 
 
 class PageEntry(BaseModel):
@@ -32,16 +33,30 @@ class PageEntry(BaseModel):
     export_path: str
 
 
+class AttachmentEntry(BaseModel):
+    """Entry for a single attachment in the lock file."""
+
+    title: str
+    version: int
+    export_path: str
+    file_id: str
+
+
 class ConfluenceLock(BaseModel):
     """Lock file tracking exported Confluence data."""
 
     lockfile_version: int = Field(default=LOCKFILE_VERSION)
     last_export: str = Field(default="")
     pages: dict[str, PageEntry] = Field(default_factory=dict)
+    attachments: dict[str, AttachmentEntry] = Field(default_factory=dict)
 
     @classmethod
     def load(cls, lockfile_path: Path) -> ConfluenceLock:
-        """Load lock file from disk, or return empty if not exists."""
+        """Load lock file from disk, or return empty if not exists.
+
+        Handles v1 lockfiles (without attachments) gracefully by letting
+        Pydantic fill in the default empty dict.
+        """
         if lockfile_path.exists():
             try:
                 content = lockfile_path.read_text(encoding="utf-8")
@@ -50,7 +65,13 @@ class ConfluenceLock(BaseModel):
                 logger.warning(f"Failed to parse lock file: {lockfile_path}. Starting fresh.")
         return cls()
 
-    def save(self, lockfile_path: Path, *, delete_ids: set[str] | None = None) -> None:
+    def save(
+        self,
+        lockfile_path: Path,
+        *,
+        delete_ids: set[str] | None = None,
+        delete_attachment_ids: set[str] | None = None,
+    ) -> None:
         """Save lock file to disk.
 
         To handle concurrent writes, this method reads the existing lock file
@@ -61,10 +82,15 @@ class ConfluenceLock(BaseModel):
         # Read existing lock file and merge to handle concurrent writes
         existing = ConfluenceLock.load(lockfile_path)
         existing.pages = dict(sorted({**existing.pages, **self.pages}.items()))
+        existing.attachments = dict(sorted({**existing.attachments, **self.attachments}.items()))
         if delete_ids:
             for page_id in delete_ids:
                 existing.pages.pop(page_id, None)
+        if delete_attachment_ids:
+            for att_id in delete_attachment_ids:
+                existing.attachments.pop(att_id, None)
         existing.last_export = datetime.now(timezone.utc).isoformat()
+        existing.lockfile_version = LOCKFILE_VERSION
 
         json_str = json.dumps(existing.model_dump(), indent=2, ensure_ascii=False)
         tmp_path = None
@@ -86,6 +112,7 @@ class ConfluenceLock(BaseModel):
 
         # Update self to reflect merged state
         self.pages = existing.pages
+        self.attachments = existing.attachments
         self.last_export = existing.last_export
 
     def add_page(self, page: Page) -> None:
@@ -98,6 +125,19 @@ class ConfluenceLock(BaseModel):
             title=page.title,
             version=page.version.number,
             export_path=str(page.export_path),
+        )
+
+    def add_attachment(self, attachment: Attachment) -> None:
+        """Add or update an attachment entry in the lock file."""
+        if attachment.version is None:
+            logger.warning(f"Attachment {attachment.id} has no version info. Skipping lock entry.")
+            return
+
+        self.attachments[str(attachment.id)] = AttachmentEntry(
+            title=attachment.title,
+            version=attachment.version.number,
+            export_path=str(attachment.export_path),
+            file_id=attachment.file_id,
         )
 
 
@@ -136,6 +176,15 @@ class LockfileManager:
         cls._seen_page_ids.add(str(page.id))
 
     @classmethod
+    def record_attachment(cls, attachment: Attachment) -> None:
+        """Record an attachment export to the lock file."""
+        if cls._lock is None or cls._lockfile_path is None:
+            return
+
+        cls._lock.add_attachment(attachment)
+        cls._lock.save(cls._lockfile_path)
+
+    @classmethod
     def mark_seen(cls, page_ids: list[int]) -> None:
         """Mark page IDs as seen in the current export run.
 
@@ -167,6 +216,34 @@ class LockfileManager:
 
         # Export if version or export_path has changed
         return entry.version != page.version.number or entry.export_path != str(page.export_path)
+
+    @classmethod
+    def should_download_attachment(cls, attachment: Attachment) -> bool:
+        """Check if an attachment should be downloaded based on lockfile state.
+
+        Returns True if the attachment should be downloaded (not in lockfile or changed).
+        """
+        # When the lockfile is not active, always download
+        if cls._lock is None:
+            return True
+
+        att_id = str(attachment.id)
+
+        if att_id not in cls._lock.attachments:
+            return True
+
+        entry = cls._lock.attachments[att_id]
+        if attachment.version is None:
+            return True
+
+        # Re-download if the file is missing from disk
+        if cls._output_path is not None and not (cls._output_path / entry.export_path).exists():
+            return True
+
+        # Download if version or export_path has changed
+        return entry.version != attachment.version.number or entry.export_path != str(
+            attachment.export_path
+        )
 
     @classmethod
     def unseen_ids(cls) -> set[str]:

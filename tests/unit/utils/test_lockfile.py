@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from confluence_markdown_exporter.utils.lockfile import AttachmentEntry
 from confluence_markdown_exporter.utils.lockfile import ConfluenceLock
 from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.lockfile import PageEntry
@@ -27,6 +28,23 @@ def _make_mock_page(
     page.export_path = Path(export_path)
     page.title = f"Page {page_id}"
     return page
+
+
+def _make_mock_attachment(
+    attachment_id: str,
+    version_number: int,
+    export_path: str,
+    file_id: str = "",
+    title: str = "",
+) -> MagicMock:
+    """Create a mock attachment with the attributes used by LockfileManager."""
+    att = MagicMock()
+    att.id = attachment_id
+    att.version.number = version_number
+    att.export_path = Path(export_path)
+    att.file_id = file_id or f"fid-{attachment_id}"
+    att.title = title or f"Attachment {attachment_id}"
+    return att
 
 
 @pytest.fixture(autouse=True)
@@ -676,4 +694,467 @@ class TestConfluenceLockSaveSortsKeys:
             content = lockfile_path.read_text(encoding="utf-8")
             data = json.loads(content)
             keys = list(data.keys())
-            assert keys == ["lockfile_version", "last_export", "pages"]
+            assert keys == ["lockfile_version", "last_export", "pages", "attachments"]
+
+
+class TestAttachmentEntryModel:
+    """Test cases for the AttachmentEntry pydantic model."""
+
+    def test_attachment_entry_fields(self) -> None:
+        """AttachmentEntry stores title, version, export_path and file_id."""
+        entry = AttachmentEntry(
+            title="diagram.png",
+            version=3,
+            export_path="space/attachments/abc123.png",
+            file_id="abc123",
+        )
+        assert entry.title == "diagram.png"
+        assert entry.version == 3
+        assert entry.export_path == "space/attachments/abc123.png"
+        assert entry.file_id == "abc123"
+
+
+class TestConfluenceLockAttachments:
+    """Test cases for attachment handling in ConfluenceLock."""
+
+    def test_add_attachment(self) -> None:
+        """add_attachment stores version and export_path keyed by attachment ID."""
+        lock = ConfluenceLock()
+        att = _make_mock_attachment(
+            attachment_id="att-50",
+            version_number=2,
+            export_path="space/attachments/fid-att-50.png",
+            file_id="fid-att-50",
+        )
+
+        lock.add_attachment(att)
+
+        assert "att-50" in lock.attachments
+        entry = lock.attachments["att-50"]
+        assert entry.version == 2
+        assert entry.export_path == "space/attachments/fid-att-50.png"
+        assert entry.file_id == "fid-att-50"
+
+    def test_add_attachment_updates_existing(self) -> None:
+        """add_attachment overwrites an existing entry with the same ID."""
+        lock = ConfluenceLock(
+            attachments={
+                "att-50": AttachmentEntry(
+                    title="old.png", version=1, export_path="old.png", file_id="fid-50"
+                ),
+            }
+        )
+        att = _make_mock_attachment(
+            attachment_id="att-50",
+            version_number=2,
+            export_path="new.png",
+            file_id="fid-50",
+            title="new.png",
+        )
+
+        lock.add_attachment(att)
+
+        assert lock.attachments["att-50"].version == 2
+        assert lock.attachments["att-50"].title == "new.png"
+
+    def test_add_attachment_skips_none_version(self) -> None:
+        """add_attachment is a no-op when attachment.version is None."""
+        lock = ConfluenceLock()
+        att = MagicMock()
+        att.id = "att-50"
+        att.version = None
+
+        lock.add_attachment(att)
+
+        assert "att-50" not in lock.attachments
+
+    def test_save_and_load_round_trip_with_attachments(self) -> None:
+        """Attachments survive a save/load round-trip."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            lock = ConfluenceLock(
+                attachments={
+                    "att-1": AttachmentEntry(
+                        title="img.png",
+                        version=3,
+                        export_path="space/attachments/fid1.png",
+                        file_id="fid1",
+                    ),
+                }
+            )
+
+            lock.save(lockfile_path)
+            loaded = ConfluenceLock.load(lockfile_path)
+
+            assert "att-1" in loaded.attachments
+            assert loaded.attachments["att-1"].version == 3
+            assert loaded.attachments["att-1"].file_id == "fid1"
+
+    def test_save_sorts_attachment_keys(self) -> None:
+        """Attachment keys in the saved lockfile are sorted."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            lock = ConfluenceLock(
+                attachments={
+                    "z-att": AttachmentEntry(
+                        title="z.png", version=1, export_path="z.png", file_id="fz"
+                    ),
+                    "a-att": AttachmentEntry(
+                        title="a.png", version=1, export_path="a.png", file_id="fa"
+                    ),
+                    "m-att": AttachmentEntry(
+                        title="m.png", version=1, export_path="m.png", file_id="fm"
+                    ),
+                }
+            )
+
+            lock.save(lockfile_path)
+
+            content = lockfile_path.read_text(encoding="utf-8")
+            data = json.loads(content)
+            att_ids = list(data["attachments"].keys())
+            assert att_ids == ["a-att", "m-att", "z-att"]
+
+    def test_save_with_delete_attachment_ids(self) -> None:
+        """Save removes attachment entries specified in delete_attachment_ids."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            lock = ConfluenceLock(
+                attachments={
+                    "att-1": AttachmentEntry(
+                        title="a.png", version=1, export_path="a.png", file_id="f1"
+                    ),
+                    "att-2": AttachmentEntry(
+                        title="b.png", version=1, export_path="b.png", file_id="f2"
+                    ),
+                }
+            )
+
+            lock.save(lockfile_path, delete_attachment_ids={"att-1"})
+
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            assert "att-1" not in saved["attachments"]
+            assert "att-2" in saved["attachments"]
+
+    def test_load_v1_lockfile_without_attachments(self) -> None:
+        """A v1 lockfile (no attachments key) loads with an empty attachments dict."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            v1_data = {
+                "lockfile_version": 1,
+                "last_export": "2025-01-01T00:00:00+00:00",
+                "pages": {
+                    "100": {
+                        "title": "Page A",
+                        "version": 3,
+                        "export_path": "space/Page A.md",
+                    }
+                },
+            }
+            lockfile_path.write_text(json.dumps(v1_data), encoding="utf-8")
+
+            loaded = ConfluenceLock.load(lockfile_path)
+
+            assert "100" in loaded.pages
+            assert loaded.pages["100"].version == 3
+            assert loaded.attachments == {}
+
+    def test_save_upgrades_lockfile_version(self) -> None:
+        """Saving a lock loaded from v1 upgrades lockfile_version to 2."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            v1_data = {
+                "lockfile_version": 1,
+                "last_export": "",
+                "pages": {},
+            }
+            lockfile_path.write_text(json.dumps(v1_data), encoding="utf-8")
+
+            lock = ConfluenceLock.load(lockfile_path)
+            lock.save(lockfile_path)
+
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            assert saved["lockfile_version"] == 2
+            assert "attachments" in saved
+
+
+class TestLockfileManagerRecordAttachment:
+    """Test cases for LockfileManager.record_attachment."""
+
+    def test_record_attachment_creates_entry(self) -> None:
+        """record_attachment writes the attachment entry to the lockfile."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / LOCKFILE_FILENAME
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._lock = ConfluenceLock()
+
+            att = _make_mock_attachment(
+                attachment_id="att-10",
+                version_number=2,
+                export_path="space/attachments/fid-att-10.png",
+            )
+            LockfileManager.record_attachment(att)
+
+            assert lockfile_path.exists()
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            assert "att-10" in saved["attachments"]
+            assert saved["attachments"]["att-10"]["version"] == 2
+
+    def test_record_attachment_does_nothing_when_not_initialized(self) -> None:
+        """record_attachment is a no-op when LockfileManager has not been initialized."""
+        att = _make_mock_attachment(
+            attachment_id="att-10",
+            version_number=2,
+            export_path="space/attachments/fid.png",
+        )
+        # Should not raise
+        LockfileManager.record_attachment(att)
+
+    def test_record_attachment_updates_existing_entry(self) -> None:
+        """record_attachment updates an existing attachment entry with the new version."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / LOCKFILE_FILENAME
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._lock = ConfluenceLock(
+                attachments={
+                    "att-10": AttachmentEntry(
+                        title="img.png",
+                        version=1,
+                        export_path="space/attachments/fid.png",
+                        file_id="fid",
+                    ),
+                }
+            )
+
+            att = _make_mock_attachment(
+                attachment_id="att-10",
+                version_number=3,
+                export_path="space/attachments/fid.png",
+                file_id="fid",
+            )
+            LockfileManager.record_attachment(att)
+
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            assert saved["attachments"]["att-10"]["version"] == 3
+
+
+class TestLockfileManagerShouldDownloadAttachment:
+    """Test cases for LockfileManager.should_download_attachment."""
+
+    def test_attachment_not_in_lockfile_should_download(self) -> None:
+        """An attachment not present in the lockfile should be downloaded."""
+        LockfileManager._lock = ConfluenceLock(attachments={})
+
+        att = _make_mock_attachment(
+            attachment_id="att-10",
+            version_number=1,
+            export_path="space/attachments/fid.png",
+        )
+        assert LockfileManager.should_download_attachment(att) is True
+
+    def test_attachment_same_version_same_path_should_not_download(self) -> None:
+        """An attachment with same version and same path should NOT be downloaded."""
+        LockfileManager._lock = ConfluenceLock(
+            attachments={
+                "att-10": AttachmentEntry(
+                    title="img.png",
+                    version=5,
+                    export_path="space/attachments/fid.png",
+                    file_id="fid",
+                ),
+            }
+        )
+
+        att = _make_mock_attachment(
+            attachment_id="att-10",
+            version_number=5,
+            export_path="space/attachments/fid.png",
+        )
+        assert LockfileManager.should_download_attachment(att) is False
+
+    def test_attachment_different_version_should_download(self) -> None:
+        """An attachment whose version has changed should be downloaded."""
+        LockfileManager._lock = ConfluenceLock(
+            attachments={
+                "att-10": AttachmentEntry(
+                    title="img.png",
+                    version=5,
+                    export_path="space/attachments/fid.png",
+                    file_id="fid",
+                ),
+            }
+        )
+
+        att = _make_mock_attachment(
+            attachment_id="att-10",
+            version_number=6,
+            export_path="space/attachments/fid.png",
+        )
+        assert LockfileManager.should_download_attachment(att) is True
+
+    def test_attachment_different_export_path_should_download(self) -> None:
+        """An attachment whose export path changed should be re-downloaded."""
+        LockfileManager._lock = ConfluenceLock(
+            attachments={
+                "att-10": AttachmentEntry(
+                    title="img.png",
+                    version=5,
+                    export_path="old/fid.png",
+                    file_id="fid",
+                ),
+            }
+        )
+
+        att = _make_mock_attachment(
+            attachment_id="att-10",
+            version_number=5,
+            export_path="new/fid.png",
+        )
+        assert LockfileManager.should_download_attachment(att) is True
+
+    def test_lock_is_none_should_download(self) -> None:
+        """When lockfile manager is not initialized, all attachments should be downloaded."""
+        assert LockfileManager._lock is None
+
+        att = _make_mock_attachment(
+            attachment_id="att-10",
+            version_number=1,
+            export_path="space/attachments/fid.png",
+        )
+        assert LockfileManager.should_download_attachment(att) is True
+
+    def test_missing_file_on_disk_should_download(self) -> None:
+        """An attachment whose file no longer exists on disk should be re-downloaded."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            LockfileManager._output_path = output
+            LockfileManager._lock = ConfluenceLock(
+                attachments={
+                    "att-10": AttachmentEntry(
+                        title="img.png",
+                        version=5,
+                        export_path="space/attachments/fid.png",
+                        file_id="fid",
+                    ),
+                }
+            )
+
+            # File does NOT exist on disk
+            att = _make_mock_attachment(
+                attachment_id="att-10",
+                version_number=5,
+                export_path="space/attachments/fid.png",
+            )
+            assert LockfileManager.should_download_attachment(att) is True
+
+    def test_existing_file_unchanged_should_not_download(self) -> None:
+        """An attachment whose file exists and is up-to-date should NOT be re-downloaded."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            att_file = output / "space" / "attachments" / "fid.png"
+            att_file.parent.mkdir(parents=True)
+            att_file.write_bytes(b"PNG data")
+
+            LockfileManager._output_path = output
+            LockfileManager._lock = ConfluenceLock(
+                attachments={
+                    "att-10": AttachmentEntry(
+                        title="img.png",
+                        version=5,
+                        export_path="space/attachments/fid.png",
+                        file_id="fid",
+                    ),
+                }
+            )
+
+            att = _make_mock_attachment(
+                attachment_id="att-10",
+                version_number=5,
+                export_path="space/attachments/fid.png",
+            )
+            assert LockfileManager.should_download_attachment(att) is False
+
+    def test_version_none_should_download(self) -> None:
+        """An attachment with version=None should always be downloaded."""
+        LockfileManager._lock = ConfluenceLock(
+            attachments={
+                "att-10": AttachmentEntry(
+                    title="img.png",
+                    version=5,
+                    export_path="space/attachments/fid.png",
+                    file_id="fid",
+                ),
+            }
+        )
+
+        att = MagicMock()
+        att.id = "att-10"
+        att.version = None
+        att.export_path = Path("space/attachments/fid.png")
+        assert LockfileManager.should_download_attachment(att) is True
+
+
+class TestLockfileManagerInitWithAttachments:
+    """Test cases for LockfileManager.init with attachment state."""
+
+    @patch("confluence_markdown_exporter.utils.app_data_store.get_settings")
+    def test_init_loads_existing_attachments(
+        self,
+        mock_get_settings: MagicMock,
+    ) -> None:
+        """init() loads attachment entries from an existing lockfile."""
+        with tempfile.TemporaryDirectory() as tmp:
+            mock_get_settings.return_value.export.output_path = Path(tmp)
+            mock_get_settings.return_value.export.lockfile_name = LOCKFILE_FILENAME
+            mock_get_settings.return_value.export.skip_unchanged = True
+            lockfile_path = Path(tmp) / LOCKFILE_FILENAME
+            data = {
+                "lockfile_version": 2,
+                "last_export": "2025-01-01T00:00:00+00:00",
+                "pages": {},
+                "attachments": {
+                    "att-1": {
+                        "title": "img.png",
+                        "version": 4,
+                        "export_path": "space/attachments/fid1.png",
+                        "file_id": "fid1",
+                    }
+                },
+            }
+            lockfile_path.write_text(json.dumps(data), encoding="utf-8")
+
+            LockfileManager.init()
+
+            assert LockfileManager._lock is not None
+            assert "att-1" in LockfileManager._lock.attachments
+            assert LockfileManager._lock.attachments["att-1"].version == 4
+
+    @patch("confluence_markdown_exporter.utils.app_data_store.get_settings")
+    def test_init_with_v1_lockfile_gets_empty_attachments(
+        self,
+        mock_get_settings: MagicMock,
+    ) -> None:
+        """init() with a v1 lockfile (no attachments) starts with empty attachment dict."""
+        with tempfile.TemporaryDirectory() as tmp:
+            mock_get_settings.return_value.export.output_path = Path(tmp)
+            mock_get_settings.return_value.export.lockfile_name = LOCKFILE_FILENAME
+            mock_get_settings.return_value.export.skip_unchanged = True
+            lockfile_path = Path(tmp) / LOCKFILE_FILENAME
+            v1_data = {
+                "lockfile_version": 1,
+                "last_export": "",
+                "pages": {
+                    "100": {
+                        "title": "A",
+                        "version": 1,
+                        "export_path": "a.md",
+                    }
+                },
+            }
+            lockfile_path.write_text(json.dumps(v1_data), encoding="utf-8")
+
+            LockfileManager.init()
+
+            assert LockfileManager._lock is not None
+            assert LockfileManager._lock.attachments == {}
+            assert "100" in LockfileManager._lock.pages

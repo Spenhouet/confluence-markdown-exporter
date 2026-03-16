@@ -322,9 +322,10 @@ class Attachment(Document):
         return attachments
 
     def export(self) -> None:
-        filepath = settings.export.output_path / self.export_path
-        if filepath.exists():
+        if not LockfileManager.should_download_attachment(self):
             return
+
+        filepath = settings.export.output_path / self.export_path
 
         try:
             response = confluence._session.get(
@@ -343,6 +344,7 @@ class Attachment(Document):
             filepath,
             response.content,
         )
+        LockfileManager.record_attachment(self)
 
 
 class Ancestor(Document):
