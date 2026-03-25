@@ -3,7 +3,6 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
-from enum import verify
 import functools
 import json
 import logging
