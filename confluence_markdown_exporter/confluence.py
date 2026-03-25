@@ -3,6 +3,7 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+from enum import verify
 import functools
 import json
 import logging
@@ -330,6 +331,7 @@ class Attachment(Document):
             response = confluence._session.get(
                 str(confluence.url + self.download_link),
                 timeout=settings.connection_config.timeout,
+                verify=settings.connection_config.verify_ssl,
             )
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
