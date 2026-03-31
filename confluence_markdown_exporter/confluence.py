@@ -327,10 +327,11 @@ class Attachment(Document):
             return
 
         try:
-            response = confluence._session.get(
-                str(confluence.url + self.download_link),
-                timeout=settings.connection_config.timeout,
-                verify=settings.connection_config.verify_ssl,
+            response = confluence.request(
+                method="GET",
+                path=confluence.url + self.download_link,
+                absolute=True,
+                advanced_mode=True,
             )
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
