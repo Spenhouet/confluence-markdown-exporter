@@ -272,6 +272,45 @@ def _prompt_for_new_value(  # noqa: PLR0911
     return _prompt_str(prompt_message, current_value, model, key_name)
 
 
+_AUTH_CREDENTIAL_FIELDS = {"username", "api_token", "pat"}
+
+
+def _maybe_sync_auth_change(
+    full_path: str, key: str, value_cast: object, previous_value: object
+) -> None:
+    """After changing a Confluence or Jira auth credential, sync the change to the other service."""
+    if key not in _AUTH_CREDENTIAL_FIELDS:
+        return
+
+    if full_path.startswith("auth.confluence."):
+        other_service = "Jira"
+        other_prefix = "auth.jira"
+    elif full_path.startswith("auth.jira."):
+        other_service = "Confluence"
+        other_prefix = "auth.confluence"
+    else:
+        return
+
+    # Only ask when replacing an existing (non-empty) value
+    if isinstance(previous_value, SecretStr):
+        if not previous_value.get_secret_value():
+            return
+    elif not previous_value:
+        return
+
+    should_sync = questionary.confirm(
+        f"Also apply this {key} change to the {other_service} authentication config?",
+        default=True,
+        style=custom_style,
+    ).ask()
+    if should_sync:
+        try:
+            set_setting(f"{other_prefix}.{key}", value_cast)
+            questionary.print(f"{other_prefix}.{key} updated to match.")
+        except (ValueError, TypeError) as e:
+            questionary.print(f"Could not sync to {other_service}: {e}")
+
+
 def _reset_and_reload(parent_key: str | None, display_title: str | None = None) -> None:
     """Reset config (whole or section) and reload config_dict from disk, with confirmation."""
     if parent_key is None:
@@ -391,6 +430,12 @@ def _edit_dict_config_loop(  # noqa: C901, PLR0912
                         set_setting(f"{parent_key}.{key}" if parent_key else key, value_cast)
                         config_dict[key] = value_cast
                         questionary.print(f"{parent_key}.{key} updated to {value_cast}.")
+                        _maybe_sync_auth_change(
+                            f"{parent_key}.{key}" if parent_key else key,
+                            key,
+                            value_cast,
+                            current_value,
+                        )
                         selected_key = key
                         break
                     except (ValueError, TypeError) as e:

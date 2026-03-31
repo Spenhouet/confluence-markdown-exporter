@@ -20,6 +20,20 @@ DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 logger = logging.getLogger(__name__)
 
 
+class JiraAuthenticationError(Exception):
+    """Raised when a Jira API response indicates an authentication failure."""
+
+
+def _jira_auth_failure_hook(
+    response: requests.Response, *_args: object, **_kwargs: object
+) -> requests.Response:
+    """Raise JiraAuthenticationError when Jira signals authentication failure."""
+    if response.headers.get("X-Seraph-Loginreason") == "AUTHENTICATED_FAILED":
+        msg = f"Jira authentication failed for request to {response.url}"
+        raise JiraAuthenticationError(msg)
+    return response
+
+
 def response_hook(
     response: requests.Response, *_args: object, **_kwargs: object
 ) -> requests.Response:
@@ -126,7 +140,19 @@ def get_jira_instance() -> JiraApiSdk:
             settings = get_settings()
             auth = settings.auth
 
+    jira.session.hooks["response"].append(_jira_auth_failure_hook)
+
     if DEBUG:
-        jira.session.hooks["response"] = [response_hook]
+        jira.session.hooks["response"].append(response_hook)
 
     return jira
+
+
+def handle_jira_auth_failure() -> None:
+    """Handle a Jira authentication failure: open the Jira auth config dialog."""
+    questionary.print(
+        "Jira authentication failed.\nRedirecting to Jira authentication config...",
+        style="fg:red bold",
+    )
+    get_jira_instance.cache_clear()
+    main_config_menu_loop("auth.jira")

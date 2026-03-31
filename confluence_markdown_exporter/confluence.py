@@ -32,8 +32,10 @@ from requests import HTTPError
 from requests import RequestException
 from tqdm import tqdm
 
+from confluence_markdown_exporter.api_clients import JiraAuthenticationError
 from confluence_markdown_exporter.api_clients import get_confluence_instance
 from confluence_markdown_exporter.api_clients import get_jira_instance
+from confluence_markdown_exporter.api_clients import handle_jira_auth_failure
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
@@ -72,8 +74,18 @@ class JiraIssue(BaseModel):
         )
 
     @classmethod
-    @functools.lru_cache(maxsize=100)
     def from_key(cls, issue_key: str) -> "JiraIssue":
+        """Fetch a Jira issue by key, reopening the auth dialog on authentication failure."""
+        while True:
+            try:
+                return cls._fetch_cached(issue_key)
+            except JiraAuthenticationError:
+                handle_jira_auth_failure()
+                cls._fetch_cached.cache_clear()
+
+    @classmethod
+    @functools.lru_cache(maxsize=100)
+    def _fetch_cached(cls, issue_key: str) -> "JiraIssue":
         issue_data = cast("JsonResponse", get_jira_instance().get_issue(issue_key))
         return cls.from_json(issue_data)
 
@@ -327,9 +339,11 @@ class Attachment(Document):
             return
 
         try:
-            response = confluence._session.get(
-                str(confluence.url + self.download_link),
-                timeout=settings.connection_config.timeout,
+            response = confluence.request(
+                method="GET",
+                path=confluence.url + self.download_link,
+                absolute=True,
+                advanced_mode=True,
             )
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
