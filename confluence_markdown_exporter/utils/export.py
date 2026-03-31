@@ -74,6 +74,9 @@ def sanitize_filename(filename: str) -> str:
     """
     sanitized = filename
 
+    # Strip control characters (ASCII 0x00-0x1F, 0x7F) invalid on Windows/Linux
+    sanitized = re.sub(r'[\x00-\x1f\x7f]', '', sanitized)
+
     if export_options.filename_encoding:
         encode_map = parse_encode_setting(export_options.filename_encoding)
 

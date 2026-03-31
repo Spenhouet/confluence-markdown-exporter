@@ -186,6 +186,24 @@ class TestSanitizeFilename:
         # Character replacements happen first, then rstrip of spaces and dots
         assert result == "My_Document__What__How___._"
 
+    @patch("confluence_markdown_exporter.utils.export.export_options")
+    def test_control_characters_removed(self, mock_export_options: MagicMock) -> None:
+        """Control characters (e.g. backspace \\x08) should be stripped."""
+        mock_export_options.filename_encoding = ""
+        mock_export_options.filename_length = 255
+
+        result = sanitize_filename("on-pr\x08emise")
+        assert result == "on-premise"
+
+    @patch("confluence_markdown_exporter.utils.export.export_options")
+    def test_multiple_control_characters(self, mock_export_options: MagicMock) -> None:
+        """Multiple control characters should all be stripped."""
+        mock_export_options.filename_encoding = ""
+        mock_export_options.filename_length = 255
+
+        result = sanitize_filename("test\x00\x08\x1fname")
+        assert result == "testname"
+
 
 class TestSanitizeKey:
     """Test cases for sanitize_key function."""
