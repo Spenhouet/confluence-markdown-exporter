@@ -85,6 +85,11 @@ Export all Confluence pages of Spaces by URLs:
 cme spaces <space-url> --output-path <output path e.g. ./output_path/>
 ```
 
+Supported space URL formats:
+- Confluence Cloud: <https://company.atlassian.net/wiki/spaces/SPACEKEY>
+- Confluence Server (long): <https://company.atlassian.net/display/SPACEKEY>
+- Confluence Server (short): <https://company.atlassian.net/SPACEKEY>
+
 #### 2.4. Export all Spaces of Organization(s)
 
 Export all Confluence pages across all spaces of organization(s) by URL(s):
