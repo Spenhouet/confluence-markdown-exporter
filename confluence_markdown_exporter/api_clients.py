@@ -1,7 +1,6 @@
 import logging
 import os
 from functools import lru_cache
-from typing import Any
 
 import questionary
 import requests
@@ -10,6 +9,7 @@ from atlassian import Jira as JiraApiSdk
 from questionary import Style
 
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
+from confluence_markdown_exporter.utils.app_data_store import AtlassianSdkConnectionConfig
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
@@ -35,8 +35,12 @@ def response_hook(
 class ApiClientFactory:
     """Factory for creating authenticated Confluence and Jira API clients with retry config."""
 
-    def __init__(self, connection_config: dict[str, Any]) -> None:
-        self.connection_config = connection_config
+    def __init__(self, connection_config: AtlassianSdkConnectionConfig) -> None:
+        # Reconstruct as the base SDK type so model_dump() only yields SDK-compatible fields,
+        # even when a ConnectionConfig subclass is passed.
+        self.connection_config = AtlassianSdkConnectionConfig.model_validate(
+            connection_config.model_dump()
+        )
 
     def create_confluence(self, auth: ApiDetails) -> ConfluenceApiSdk:
         try:
@@ -45,7 +49,7 @@ class ApiClientFactory:
                 username=auth.username.get_secret_value() if auth.api_token else None,
                 password=auth.api_token.get_secret_value() if auth.api_token else None,
                 token=auth.pat.get_secret_value() if auth.pat else None,
-                **self.connection_config,
+                **self.connection_config.model_dump(),
             )
             instance.get_all_spaces(limit=1)
         except Exception as e:
@@ -60,7 +64,7 @@ class ApiClientFactory:
                 username=auth.username.get_secret_value() if auth.api_token else None,
                 password=auth.api_token.get_secret_value() if auth.api_token else None,
                 token=auth.pat.get_secret_value() if auth.pat else None,
-                **self.connection_config,
+                **self.connection_config.model_dump(),
             )
             instance.get_all_projects()
         except Exception as e:
@@ -73,11 +77,12 @@ def get_confluence_instance() -> ConfluenceApiSdk:
     """Get authenticated Confluence API client using current settings."""
     settings = get_settings()
     auth = settings.auth
-    connection_config = settings.connection_config.model_dump(exclude={"use_v2_api"})
 
     while True:
         try:
-            confluence = ApiClientFactory(connection_config).create_confluence(auth.confluence)
+            confluence = ApiClientFactory(settings.connection_config).create_confluence(
+                auth.confluence
+            )
             break
         except ConnectionError as e:
             questionary.print(
@@ -99,11 +104,10 @@ def get_jira_instance() -> JiraApiSdk:
     """Get authenticated Jira API client using current settings with required authentication."""
     settings = get_settings()
     auth = settings.auth
-    connection_config = settings.connection_config.model_dump(exclude={"use_v2_api"})
 
     while True:
         try:
-            jira = ApiClientFactory(connection_config).create_jira(auth.jira)
+            jira = ApiClientFactory(settings.connection_config).create_jira(auth.jira)
             break
         except ConnectionError:
             # Ask if user wants to use Confluence credentials for Jira
