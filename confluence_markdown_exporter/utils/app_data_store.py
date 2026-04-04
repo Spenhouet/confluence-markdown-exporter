@@ -241,6 +241,17 @@ def _looks_like_url_keyed(d: dict) -> bool:
 class ExportConfig(BaseModel):
     """Export settings for markdown and attachments."""
 
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(
+        default="INFO",
+        title="Log Level",
+        description=(
+            "Controls how much output the exporter prints. "
+            "DEBUG shows every step, INFO shows key milestones, "
+            "WARNING shows only warnings and errors, ERROR shows only errors. "
+            "In CI environments (CI=true / NO_COLOR set) rich formatting is suppressed "
+            "automatically."
+        ),
+    )
     output_path: Path = Field(
         default=Path(),
         title="Output Path",

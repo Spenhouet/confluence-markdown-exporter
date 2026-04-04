@@ -32,7 +32,14 @@ from markdownify import MarkdownConverter
 from pydantic import BaseModel
 from requests import HTTPError
 from requests import RequestException
-from tqdm import tqdm
+from rich.progress import BarColumn
+from rich.progress import MofNCompleteColumn
+from rich.progress import Progress
+from rich.progress import SpinnerColumn
+from rich.progress import TaskProgressColumn
+from rich.progress import TextColumn
+from rich.progress import TimeElapsedColumn
+from rich.progress import TimeRemainingColumn
 
 from confluence_markdown_exporter.api_clients import JiraAuthenticationError
 from confluence_markdown_exporter.api_clients import get_confluence_instance
@@ -45,6 +52,9 @@ from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
 from confluence_markdown_exporter.utils.lockfile import LockfileManager
+from confluence_markdown_exporter.utils.rich_console import ExportStats
+from confluence_markdown_exporter.utils.rich_console import console
+from confluence_markdown_exporter.utils.rich_console import reset_stats
 from confluence_markdown_exporter.utils.table_converter import TableConverter
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
@@ -1529,18 +1539,41 @@ def sync_removed_pages(base_url: str) -> None:
 
     unseen = LockfileManager.unseen_ids()
     deleted = fetch_deleted_page_ids(sorted(unseen), base_url) if unseen else set()
+    if deleted:
+        logger.info("Removing %d stale page(s) from local export.", len(deleted))
     LockfileManager.remove_pages(deleted)
 
 
-def _export_page_worker(page: "Page | Descendant") -> None:
+def _make_progress() -> Progress:
+    """Build a rich Progress instance for page export."""
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        transient=False,
+    )
+
+
+def _export_page_worker(page: "Page | Descendant", stats: ExportStats | None = None) -> None:
     """Export a single Confluence page to Markdown (worker function).
 
     Each page carries its own ``base_url`` so the correct thread-local client
     is used automatically — no global state manipulation needed.
+
+    Args:
+        page: The page to export.
+        stats: Optional stats tracker to update on completion.
     """
     _page = Page.from_id(page.id, page.base_url)
     _page.export()
     LockfileManager.record_page(_page)
+    if stats is not None:
+        stats.inc_exported()
 
 
 def export_pages(pages: list["Page | Descendant"]) -> None:
@@ -1557,35 +1590,50 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
     LockfileManager.mark_seen([p.id for p in pages])
     pages_to_export = [page for page in pages if LockfileManager.should_export(page)]
 
+    skipped_count = len(pages) - len(pages_to_export)
+    stats = reset_stats(total=len(pages))
+    for _ in range(skipped_count):
+        stats.inc_skipped()
+
     if not pages_to_export:
-        logger.info("No pages to export based on lockfile state.")
+        logger.info("All %d page(s) unchanged — nothing to export.", len(pages))
         return
 
     # Get worker count from config
     max_workers = settings.connection_config.max_workers
+    serial = DEBUG or max_workers <= 1
 
-    # Serial mode for debugging or single worker
-    if DEBUG or max_workers <= 1:
-        logger.info("Using serial export mode (max_workers=1)")
-        for page in (pbar := tqdm(pages_to_export, smoothing=0.05)):
-            pbar.set_postfix_str(f"Exporting page {page.id}")
-            _export_page_worker(page)
-        return
+    mode_label = "serial" if serial else f"parallel ({max_workers} workers)"
+    logger.debug("Export mode: %s, pages to export: %d", mode_label, len(pages_to_export))
 
-    # Parallel mode
-    logger.info(f"Using parallel export mode ({max_workers} workers)")
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all export tasks
-        futures = {executor.submit(_export_page_worker, page): page for page in pages_to_export}
+    with _make_progress() as progress:
+        task = progress.add_task(
+            f"[cyan]Exporting {len(pages_to_export)} page(s)[/cyan]",
+            total=len(pages_to_export),
+        )
 
-        # Track progress with tqdm
-        with tqdm(total=len(pages_to_export), smoothing=0.05) as pbar:
-            for future in as_completed(futures):
-                page = futures[future]
+        if serial:
+            for page in pages_to_export:
+                progress.update(task, description=f"[cyan]Page {page.id}[/cyan]")
                 try:
-                    future.result()  # Raise exception if export failed
-                    pbar.set_postfix_str(f"Completed page {page.id}")
+                    _export_page_worker(page, stats)
                 except Exception:
-                    logger.exception(f"Failed to export page {page.id}")
+                    logger.exception("Failed to export page %s", page.id)
+                    stats.inc_failed()
                 finally:
-                    pbar.update(1)
+                    progress.advance(task)
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(_export_page_worker, page, stats): page
+                    for page in pages_to_export
+                }
+                for future in as_completed(futures):
+                    page = futures[future]
+                    try:
+                        future.result()
+                    except Exception:
+                        logger.exception("Failed to export page %s", page.id)
+                        stats.inc_failed()
+                    finally:
+                        progress.advance(task)
