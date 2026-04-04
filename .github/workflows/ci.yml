@@ -42,7 +42,7 @@ jobs:
       - name: Test CLI commands
         run: |
           uv run --with dist/*.whl --no-project confluence-markdown-exporter --help
-          uv run --with dist/*.whl --no-project cf-export --help
+          uv run --with dist/*.whl --no-project cme --help
 
       - name: Upload build artifacts for inspection
         uses: actions/upload-artifact@v7
