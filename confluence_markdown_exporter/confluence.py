@@ -33,10 +33,13 @@ from markdownify import ATX
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
 from requests import HTTPError
+from requests import RequestException
 from tqdm import tqdm
 
+from confluence_markdown_exporter.api_clients import JiraAuthenticationError
 from confluence_markdown_exporter.api_clients import get_confluence_instance
 from confluence_markdown_exporter.api_clients import get_jira_instance
+from confluence_markdown_exporter.api_clients import handle_jira_auth_failure
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
@@ -92,8 +95,18 @@ class JiraIssue(BaseModel):
         )
 
     @classmethod
-    @functools.lru_cache(maxsize=100)
     def from_key(cls, issue_key: str) -> "JiraIssue":
+        """Fetch a Jira issue by key, reopening the auth dialog on authentication failure."""
+        while True:
+            try:
+                return cls._fetch_cached(issue_key)
+            except JiraAuthenticationError:
+                handle_jira_auth_failure()
+                cls._fetch_cached.cache_clear()
+
+    @classmethod
+    @functools.lru_cache(maxsize=100)
+    def _fetch_cached(cls, issue_key: str) -> "JiraIssue":
         issue_data = cast("JsonResponse", get_jira_instance().get_issue(issue_key))
         return cls.from_json(issue_data)
 
@@ -240,11 +253,17 @@ class Document(BaseModel):
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        homepage_id = ""
+        homepage_title = ""
+        if self.space.homepage:
+            homepage_id = str(self.space.homepage)
+            homepage_title = sanitize_filename(Page.from_id(self.space.homepage).title)
+
         return {
             "space_key": sanitize_filename(self.space.key),
             "space_name": sanitize_filename(self.space.name),
-            "homepage_id": str(self.space.homepage),
-            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title),
+            "homepage_id": homepage_id,
+            "homepage_title": homepage_title,
             "ancestor_ids": "/".join(str(a.id) for a in self.ancestors),
             "ancestor_titles": "/".join(sanitize_filename(a.title) for a in self.ancestors),
         }
@@ -342,10 +361,18 @@ class Attachment(Document):
             return
 
         try:
-            response = confluence._session.get(str(confluence.url + self.download_link))
+            response = confluence.request(
+                method="GET",
+                path=confluence.url + self.download_link,
+                absolute=True,
+                advanced_mode=True,
+            )
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
             logger.warning(f"There is no attachment with title '{self.title}'. Skipping export.")
+            return
+        except RequestException as e:
+            logger.warning(f"Failed to download attachment '{self.title}': {e}. Skipping.")
             return
 
         save_file(
@@ -567,6 +594,19 @@ class Page(Document):
     @classmethod
     @functools.lru_cache(maxsize=1000)
     def from_id(cls, page_id: int) -> "Page":
+        if page_id is None:
+            logger.warning("Page ID is None, skipping")
+            return cls(
+                id=0,
+                title="Page not accessible",
+                space=Space(key="", name="", description="", homepage=0),
+                body="",
+                body_export="",
+                editor2="",
+                labels=[],
+                attachments=[],
+                ancestors=[],
+            )
         try:
             return cls.from_json(
                 cast(
@@ -862,7 +902,7 @@ class Page(Document):
             try:
                 issue = JiraIssue.from_key(str(issue_key))
                 return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
-            except HTTPError:
+            except (ApiError, RequestException):
                 return f"[[{issue_key}]]({link.get('href')})"
 
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
@@ -1005,10 +1045,14 @@ class Page(Document):
 
             return md
 
-        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901
             attachment = None
             if fid := el.get("data-media-id"):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
+            if not attachment and (fid := el.get("data-media-id")):
+                attachment = self.page.get_attachment_by_file_id(str(fid))
+            if not attachment and (aid := el.get("data-linked-resource-id")):
+                attachment = self.page.get_attachment_by_id(str(aid))
 
             url_src = str(el.get("src", ""))
 

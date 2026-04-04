@@ -74,6 +74,13 @@ class AtlassianSdkConnectionConfig(BaseModel):
             "Set to False only if you are sure about the security of your connection."
         ),
     )
+    timeout: int = Field(
+        default=30,
+        title="Request Timeout",
+        description=(
+            "Timeout in seconds for API requests. Prevents hanging on slow/unresponsive servers."
+        ),
+    )
 
 
 class ConnectionConfig(AtlassianSdkConnectionConfig):
