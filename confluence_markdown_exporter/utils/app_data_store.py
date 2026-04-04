@@ -30,8 +30,13 @@ def get_app_config_path() -> Path:
 APP_CONFIG_PATH = get_app_config_path()
 
 
-class ConnectionConfig(BaseModel):
-    """Configuration for the connection like retry options."""
+class AtlassianSdkConnectionConfig(BaseModel):
+    """Connection parameters forwarded directly to the Atlassian SDK client constructors.
+
+    Only fields that are valid constructor keyword arguments for
+    atlassian.Confluence (ConfluenceApiSdk) and atlassian.Jira (JiraApiSdk)
+    may be added here.
+    """
 
     backoff_and_retry: bool = Field(
         default=True,
@@ -76,6 +81,11 @@ class ConnectionConfig(BaseModel):
             "Timeout in seconds for API requests. Prevents hanging on slow/unresponsive servers."
         ),
     )
+
+
+class ConnectionConfig(AtlassianSdkConnectionConfig):
+    """Full connection configuration, extending the Atlassian SDK config with app-level settings."""
+
     use_v2_api: bool = Field(
         default=False,
         title="Use Confluence v2 REST API",
@@ -83,6 +93,15 @@ class ConnectionConfig(BaseModel):
             "Enable Confluence REST API v2 endpoints where available. "
             "Supported by Atlassian Cloud and Confluence Data Center 8+. "
             "Must be disabled for older self-hosted Confluence Server instances."
+        ),
+    )
+    max_workers: int = Field(
+        default=20,
+        title="Max Workers",
+        description=(
+            "Maximum number of parallel workers for page export. "
+            "Set to 1 for serial mode (useful for debugging). "
+            "Higher values improve performance but may hit API rate limits."
         ),
     )
 

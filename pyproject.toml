@@ -42,7 +42,7 @@ Tracker = "https://github.com/Spenhouet/confluence-markdown-exporter/issues"
 
 [project.scripts]
 confluence-markdown-exporter = "confluence_markdown_exporter.main:app"
-cf-export = "confluence_markdown_exporter.main:app"
+cme = "confluence_markdown_exporter.main:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["confluence_markdown_exporter"]
