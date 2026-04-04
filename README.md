@@ -21,7 +21,8 @@
 - Converts Confluence macros to equivalent Markdown syntax where possible.
 - Handles images and attachments by linking them appropriately in the Markdown output.
 - Supports extended Markdown features like tasks, alerts, and front matter.
-- Supports Confluence add-ons: draw.io
+- Skips unchanged pages by default — only re-exports pages that have changed since the last run.
+- Supports Confluence add-ons: [draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts), [PlantUML](https://marketplace.atlassian.com/apps/1222993/flowchart-plantuml-diagrams-for-confluence), [Markdown Extensions](https://marketplace.atlassian.com/apps/1215703/markdown-extensions-for-confluence)
 
 ## Supported Markdown Elements
 
@@ -37,6 +38,7 @@
 - **Alerts**: Converts Confluence info panels to Markdown alert blocks.
 - **Front Matter**: Adds front matter to the Markdown files for metadata like page properties and page labels.
 - **Mermaid**: Converts Mermaid diagrams embedded in draw.io diagrams to Mermaid code blocks.
+- **PlantUML**: Converts PlantUML diagrams to Markdown code blocks.
 
 ## Usage
 
@@ -54,21 +56,18 @@ pip install confluence-markdown-exporter
 
 Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information.
 
-> [!TIP]
-> Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
-
 #### 2.1. Export Page
 
 Export a single Confluence page by ID:
 
 ```sh
-confluence-markdown-exporter pages <page-id e.g. 645208921> <output path e.g. ./output_path/>
+cme pages <page-id e.g. 645208921> --output-path <output path e.g. ./output_path/>
 ```
 
 or by URL:
 
 ```sh
-confluence-markdown-exporter pages <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
+cme pages <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> --output-path <output path e.g. ./output_path/>
 ```
 
 #### 2.2. Export Page with Descendants
@@ -76,13 +75,13 @@ confluence-markdown-exporter pages <page-url e.g. https://company.atlassian.net/
 Export a Confluence page and all its descendant pages by page ID:
 
 ```sh
-confluence-markdown-exporter pages-with-descendants <page-id e.g. 645208921> <output path e.g. ./output_path/>
+cme pages-with-descendants <page-id e.g. 645208921> --output-path <output path e.g. ./output_path/>
 ```
 
 or by URL:
 
 ```sh
-confluence-markdown-exporter pages-with-descendants <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> <output path e.g. ./output_path/>
+cme pages-with-descendants <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> --output-path <output path e.g. ./output_path/>
 ```
 
 #### 2.3. Export Space
@@ -90,15 +89,15 @@ confluence-markdown-exporter pages-with-descendants <page-url e.g. https://compa
 Export all Confluence pages of a single Space:
 
 ```sh
-confluence-markdown-exporter spaces <space-key e.g. MYSPACE> <output path e.g. ./output_path/>
+cme spaces <space-key e.g. MYSPACE> --output-path <output path e.g. ./output_path/>
 ```
 
-#### 2.3. Export all Spaces
+#### 2.4. Export all Spaces
 
 Export all Confluence pages across all spaces:
 
 ```sh
-confluence-markdown-exporter all-spaces <output path e.g. ./output_path/>
+cme all-spaces --output-path <output path e.g. ./output_path/>
 ```
 
 ### 3. Output
@@ -125,7 +124,7 @@ All configuration and authentication is stored in a single JSON file managed by 
 To interactively view and change configuration, run:
 
 ```sh
-confluence-markdown-exporter config
+cme config
 ```
 
 This will open a menu where you can:
@@ -148,12 +147,17 @@ This will open a menu where you can:
 | export.filename_encoding              | Character mapping for filename encoding.                                                                              | Default mappings for forbidden characters.                          |
 | export.filename_length                | Maximum length of filenames.                                                                                          | 255                                                                 |
 | export.include_document_title         | Whether to include the document title in the exported markdown file.                                                  | True                                                                |
+| export.skip_unchanged                 | Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.                 | True                                                                |
+| export.cleanup_stale                  | After export, delete local files for pages removed from Confluence or whose export path has changed.                  | True                                                                |
+| export.lockfile_name                  | Name of the lock file used to track exported pages.                                                                   | confluence-lock.json                                                |
+| export.existence_check_batch_size     | Number of page IDs per batch when checking page existence during cleanup. Capped at 25 for self-hosted (CQL).         | 250                                                                 |
 | connection_config.backoff_and_retry   | Enable automatic retry with exponential backoff                                                                       | True                                                                |
 | connection_config.backoff_factor      | Multiplier for exponential backoff                                                                                    | 2                                                                   |
 | connection_config.max_backoff_seconds | Maximum seconds to wait between retries                                                                               | 60                                                                  |
 | connection_config.max_backoff_retries | Maximum number of retry attempts                                                                                      | 5                                                                   |
 | connection_config.retry_status_codes  | HTTP status codes that trigger a retry                                                                                | \[413, 429, 502, 503, 504\]                                         |
 | connection_config.verify_ssl          | Whether to verify SSL certificates for HTTPS requests.                                                                | True                                                                |
+| connection_config.use_v2_api          | Enable Confluence REST API v2 endpoints. Supported on Atlassian Cloud and Data Center 8+. Disable for self-hosted Server instances. | False                                                    |
 | auth.confluence.url                   | Confluence instance URL                                                                                               | ""                                                                  |
 | auth.confluence.username              | Confluence username/email                                                                                             | ""                                                                  |
 | auth.confluence.api_token             | Confluence API token                                                                                                  | ""                                                                  |

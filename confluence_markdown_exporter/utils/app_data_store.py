@@ -30,8 +30,13 @@ def get_app_config_path() -> Path:
 APP_CONFIG_PATH = get_app_config_path()
 
 
-class ConnectionConfig(BaseModel):
-    """Configuration for the connection like retry options."""
+class AtlassianSdkConnectionConfig(BaseModel):
+    """Connection parameters forwarded directly to the Atlassian SDK client constructors.
+
+    Only fields that are valid constructor keyword arguments for
+    atlassian.Confluence (ConfluenceApiSdk) and atlassian.Jira (JiraApiSdk)
+    may be added here.
+    """
 
     backoff_and_retry: bool = Field(
         default=True,
@@ -67,6 +72,36 @@ class ConnectionConfig(BaseModel):
         description=(
             "Whether to verify SSL certificates for HTTPS requests. "
             "Set to False only if you are sure about the security of your connection."
+        ),
+    )
+    timeout: int = Field(
+        default=30,
+        title="Request Timeout",
+        description=(
+            "Timeout in seconds for API requests. Prevents hanging on slow/unresponsive servers."
+        ),
+    )
+
+
+class ConnectionConfig(AtlassianSdkConnectionConfig):
+    """Full connection configuration, extending the Atlassian SDK config with app-level settings."""
+
+    use_v2_api: bool = Field(
+        default=False,
+        title="Use Confluence v2 REST API",
+        description=(
+            "Enable Confluence REST API v2 endpoints where available. "
+            "Supported by Atlassian Cloud and Confluence Data Center 8+. "
+            "Must be disabled for older self-hosted Confluence Server instances."
+        ),
+    )
+    max_workers: int = Field(
+        default=20,
+        title="Max Workers",
+        description=(
+            "Maximum number of parallel workers for page export. "
+            "Set to 1 for serial mode (useful for debugging). "
+            "Higher values improve performance but may hit API rate limits."
         ),
     )
 
@@ -246,6 +281,32 @@ class ExportConfig(BaseModel):
             "Whether to fetch Jira issue data to enrich Confluence pages. "
             "When enabled, Jira issue links will include the issue summary. "
             "When disabled, only the issue key and link will be included."
+        ),
+    )
+    skip_unchanged: bool = Field(
+        default=True,
+        title="Skip Unchanged Pages",
+        description="Skip exporting pages that have not changed since last export.",
+    )
+    cleanup_stale: bool = Field(
+        default=True,
+        title="Cleanup Stale Files",
+        description=(
+            "After export, delete local files for pages that have been removed "
+            "from Confluence or whose export path has changed."
+        ),
+    )
+    lockfile_name: str = Field(
+        default="confluence-lock.json",
+        title="Lock File Name",
+        description="Name of the lock file used to track exported pages.",
+    )
+    existence_check_batch_size: int = Field(
+        default=250,
+        title="Existence Check Batch Size",
+        description=(
+            "Number of page IDs per batch when verifying page existence during cleanup. "
+            "For self-hosted Confluence (CQL), this is internally capped at 25."
         ),
     )
 

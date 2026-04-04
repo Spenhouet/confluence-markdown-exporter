@@ -53,6 +53,15 @@ def make_empty_cell() -> Tag:
     return Tag(name="td")
 
 
+def _normalize_table_cell_text(text: str) -> str:
+    return (
+        text.replace("|", "\\|")  # Escape pipe characters to prevent breaking table formatting
+        .replace("\n", "<br/>")  # Replace newlines with <br/> to preserve line breaks in tables
+        .removesuffix("<br/>")  # Remove trailing <br/> that may be added by the last cell in a row
+        .removeprefix("<br/>")  # Remove leading <br/> that may be added by the first cell in a row
+    )
+
+
 class TableConverter(MarkdownConverter):
     """Custom MarkdownConverter for converting HTML tables to markdown tables."""
 
@@ -77,8 +86,7 @@ class TableConverter(MarkdownConverter):
 
     def convert_th(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <th> tag."""
-        # return the html as is
-        return text
+        return _normalize_table_cell_text(text)
 
     def convert_tr(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <tr> tag."""
@@ -86,7 +94,7 @@ class TableConverter(MarkdownConverter):
 
     def convert_td(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <td> tag."""
-        return text.replace("\n", "<br/>").removesuffix("<br/>").removeprefix("<br/>")
+        return _normalize_table_cell_text(text)
 
     def convert_thead(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <thead> tag."""
