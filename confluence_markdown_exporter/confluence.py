@@ -544,8 +544,11 @@ class Page(Document):
         if DEBUG:
             self.export_body()
         # Export attachments first so the files can be utilized during markdown conversion
+        logger.info("Exporting attachments for page id=%s", self.id)
         self.export_attachments()
+        logger.info("Converting to Markdown and writing file for page id=%s", self.id)
         self.export_markdown()
+        logger.info("Exported to %s", settings.export.output_path / self.export_path)
 
     def export_with_descendants(self) -> None:
         export_pages([self, *self.descendants])
