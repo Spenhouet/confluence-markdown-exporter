@@ -132,6 +132,18 @@ This will open a menu where you can:
 - Reset all config to defaults
 - Navigate directly to any config section (e.g. `auth.confluence`)
 
+To display the current configuration as YAML without opening the interactive menu:
+
+```sh
+cme config --show
+```
+
+To jump directly to a specific config section:
+
+```sh
+cme config --jump-to auth.confluence
+```
+
 ### Available Configuration Options
 
 | Key                                   | Description                                                                                                           | Default                                                             |
@@ -142,10 +154,12 @@ This will open a menu where you can:
 | export.page_path                      | Path template for exported pages                                                                                      | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md     |
 | export.attachment_href                | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute".                        | relative                                                            |
 | export.attachment_path                | Path template for attachments                                                                                         | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
+| export.attachment_export_all          | Export all attachments, not only those referenced by a page. Note: exporting large or many attachments increases export time. | False                                                          |
 | export.page_breadcrumbs               | Whether to include breadcrumb links at the top of the page.                                                           | True                                                                |
 | export.filename_encoding              | Character mapping for filename encoding.                                                                              | Default mappings for forbidden characters.                          |
 | export.filename_length                | Maximum length of filenames.                                                                                          | 255                                                                 |
 | export.include_document_title         | Whether to include the document title in the exported markdown file.                                                  | True                                                                |
+| export.enable_jira_enrichment         | Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links include the issue summary. Requires Jira auth to be configured. | True                                     |
 | export.skip_unchanged                 | Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.                 | True                                                                |
 | export.cleanup_stale                  | After export, delete local files for pages removed from Confluence or whose export path has changed.                  | True                                                                |
 | export.lockfile_name                  | Name of the lock file used to track exported pages.                                                                   | confluence-lock.json                                                |
@@ -155,8 +169,10 @@ This will open a menu where you can:
 | connection_config.max_backoff_seconds | Maximum seconds to wait between retries                                                                               | 60                                                                  |
 | connection_config.max_backoff_retries | Maximum number of retry attempts                                                                                      | 5                                                                   |
 | connection_config.retry_status_codes  | HTTP status codes that trigger a retry                                                                                | \[413, 429, 502, 503, 504\]                                         |
+| connection_config.timeout             | Timeout in seconds for API requests. Prevents hanging on slow or unresponsive servers.                                | 30                                                                  |
 | connection_config.verify_ssl          | Whether to verify SSL certificates for HTTPS requests.                                                                | True                                                                |
 | connection_config.use_v2_api          | Enable Confluence REST API v2 endpoints. Supported on Atlassian Cloud and Data Center 8+. Disable for self-hosted Server instances. | False                                                    |
+| connection_config.max_workers         | Maximum number of parallel workers for page export. Set to `1` for serial/debug mode. Higher values improve performance but may hit API rate limits. | 20                                          |
 | auth.confluence.url                   | Confluence instance URL                                                                                               | ""                                                                  |
 | auth.confluence.username              | Confluence username/email                                                                                             | ""                                                                  |
 | auth.confluence.api_token             | Confluence API token                                                                                                  | ""                                                                  |
@@ -204,6 +220,7 @@ Detection is based on two standard environment variables:
 | -------- | ------ |
 | `CI=true` | Disables ANSI color codes and live terminal output |
 | `NO_COLOR=1` | Same effect (follows the [no-color.org](https://no-color.org) convention) |
+| `DEBUG=true` | Enables verbose debug logging and additional diagnostics |
 
 Most CI platforms (GitHub Actions, GitLab CI, CircleCI, Jenkins, etc.) set `CI=true` automatically.
 
