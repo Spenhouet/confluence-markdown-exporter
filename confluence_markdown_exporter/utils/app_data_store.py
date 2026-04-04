@@ -30,8 +30,13 @@ def get_app_config_path() -> Path:
 APP_CONFIG_PATH = get_app_config_path()
 
 
-class ConnectionConfig(BaseModel):
-    """Configuration for the connection like retry options."""
+class AtlassianSdkConnectionConfig(BaseModel):
+    """Connection parameters forwarded directly to the Atlassian SDK client constructors.
+
+    Only fields that are valid constructor keyword arguments for
+    atlassian.Confluence (ConfluenceApiSdk) and atlassian.Jira (JiraApiSdk)
+    may be added here.
+    """
 
     backoff_and_retry: bool = Field(
         default=True,
@@ -69,6 +74,11 @@ class ConnectionConfig(BaseModel):
             "Set to False only if you are sure about the security of your connection."
         ),
     )
+
+
+class ConnectionConfig(AtlassianSdkConnectionConfig):
+    """Full connection configuration, extending the Atlassian SDK config with app-level settings."""
+
     use_v2_api: bool = Field(
         default=False,
         title="Use Confluence v2 REST API",
