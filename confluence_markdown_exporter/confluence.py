@@ -11,9 +11,12 @@ import os
 import re
 import urllib.parse
 from collections.abc import Set
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 from os import PathLike
 from pathlib import Path
 from string import Template
+from threading import local
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
@@ -21,6 +24,7 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 
 import yaml
+from atlassian import Confluence as ConfluenceApiSdk
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
 from bs4 import BeautifulSoup
@@ -55,6 +59,23 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 confluence = get_confluence_instance()
+
+# Thread-local storage for API client instances (one per worker thread)
+_thread_local = local()
+
+
+def get_thread_confluence() -> ConfluenceApiSdk:
+    """Get or create Confluence instance for current thread.
+
+    The atlassian-python-api Confluence client uses requests.Session,
+    which is NOT thread-safe. Each worker thread needs its own instance.
+
+    Returns:
+        Confluence: A thread-local Confluence API client instance.
+    """
+    if not hasattr(_thread_local, "confluence"):
+        _thread_local.confluence = get_confluence_instance()
+    return _thread_local.confluence
 
 
 class JiraIssue(BaseModel):
@@ -190,6 +211,7 @@ class Space(BaseModel):
         return [homepage, *homepage.descendants]
 
     def export(self) -> None:
+        """Export all pages in this space to Markdown."""
         export_pages(self.pages)
 
     @classmethod
@@ -1437,8 +1459,40 @@ def sync_removed_pages() -> None:
     LockfileManager.remove_pages(deleted)
 
 
+def _export_page_worker(page: "Page | Descendant", use_thread_local: bool = False) -> None:  # noqa: FBT001, FBT002
+    """Export a single Confluence page to Markdown (worker function).
+
+    Args:
+        page: The page or descendant to export.
+        use_thread_local: If True, use thread-local Confluence instance
+                         (required for parallel export).
+    """
+    if use_thread_local:
+        # Use thread-local confluence instance for thread safety
+        global confluence  # noqa: PLW0603
+        old_confluence = confluence
+        confluence = get_thread_confluence()
+        try:
+            _page = Page.from_id(page.id)
+            _page.export()
+            # Record to lockfile if enabled
+            LockfileManager.record_page(_page)
+        finally:
+            confluence = old_confluence
+    else:
+        # Serial mode - use global confluence instance
+        _page = Page.from_id(page.id)
+        _page.export()
+        # Record to lockfile if enabled
+        LockfileManager.record_page(_page)
+
+
 def export_pages(pages: list["Page | Descendant"]) -> None:
     """Export a list of Confluence pages to Markdown.
+
+    Pages are exported in parallel using ThreadPoolExecutor for significant
+    performance improvement. Worker count is read from
+    settings.connection_config.max_workers (default: 20).
 
     Args:
         pages: List of pages to export.
@@ -1451,9 +1505,34 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
         logger.info("No pages to export based on lockfile state.")
         return
 
-    for page in (pbar := tqdm(pages_to_export, smoothing=0.05)):
-        pbar.set_postfix_str(f"Exporting page {page.id}")
-        _page = Page.from_id(page.id)
-        _page.export()
-        # Record to lockfile if enabled
-        LockfileManager.record_page(_page)
+    # Get worker count from config
+    max_workers = settings.connection_config.max_workers
+
+    # Serial mode for debugging or single worker
+    if DEBUG or max_workers <= 1:
+        logger.info("Using serial export mode (max_workers=1)")
+        for page in (pbar := tqdm(pages_to_export, smoothing=0.05)):
+            pbar.set_postfix_str(f"Exporting page {page.id}")
+            _export_page_worker(page, use_thread_local=False)
+        return
+
+    # Parallel mode
+    logger.info(f"Using parallel export mode ({max_workers} workers)")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all export tasks
+        futures = {
+            executor.submit(_export_page_worker, page, use_thread_local=True): page
+            for page in pages_to_export
+        }
+
+        # Track progress with tqdm
+        with tqdm(total=len(pages_to_export), smoothing=0.05) as pbar:
+            for future in as_completed(futures):
+                page = futures[future]
+                try:
+                    future.result()  # Raise exception if export failed
+                    pbar.set_postfix_str(f"Completed page {page.id}")
+                except Exception:
+                    logger.exception(f"Failed to export page {page.id}")
+                finally:
+                    pbar.update(1)
