@@ -136,6 +136,7 @@ This will open a menu where you can:
 
 | Key                                   | Description                                                                                                           | Default                                                             |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| export.log_level                      | Controls output verbosity: `DEBUG` (every step), `INFO` (key milestones), `WARNING` (warnings/errors only), `ERROR` (errors only). | INFO                                                                |
 | export.output_path                    | The directory where all exported files and folders will be written. Used as the base for relative and absolute links. | ./ (current working directory)                                      |
 | export.page_href                      | How to generate links to pages in Markdown. Options: "relative" (default) or "absolute".                              | relative                                                            |
 | export.page_path                      | Path template for exported pages                                                                                      | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md     |
@@ -191,6 +192,25 @@ By default, configuration is stored in a platform-specific application directory
 
 ```sh
 export CME_CONFIG_PATH=/path/to/your/custom_config.json
+```
+
+### Running in CI / Non-Interactive Environments
+
+The exporter automatically detects CI environments and suppresses rich terminal formatting (colors, spinner animations, progress bar redraws) so that log output is clean and readable in CI logs.
+
+Detection is based on two standard environment variables:
+
+| Variable | Effect |
+| -------- | ------ |
+| `CI=true` | Disables ANSI color codes and live terminal output |
+| `NO_COLOR=1` | Same effect (follows the [no-color.org](https://no-color.org) convention) |
+
+Most CI platforms (GitHub Actions, GitLab CI, CircleCI, Jenkins, etc.) set `CI=true` automatically.
+
+You can also reduce output verbosity via the `export.log_level` config option (or by setting it to `WARNING` for quiet runs):
+
+```sh
+cme config  # set export.log_level to WARNING
 ```
 
 This is useful for using different configs for different environments or for scripting.

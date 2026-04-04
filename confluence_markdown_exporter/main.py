@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import Annotated
@@ -14,10 +15,13 @@ from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.measure_time import measure
 from confluence_markdown_exporter.utils.rich_console import console
 from confluence_markdown_exporter.utils.rich_console import get_stats
+from confluence_markdown_exporter.utils.rich_console import reset_stats
 from confluence_markdown_exporter.utils.rich_console import setup_logging
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
 DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer()
 
@@ -74,15 +78,23 @@ def pages(
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
     _init_logging()
+    stats = reset_stats(total=len(page_urls))
     with measure(f"Export pages {', '.join(page_urls)}"):
         override_output_path_config(output_path)
         LockfileManager.init()
 
         exported_urls: set[str] = set()
         for page_url in page_urls:
-            page = Page.from_url(page_url)
-            page.export()
-            LockfileManager.record_page(page)
+            with console.status(f"[dim]Fetching [highlight]{page_url}[/highlight]…[/dim]"):
+                page = Page.from_url(page_url)
+            with console.status(f"[dim]Exporting [highlight]{page.title}[/highlight]…[/dim]"):
+                try:
+                    page.export()
+                    LockfileManager.record_page(page)
+                    stats.inc_exported()
+                except Exception:
+                    logger.exception("Failed to export page %s", page.title)
+                    stats.inc_failed()
             exported_urls.add(page.base_url)
 
         for base_url in exported_urls:

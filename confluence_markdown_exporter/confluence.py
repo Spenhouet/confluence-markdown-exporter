@@ -179,7 +179,17 @@ class Organization(BaseModel):
         return [page for space in self.spaces for page in space.pages]
 
     def export(self) -> None:
-        export_pages(self.pages)
+        """Export all pages across all spaces, showing per-space discovery progress."""
+        all_pages: list[Page | Descendant] = []
+        n = len(self.spaces)
+        with console.status("", spinner="dots") as status:
+            for i, space in enumerate(self.spaces, 1):
+                status.update(
+                    f"[dim]Fetching pages for space [highlight]{space.name}[/highlight]"
+                    f" ({i}/{n})…[/dim]"
+                )
+                all_pages.extend(space.pages)
+        export_pages(all_pages)
 
     @classmethod
     def from_json(cls, data: JsonResponse, base_url: str) -> "Organization":
@@ -191,15 +201,18 @@ class Organization(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_url(cls, base_url: str) -> "Organization":
-        return cls.from_json(
-            cast(
-                "JsonResponse",
-                get_thread_confluence(base_url).get_all_spaces(
-                    space_type="global", space_status="current", expand="homepage"
+        with console.status(
+            f"[dim]Fetching space list from [highlight]{base_url}[/highlight]…[/dim]"
+        ):
+            return cls.from_json(
+                cast(
+                    "JsonResponse",
+                    get_thread_confluence(base_url).get_all_spaces(
+                        space_type="global", space_status="current", expand="homepage"
+                    ),
                 ),
-            ),
-            base_url,
-        )
+                base_url,
+            )
 
 
 class Space(BaseModel):
@@ -222,7 +235,11 @@ class Space(BaseModel):
 
     def export(self) -> None:
         """Export all pages in this space to Markdown."""
-        export_pages(self.pages)
+        with console.status(
+            f"[dim]Fetching pages for space [highlight]{self.name}[/highlight]…[/dim]"
+        ):
+            pages = self.pages
+        export_pages(pages)
 
     @classmethod
     def from_json(cls, data: JsonResponse, base_url: str) -> "Space":
@@ -561,7 +578,11 @@ class Page(Document):
         logger.info("Exported to %s", settings.export.output_path / self.export_path)
 
     def export_with_descendants(self) -> None:
-        export_pages([self, *self.descendants])
+        with console.status(
+            f"[dim]Fetching descendants of [highlight]{self.title}[/highlight]…[/dim]"
+        ):
+            pages = [self, *self.descendants]
+        export_pages(pages)
 
     def export_body(self) -> None:
         soup = BeautifulSoup(self.html, "html.parser")
@@ -1538,7 +1559,14 @@ def sync_removed_pages(base_url: str) -> None:
         return
 
     unseen = LockfileManager.unseen_ids()
-    deleted = fetch_deleted_page_ids(sorted(unseen), base_url) if unseen else set()
+    if not unseen:
+        return
+
+    with console.status(
+        f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"
+    ):
+        deleted = fetch_deleted_page_ids(sorted(unseen), base_url)
+
     if deleted:
         logger.info("Removing %d stale page(s) from local export.", len(deleted))
     LockfileManager.remove_pages(deleted)
