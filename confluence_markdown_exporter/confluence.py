@@ -4,15 +4,19 @@ https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
 import functools
+import json
 import logging
 import mimetypes
 import os
 import re
 import urllib.parse
 from collections.abc import Set
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 from os import PathLike
 from pathlib import Path
 from string import Template
+from threading import local
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
@@ -20,6 +24,7 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 
 import yaml
+from atlassian import Confluence as ConfluenceApiSdk
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
 from bs4 import BeautifulSoup
@@ -28,16 +33,20 @@ from markdownify import ATX
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
 from requests import HTTPError
+from requests import RequestException
 from tqdm import tqdm
 
+from confluence_markdown_exporter.api_clients import JiraAuthenticationError
 from confluence_markdown_exporter.api_clients import get_confluence_instance
 from confluence_markdown_exporter.api_clients import get_jira_instance
+from confluence_markdown_exporter.api_clients import handle_jira_auth_failure
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
+from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.table_converter import TableConverter
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
@@ -50,6 +59,23 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 confluence = get_confluence_instance()
+
+# Thread-local storage for API client instances (one per worker thread)
+_thread_local = local()
+
+
+def get_thread_confluence() -> ConfluenceApiSdk:
+    """Get or create Confluence instance for current thread.
+
+    The atlassian-python-api Confluence client uses requests.Session,
+    which is NOT thread-safe. Each worker thread needs its own instance.
+
+    Returns:
+        Confluence: A thread-local Confluence API client instance.
+    """
+    if not hasattr(_thread_local, "confluence"):
+        _thread_local.confluence = get_confluence_instance()
+    return _thread_local.confluence
 
 
 class JiraIssue(BaseModel):
@@ -69,11 +95,22 @@ class JiraIssue(BaseModel):
         )
 
     @classmethod
-    @functools.lru_cache(maxsize=100)
     def from_key(cls, issue_key: str) -> "JiraIssue | None":
-        jira_instance = get_jira_instance()
-        if jira_instance is None:
+        """Fetch a Jira issue by key, reopening the auth dialog on authentication failure."""
+        if not settings.export.enable_jira_enrichment:
             return None
+
+        while True:
+            try:
+                return cls._fetch_cached(issue_key)
+            except JiraAuthenticationError:
+                handle_jira_auth_failure()
+                cls._fetch_cached.cache_clear()
+
+    @classmethod
+    @functools.lru_cache(maxsize=100)
+    def _fetch_cached(cls, issue_key: str) -> "JiraIssue":
+        jira_instance = get_jira_instance()
         issue_data = cast("JsonResponse", jira_instance.get_issue(issue_key))
         return cls.from_json(issue_data)
 
@@ -135,7 +172,7 @@ class Organization(BaseModel):
     spaces: list["Space"]
 
     @property
-    def pages(self) -> list[int]:
+    def pages(self) -> list["Page | Descendant"]:
         return [page for space in self.spaces for page in space.pages]
 
     def export(self) -> None:
@@ -164,14 +201,21 @@ class Space(BaseModel):
     key: str
     name: str
     description: str
-    homepage: int
+    homepage: int | None
 
     @property
-    def pages(self) -> list[int]:
+    def pages(self) -> list["Page | Descendant"]:
+        if self.homepage is None:
+            logger.warning(
+                f"Space '{self.name}' (key: {self.key}) has no homepage. No pages will be exported."
+            )
+            return []
+
         homepage = Page.from_id(self.homepage)
-        return [self.homepage, *homepage.descendants]
+        return [homepage, *homepage.descendants]
 
     def export(self) -> None:
+        """Export all pages in this space to Markdown."""
         export_pages(self.pages)
 
     @classmethod
@@ -208,19 +252,24 @@ class Label(BaseModel):
 class Document(BaseModel):
     title: str
     space: Space
-    ancestors: list[int]
+    ancestors: list["Ancestor"]
+    version: Version
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        homepage_id = ""
+        homepage_title = ""
+        if self.space.homepage:
+            homepage_id = str(self.space.homepage)
+            homepage_title = sanitize_filename(Page.from_id(self.space.homepage).title)
+
         return {
             "space_key": sanitize_filename(self.space.key),
             "space_name": sanitize_filename(self.space.name),
-            "homepage_id": str(self.space.homepage),
-            "homepage_title": sanitize_filename(Page.from_id(self.space.homepage).title),
-            "ancestor_ids": "/".join(str(a) for a in self.ancestors),
-            "ancestor_titles": "/".join(
-                sanitize_filename(Page.from_id(a).title) for a in self.ancestors
-            ),
+            "homepage_id": homepage_id,
+            "homepage_title": homepage_title,
+            "ancestor_ids": "/".join(str(a.id) for a in self.ancestors),
+            "ancestor_titles": "/".join(sanitize_filename(a.title) for a in self.ancestors),
         }
 
 
@@ -233,7 +282,6 @@ class Attachment(Document):
     collection_name: str
     download_link: str
     comment: str
-    version: Version
 
     @property
     def extension(self) -> str:
@@ -280,8 +328,8 @@ class Attachment(Document):
             download_link=data.get("_links", {}).get("download", ""),
             comment=extensions.get("comment", ""),
             ancestors=[
-                *[ancestor.get("id") for ancestor in container.get("ancestors", [])],
-                container.get("id"),
+                *[Ancestor.from_json(ancestor) for ancestor in container.get("ancestors", [])],
+                Ancestor.from_json(container),
             ][1:],
             version=Version.from_json(data.get("version", {})),
         )
@@ -317,15 +365,64 @@ class Attachment(Document):
             return
 
         try:
-            response = confluence._session.get(str(confluence.url + self.download_link))
+            response = confluence.request(
+                method="GET",
+                path=confluence.url + self.download_link,
+                absolute=True,
+                advanced_mode=True,
+            )
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
             logger.warning(f"There is no attachment with title '{self.title}'. Skipping export.")
+            return
+        except RequestException as e:
+            logger.warning(f"Failed to download attachment '{self.title}': {e}. Skipping.")
             return
 
         save_file(
             filepath,
             response.content,
+        )
+
+
+class Ancestor(Document):
+    id: int
+
+    @classmethod
+    def from_json(cls, data: JsonResponse) -> "Ancestor":
+        return cls(
+            id=data.get("id", 0),
+            title=data.get("title", ""),
+            space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
+            ancestors=[],  # Ancestors of ancestor is not needed for now.
+            version=Version.from_json({}),  # Version of ancestor is not needed for now.
+        )
+
+
+class Descendant(Document):
+    id: int
+
+    @property
+    def _template_vars(self) -> dict[str, str]:
+        return {
+            **super()._template_vars,
+            "page_id": str(self.id),
+            "page_title": sanitize_filename(self.title),
+        }
+
+    @property
+    def export_path(self) -> Path:
+        filepath_template = Template(settings.export.page_path.replace("{", "${"))
+        return Path(filepath_template.safe_substitute(self._template_vars))
+
+    @classmethod
+    def from_json(cls, data: JsonResponse) -> "Descendant":
+        return cls(
+            id=data.get("id", 0),
+            title=data.get("title", ""),
+            space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
+            ancestors=[Ancestor.from_json(ancestor) for ancestor in data.get("ancestors", [])][1:],
+            version=Version.from_json(data.get("version", {})),
         )
 
 
@@ -338,11 +435,12 @@ class Page(Document):
     attachments: list["Attachment"]
 
     @property
-    def descendants(self) -> list[int]:
+    def descendants(self) -> list["Descendant"]:
         url = "rest/api/content/search"
         params = {
             "cql": f"type=page AND ancestor={self.id}",
-            "limit": 100,
+            "expand": "metadata.properties,ancestors,version",
+            "limit": 250,
         }
         results = []
 
@@ -368,8 +466,7 @@ class Page(Document):
                 f"Unexpected error when fetching descendants for content ID {self.id}."
             )
             return []
-
-        return [result["id"] for result in results]
+        return [Descendant.from_json(result) for result in results]
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -406,7 +503,7 @@ class Page(Document):
         self.export_markdown()
 
     def export_with_descendants(self) -> None:
-        export_pages([self.id, *self.descendants])
+        export_pages([self, *self.descendants])
 
     def export_body(self) -> None:
         soup = BeautifulSoup(self.html, "html.parser")
@@ -494,12 +591,26 @@ class Page(Document):
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
             attachments=Attachment.from_page_id(data.get("id", 0)),
-            ancestors=[ancestor.get("id") for ancestor in data.get("ancestors", [])][1:],
+            ancestors=[Ancestor.from_json(ancestor) for ancestor in data.get("ancestors", [])][1:],
+            version=Version.from_json(data.get("version", {})),
         )
 
     @classmethod
     @functools.lru_cache(maxsize=1000)
     def from_id(cls, page_id: int) -> "Page":
+        if page_id is None:
+            logger.warning("Page ID is None, skipping")
+            return cls(
+                id=0,
+                title="Page not accessible",
+                space=Space(key="", name="", description="", homepage=0),
+                body="",
+                body_export="",
+                editor2="",
+                labels=[],
+                attachments=[],
+                ancestors=[],
+            )
         try:
             return cls.from_json(
                 cast(
@@ -507,7 +618,7 @@ class Page(Document):
                     confluence.get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                        "metadata.properties,ancestors",
+                        "metadata.properties,ancestors,version",
                     ),
                 )
             )
@@ -524,6 +635,7 @@ class Page(Document):
                 labels=[],
                 attachments=[],
                 ancestors=[],
+                version=Version.from_json({}),
             )
 
     @classmethod
@@ -592,7 +704,9 @@ class Page(Document):
         @property
         def breadcrumbs(self) -> str:
             return (
-                " > ".join([self.convert_page_link(ancestor) for ancestor in self.page.ancestors])
+                " > ".join(
+                    [self.convert_page_link(ancestor.id) for ancestor in self.page.ancestors]
+                )
                 + "\n"
             )
 
@@ -657,10 +771,13 @@ class Page(Document):
                     "warning": self.convert_alert,
                     "details": self.convert_page_properties,
                     "drawio": self.convert_drawio,
+                    "plantuml": self.convert_plantuml,
                     "scroll-ignore": self.convert_hidden_content,
                     "toc": self.convert_toc,
                     "jira": self.convert_jira_table,
                     "attachments": self.convert_attachments,
+                    "markdown": self.convert_markdown,
+                    "mohamicorp-markdown": self.convert_markdown,
                 }
                 if macro_name in macro_handlers:
                     return macro_handlers[macro_name](el, text, parent_tags)
@@ -788,10 +905,7 @@ class Page(Document):
 
             try:
                 issue = JiraIssue.from_key(str(issue_key))
-                if issue:
-                    return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
-                # If JIRA enrichment is disabled, return simple link
-                return f"[[{issue_key}]]({link.get('href')})"
+                return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
             except HTTPError:
                 return f"[[{issue_key}]]({link.get('href')})"
 
@@ -816,14 +930,34 @@ class Page(Document):
                 return f"[^{text}]:"  # Footnote definition
             return f"[^{text}]"  # f"<sup>{text}</sup>"
 
-        def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
+        def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911, C901
             if "user-mention" in str(el.get("class")):
                 return self.convert_user_mention(el, text, parent_tags)
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
-                if fallback := BeautifulSoup(self.page.editor2, "html.parser").find(
-                    "a", string=text
-                ):
-                    return self.convert_a(fallback, text, parent_tags)  # type: ignore -
+                logger.warning(
+                    f"Broken link detected: '{text}' on page '{self.page.title}' "
+                    f"(ID: {self.page.id}). This is likely a Confluence bug. "
+                    f"Please report this issue to Atlassian Support."
+                )
+                # Find fallback link without using string= parameter to avoid
+                # BeautifulSoup recursion bug. The string= parameter triggers
+                # recursive .string property access which fails on Fabric
+                # Editor v2 HTML with fab:media tags
+                try:
+                    soup = BeautifulSoup(self.page.editor2, "html.parser")
+                    for link in soup.find_all("a"):
+                        # Use get_text() instead of .string to avoid recursion issues
+                        link_text = link.get_text(strip=True)
+                        if link_text == text:
+                            # Prevent infinite recursion if fallback is the same element
+                            if isinstance(link, Tag) and link.get("href") != el.get("href"):
+                                return self.convert_a(link, text, parent_tags)  # type: ignore[arg-type]
+                except RecursionError:
+                    # editor2 HTML contains problematic tags (e.g., fab:media)
+                    # that cause BS4 recursion. Skip fallback and return
+                    # wiki-style link
+                    pass
+                # If no matching link found, return wiki-style link
                 return f"[[{text}]]"
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = str(el.get("data-linked-resource-id", ""))
@@ -848,6 +982,14 @@ class Page(Document):
                 raise ValueError(msg)
 
             page = Page.from_id(page_id)
+
+            if page.title == "Page not accessible":
+                logger.warning(
+                    f"Confluence page link (ID: {page_id}) is not accessible, "
+                    f"referenced from page '{self.page.title}' (ID: {self.page.id})"
+                )
+                return f"[Page not accessible (ID: {page_id})]"
+
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
 
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
@@ -907,10 +1049,14 @@ class Page(Document):
 
             return md
 
-        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901
             attachment = None
             if fid := el.get("data-media-id"):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
+            if not attachment and (fid := el.get("data-media-id")):
+                attachment = self.page.get_attachment_by_file_id(str(fid))
+            if not attachment and (aid := el.get("data-linked-resource-id")):
+                attachment = self.page.get_attachment_by_id(str(aid))
 
             url_src = str(el.get("src", ""))
 
@@ -938,6 +1084,63 @@ class Page(Document):
             if "_inline" in parent_tags:
                 parent_tags.remove("_inline")  # Always show images.
             return super().convert_img(el, text, parent_tags)
+
+        def _normalize_unicode_whitespace(self, text: str) -> str:
+            r"""Normalize Unicode whitespace to regular spaces.
+
+            This fixes an issue where markdownify's chomp() function strips Unicode
+            whitespace characters (like \xa0 from &nbsp;) entirely, causing missing
+            spaces in markdown output.
+
+            Confluence often uses &nbsp; (non-breaking space, \xa0) inside inline
+            formatting tags like <em>&nbsp;text</em>. BeautifulSoup correctly converts
+            this to \xa0, but markdownify's chomp() doesn't preserve it, resulting in
+            output like "word*text*" instead of "word *text*".
+
+            This method normalizes all Unicode whitespace characters to regular ASCII
+            spaces so they are preserved by markdownify's chomp() function.
+
+            Args:
+                text: Text string to normalize
+
+            Returns:
+                Text with Unicode whitespace replaced by regular spaces
+            """
+            # Normalize all Unicode whitespace to regular space
+            # This includes: \xa0 (nbsp), \u2000-\u200a (various spaces),
+            # \u2028 (line separator), \u2029 (paragraph separator), etc.
+            # Keep \n, \r, \t as-is since they have semantic meaning
+            normalized = text
+            for char in text:
+                if char.isspace() and char not in " \n\r\t":
+                    # Replace Unicode whitespace with regular space
+                    normalized = normalized.replace(char, " ")
+            return normalized
+
+        def convert_em(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert <em> tags, preserving spaces from Unicode whitespace entities."""
+            text = self._normalize_unicode_whitespace(text)
+            return super().convert_em(el, text, parent_tags)
+
+        def convert_strong(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert <strong> tags, preserving spaces from Unicode whitespace entities."""
+            text = self._normalize_unicode_whitespace(text)
+            return super().convert_strong(el, text, parent_tags)
+
+        def convert_code(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert <code> tags, preserving spaces from Unicode whitespace entities."""
+            text = self._normalize_unicode_whitespace(text)
+            return super().convert_code(el, text, parent_tags)
+
+        def convert_i(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert <i> tags, preserving spaces from Unicode whitespace entities."""
+            text = self._normalize_unicode_whitespace(text)
+            return super().convert_i(el, text, parent_tags)
+
+        def convert_b(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert <b> tags, preserving spaces from Unicode whitespace entities."""
+            text = self._normalize_unicode_whitespace(text)
+            return super().convert_b(el, text, parent_tags)
 
         def _convert_drawio_embedded_mermaid(self, filename: str) -> str | None:
             """Extract mermaid diagram from DrawIO PNG preview image.
@@ -984,6 +1187,172 @@ class Page(Document):
 
             return ""
 
+        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
+            """Convert PlantUML diagrams from editor2 XML to Markdown code blocks.
+
+            PlantUML diagrams are stored in the editor2 XML as structured macros with
+            the UML definition in a JSON structure inside CDATA sections.
+            """
+            # Parse the editor2 XML to find the PlantUML macro
+            # The editor2 content is an XML fragment without a root element, so wrap it
+            wrapped_editor2 = f"<root>{self.page.editor2}</root>"
+            soup_editor2 = BeautifulSoup(wrapped_editor2, "xml")
+
+            # Get the macro-id from the current element to match it in editor2
+            macro_id = el.get("data-macro-id")
+            if not macro_id:
+                logger.warning("PlantUML macro found but no macro-id attribute")
+                return "\n<!-- PlantUML diagram (no macro-id found) -->\n\n"
+
+            # Find the corresponding macro in editor2 XML
+            # BeautifulSoup with lxml strips namespace prefixes from both
+            # element and attribute names
+            # So ac:structured-macro becomes structured-macro, ac:name becomes name, etc.
+            plantuml_macros = soup_editor2.find_all("structured-macro")
+            plantuml_macro = None
+            for macro in plantuml_macros:
+                if macro.get("name") == "plantuml" and macro.get("macro-id") == macro_id:
+                    plantuml_macro = macro
+                    break
+
+            if not plantuml_macro:
+                logger.warning(f"PlantUML macro with id {macro_id} not found in editor2 XML")
+                return "\n<!-- PlantUML diagram (not found in editor2) -->\n\n"
+
+            # Extract the plain-text-body containing the JSON
+            plain_text_body = plantuml_macro.find("plain-text-body")
+            if not plain_text_body:
+                logger.warning(f"PlantUML macro {macro_id} has no plain-text-body")
+                return "\n<!-- PlantUML diagram (no content found) -->\n\n"
+
+            # Extract the JSON from CDATA
+            cdata_content = plain_text_body.get_text(strip=True)
+            if not cdata_content:
+                logger.warning(f"PlantUML macro {macro_id} has empty content")
+                return "\n<!-- PlantUML diagram (empty content) -->\n\n"
+
+            # Parse the JSON to get the umlDefinition
+            try:
+                plantuml_data = json.loads(cdata_content)
+                uml_definition = plantuml_data.get("umlDefinition", "")
+
+                if not uml_definition:
+                    logger.warning(f"PlantUML macro {macro_id} has no umlDefinition")
+                    return "\n<!-- PlantUML diagram (no UML definition) -->\n\n"
+
+            except json.JSONDecodeError:
+                logger.exception(f"Failed to parse PlantUML JSON for macro {macro_id}")
+                return "\n<!-- PlantUML diagram (invalid JSON) -->\n\n"
+            else:
+                # Return as a Markdown code block with plantuml syntax
+                return f"\n```plantuml\n{uml_definition}\n```\n\n"
+
+        def _find_element_with_namespace(
+            self, parent: BeautifulSoup, tag_name: str
+        ) -> BeautifulSoup | None:
+            """Find an element with or without namespace prefix."""
+            return parent.find(f"ac:{tag_name}") or parent.find(tag_name)
+
+        def _find_structured_macro(self, el: BeautifulSoup) -> BeautifulSoup | None:
+            """Find structured-macro element with or without namespace."""
+            return self._find_element_with_namespace(el, "structured-macro")
+
+        def _extract_plain_text_body(self, el: BeautifulSoup) -> str | None:
+            """Extract markdown content from plain-text-body element."""
+            plain_text_body = self._find_element_with_namespace(el, "plain-text-body")
+            if plain_text_body:
+                return plain_text_body.get_text()
+            return None
+
+        def _extract_markdown_parameter(self, el: BeautifulSoup) -> str | None:
+            """Extract markdown content from parameter element."""
+            param = el.find("ac:parameter", {"ac:name": "markdown"})
+            if param is None:
+                param = el.find("parameter", {"name": "markdown"})
+            if param:
+                return param.get_text()
+            return None
+
+        def _extract_markdown_from_body(self, el: BeautifulSoup) -> str | None:
+            """Extract markdown content from body HTML."""
+            # Try plain-text-body first (standard markdown macro)
+            markdown_content = self._extract_plain_text_body(el)
+            if markdown_content:
+                return markdown_content
+
+            # Check in structured-macro child element
+            structured_macro = self._find_structured_macro(el)
+            if structured_macro:
+                markdown_content = self._extract_plain_text_body(structured_macro)
+                if markdown_content:
+                    return markdown_content
+
+            # Try parameter for mohamicorp-markdown
+            markdown_content = self._extract_markdown_parameter(el)
+            if markdown_content:
+                return markdown_content
+
+            # Check parameter in structured-macro child
+            if structured_macro:
+                markdown_content = self._extract_markdown_parameter(structured_macro)
+                if markdown_content:
+                    return markdown_content
+
+            return None
+
+        def _extract_markdown_from_editor2(self, macro_id: str) -> str | None:
+            """Extract markdown content from editor2 XML."""
+            wrapped_editor2 = f"<root>{self.page.editor2}</root>"
+            soup_editor2 = BeautifulSoup(wrapped_editor2, "xml")
+
+            # BeautifulSoup strips namespace prefixes, so ac:structured-macro
+            # becomes structured-macro
+            markdown_macros = soup_editor2.find_all("structured-macro")
+            for macro in markdown_macros:
+                if (
+                    macro.get("name") in ("markdown", "mohamicorp-markdown")
+                    and macro.get("macro-id") == macro_id
+                ):
+                    # Try plain-text-body first
+                    plain_text_body = macro.find("plain-text-body")
+                    if plain_text_body:
+                        return plain_text_body.get_text(strip=True)
+
+                    # Try parameter for mohamicorp-markdown
+                    param = macro.find("parameter", {"name": "markdown"})
+                    if param:
+                        return param.get_text(strip=True)
+
+            return None
+
+        def convert_markdown(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert Markdown macro fragments to Markdown.
+
+            Supports both standard 'markdown' macro and 'mohamicorp-markdown'
+            macro. The content is already in Markdown format, so we just extract
+            and return it.
+            """
+            macro_name = el.get("data-macro-name", "")
+
+            # First, try to extract from body HTML
+            markdown_content = self._extract_markdown_from_body(el)
+
+            # If not found, try editor2 XML (similar to plantuml)
+            if not markdown_content:
+                macro_id = el.get("data-macro-id")
+                if macro_id:
+                    markdown_content = self._extract_markdown_from_editor2(macro_id)
+
+            if not markdown_content:
+                logger.warning(
+                    f"Markdown macro ({macro_name}) found but no content could be extracted"
+                )
+                return f"\n<!-- Markdown macro ({macro_name}) content not found -->\n\n"
+
+            # Return the markdown content directly (it's already in markdown format)
+            # Add newlines for proper spacing
+            return f"\n{markdown_content}\n\n"
+
         def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("class") and "metadata-summary-macro" in el["class"]:
                 return self.convert_page_properties_report(el, text, parent_tags)
@@ -1015,24 +1384,159 @@ class Page(Document):
             return result
 
 
-def export_page(page_id: int) -> None:
-    """Export a Confluence page to Markdown.
+_CQL_MAX_BATCH_SIZE: int = 25
+
+
+def _fetch_page_ids_v2_batch(batch: list[str]) -> set[str]:
+    """Single v2 API request for a batch of page IDs.
+
+    Uses GET /api/v2/pages?id=X&id=Y&...  (Atlassian Cloud).
+    The v2 API accepts multiple ``id`` params, so they are encoded directly
+    into the URL path since the SDK only accepts a dict for ``params``.
+    """
+    query = urllib.parse.urlencode([("id", pid) for pid in batch] + [("limit", len(batch))])
+    response = confluence.get(f"api/v2/pages?{query}")
+    if not response:
+        return set()
+    return {str(item["id"]) for item in response.get("results", [])}
+
+
+def _fetch_page_ids_cql_batch(batch: list[str]) -> set[str]:
+    """Single CQL v1 request for a batch of page IDs.
+
+    Uses GET /rest/api/content/search with id in (...) (self-hosted / fallback).
+    """
+    cql = "id in ({})".format(",".join(batch))
+    response = confluence.get(
+        "rest/api/content/search",
+        params={"cql": cql, "limit": len(batch), "fields": "id"},
+    )
+    if not response:
+        return set()
+    return {str(item["id"]) for item in response.get("results", [])}
+
+
+def fetch_deleted_page_ids(page_ids: list[str]) -> set[str]:
+    """Return the subset of *page_ids* that no longer exist in Confluence.
+
+    Uses the v2 REST API when ``connection_config.use_v2_api`` is enabled
+    (multiple ``id`` query params, up to ``export.existence_check_batch_size``
+    IDs per request), or the v1 CQL content search otherwise (capped at
+    :data:`_CQL_MAX_BATCH_SIZE` IDs per request).
+
+    Per-batch API failures are handled safely: affected IDs are assumed to
+    still exist so they are never accidentally deleted.
+    """
+    if not page_ids:
+        return set()
+
+    use_v2 = settings.connection_config.use_v2_api
+    batch_size = settings.export.existence_check_batch_size
+    effective_batch_size = batch_size if use_v2 else min(batch_size, _CQL_MAX_BATCH_SIZE)
+    existing: set[str] = set()
+
+    for i in range(0, len(page_ids), effective_batch_size):
+        batch = page_ids[i : i + effective_batch_size]
+        try:
+            if use_v2:
+                existing.update(_fetch_page_ids_v2_batch(batch))
+            else:
+                existing.update(_fetch_page_ids_cql_batch(batch))
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to check page existence for batch (%d IDs). "
+                "Skipping deletion for these pages.",
+                len(batch),
+            )
+            existing.update(batch)
+
+    return set(page_ids) - existing
+
+
+def sync_removed_pages() -> None:
+    """Orchestrate stale-file cleanup: check API for deleted pages, then clean up."""
+    if not settings.export.cleanup_stale:
+        return
+
+    unseen = LockfileManager.unseen_ids()
+    deleted = fetch_deleted_page_ids(sorted(unseen)) if unseen else set()
+    LockfileManager.remove_pages(deleted)
+
+
+def _export_page_worker(page: "Page | Descendant", use_thread_local: bool = False) -> None:  # noqa: FBT001, FBT002
+    """Export a single Confluence page to Markdown (worker function).
 
     Args:
-        page_id: The page id.
-        output_path: The output path.
+        page: The page or descendant to export.
+        use_thread_local: If True, use thread-local Confluence instance
+                         (required for parallel export).
     """
-    page = Page.from_id(page_id)
-    page.export()
+    if use_thread_local:
+        # Use thread-local confluence instance for thread safety
+        global confluence  # noqa: PLW0603
+        old_confluence = confluence
+        confluence = get_thread_confluence()
+        try:
+            _page = Page.from_id(page.id)
+            _page.export()
+            # Record to lockfile if enabled
+            LockfileManager.record_page(_page)
+        finally:
+            confluence = old_confluence
+    else:
+        # Serial mode - use global confluence instance
+        _page = Page.from_id(page.id)
+        _page.export()
+        # Record to lockfile if enabled
+        LockfileManager.record_page(_page)
 
 
-def export_pages(page_ids: list[int]) -> None:
+def export_pages(pages: list["Page | Descendant"]) -> None:
     """Export a list of Confluence pages to Markdown.
 
+    Pages are exported in parallel using ThreadPoolExecutor for significant
+    performance improvement. Worker count is read from
+    settings.connection_config.max_workers (default: 20).
+
     Args:
-        page_ids: List of pages to export.
-        output_path: The output path.
+        pages: List of pages to export.
     """
-    for page_id in (pbar := tqdm(page_ids, smoothing=0.05)):
-        pbar.set_postfix_str(f"Exporting page {page_id}")
-        export_page(page_id)
+    # Mark all pages as seen so cleanup skips API checks for unchanged pages
+    LockfileManager.mark_seen([p.id for p in pages])
+    pages_to_export = [page for page in pages if LockfileManager.should_export(page)]
+
+    if not pages_to_export:
+        logger.info("No pages to export based on lockfile state.")
+        return
+
+    # Get worker count from config
+    max_workers = settings.connection_config.max_workers
+
+    # Serial mode for debugging or single worker
+    if DEBUG or max_workers <= 1:
+        logger.info("Using serial export mode (max_workers=1)")
+        for page in (pbar := tqdm(pages_to_export, smoothing=0.05)):
+            pbar.set_postfix_str(f"Exporting page {page.id}")
+            _export_page_worker(page, use_thread_local=False)
+        return
+
+    # Parallel mode
+    logger.info(f"Using parallel export mode ({max_workers} workers)")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all export tasks
+        futures = {
+            executor.submit(_export_page_worker, page, use_thread_local=True): page
+            for page in pages_to_export
+        }
+
+        # Track progress with tqdm
+        with tqdm(total=len(pages_to_export), smoothing=0.05) as pbar:
+            for future in as_completed(futures):
+                page = futures[future]
+                try:
+                    future.result()  # Raise exception if export failed
+                    pbar.set_postfix_str(f"Completed page {page.id}")
+                except Exception:
+                    logger.exception(f"Failed to export page {page.id}")
+                finally:
+                    pbar.update(1)
