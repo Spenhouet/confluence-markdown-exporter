@@ -5,12 +5,12 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AnyHttpUrl
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import SecretStr
 from pydantic import ValidationError
 from pydantic import field_serializer
+from pydantic import model_validator
 from typer import get_app_dir
 
 
@@ -107,13 +107,11 @@ class ConnectionConfig(AtlassianSdkConnectionConfig):
 
 
 class ApiDetails(BaseModel):
-    """API authentication details."""
+    """API authentication credentials for a single instance.
 
-    url: AnyHttpUrl | Literal[""] = Field(
-        "",
-        title="Instance URL",
-        description="Base URL of the Confluence or Jira instance.",
-    )
+    The instance URL is used as the dict key in AuthConfig, not stored here.
+    """
+
     username: SecretStr = Field(
         SecretStr(""),
         title="Username (email)",
@@ -145,22 +143,99 @@ class ApiDetails(BaseModel):
 
 
 class AuthConfig(BaseModel):
-    """Authentication configuration for Confluence and Jira."""
+    """Authentication configuration for Confluence and Jira.
 
-    confluence: ApiDetails = Field(
-        default_factory=lambda: ApiDetails(
-            url="", username=SecretStr(""), api_token=SecretStr(""), pat=SecretStr("")
+    Credentials are stored in dicts keyed by the instance base URL
+    (e.g. ``"https://company.atlassian.net"``).  No "active" pointer is kept —
+    the right instance is selected by matching the URL of the page or space
+    being exported.
+    """
+
+    confluence: dict[str, ApiDetails] = Field(
+        default_factory=dict,
+        title="Confluence Accounts",
+        description=(
+            "Confluence authentication credentials keyed by instance base URL. "
+            "Example key: 'https://company.atlassian.net'"
         ),
-        title="Confluence Account",
-        description="Authentication for Confluence.",
     )
-    jira: ApiDetails = Field(
-        default_factory=lambda: ApiDetails(
-            url="", username=SecretStr(""), api_token=SecretStr(""), pat=SecretStr("")
+    jira: dict[str, ApiDetails] = Field(
+        default_factory=dict,
+        title="Jira Accounts",
+        description=(
+            "Jira authentication credentials keyed by instance base URL. "
+            "Example key: 'https://company.atlassian.net'"
         ),
-        title="Jira Account",
-        description="Authentication for Jira.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate(cls, data: object) -> object:  # noqa: C901
+        """Migrate legacy config formats to the current URL-keyed dict format."""
+        if not isinstance(data, dict):
+            return data
+        for service in ("confluence", "jira"):
+            val = data.get(service)
+            if not isinstance(val, dict):
+                continue
+            # Legacy v1: single ApiDetails with a 'url' field at the top level
+            # e.g. {"url": "https://...", "username": "...", ...}
+            if "url" in val and not _looks_like_url_keyed(val):
+                url = val.pop("url", "") or ""
+                # Remove stale active_* fields that were in the same dict
+                val.pop("active_confluence", None)
+                val.pop("active_jira", None)
+                data[service] = {url: val} if url else {}
+            # Legacy v2: named-key dict from the previous multi-instance refactor.
+            # e.g. {"default": {"url": "https://...", ...}, "active_confluence": "default"}
+            elif not _looks_like_url_keyed(val):
+                migrated: dict = {}
+                for k, v in val.items():
+                    if k in ("active_confluence", "active_jira"):
+                        continue
+                    if isinstance(v, dict):
+                        inner_url = v.pop("url", "") or ""
+                        if inner_url:
+                            migrated[inner_url] = v
+                        elif v:
+                            migrated[k] = v  # keep as-is if no URL
+                if migrated:
+                    data[service] = migrated
+        # Drop top-level active_* fields that were stored in auth
+        data.pop("active_confluence", None)
+        data.pop("active_jira", None)
+        return data
+
+    def get_instance(self, url: str) -> ApiDetails | None:
+        """Return the Confluence ApiDetails whose key matches *url* (exact or host match)."""
+        return self.confluence.get(url) or self._match_by_host(self.confluence, url)
+
+    def get_jira_instance(self, url: str) -> ApiDetails | None:
+        """Return the Jira ApiDetails whose key matches *url* (exact or host match)."""
+        return self.jira.get(url) or self._match_by_host(self.jira, url)
+
+    def default_confluence_url(self) -> str | None:
+        """Return the URL of the only configured Confluence instance, or None if 0 or 2+."""
+        return next(iter(self.confluence)) if len(self.confluence) == 1 else None
+
+    def default_jira_url(self) -> str | None:
+        """Return the URL of the only configured Jira instance, or None if 0 or 2+."""
+        return next(iter(self.jira)) if len(self.jira) == 1 else None
+
+    @staticmethod
+    def _match_by_host(instances: dict[str, ApiDetails], url: str) -> ApiDetails | None:
+        import urllib.parse
+
+        host = urllib.parse.urlparse(url).hostname or url
+        for key, details in instances.items():
+            if urllib.parse.urlparse(key).hostname == host:
+                return details
+        return None
+
+
+def _looks_like_url_keyed(d: dict) -> bool:
+    """Return True if the dict looks like it's already keyed by URLs (not by field names)."""
+    return any(k.startswith(("http://", "https://")) for k in d)
 
 
 class ExportConfig(BaseModel):
@@ -274,6 +349,15 @@ class ExportConfig(BaseModel):
             "If enabled, the title will be added as a top-level heading."
         ),
     )
+    enable_jira_enrichment: bool = Field(
+        default=True,
+        title="Enable Jira Enrichment",
+        description=(
+            "Whether to fetch Jira issue data to enrich Confluence pages. "
+            "When enabled, Jira issue links will include the issue summary. "
+            "When disabled, only the issue key and link will be included."
+        ),
+    )
     skip_unchanged: bool = Field(
         default=True,
         title="Skip Unchanged Pages",
@@ -331,11 +415,7 @@ def save_app_data(config_model: ConfigModel) -> None:
 def get_settings() -> ConfigModel:
     """Get the current application settings as a ConfigModel instance."""
     data = load_app_data()
-    return ConfigModel(
-        export=ExportConfig(**data.get("export", {})),
-        connection_config=ConnectionConfig(**data.get("connection_config", {})),
-        auth=AuthConfig(**data.get("auth", {})),
-    )
+    return ConfigModel.model_validate(data)
 
 
 def _set_by_path(obj: dict, path: str, value: object) -> None:
@@ -349,10 +429,35 @@ def _set_by_path(obj: dict, path: str, value: object) -> None:
     current[keys[-1]] = value
 
 
+def _set_by_keys(obj: dict, keys: list[str], value: object) -> None:
+    """Set a value in a nested dict using an explicit list of key components."""
+    current = obj
+    for k in keys[:-1]:
+        if k not in current or not isinstance(current[k], dict):
+            current[k] = {}
+        current = current[k]
+    current[keys[-1]] = value
+
+
 def set_setting(path: str, value: object) -> None:
     """Set a setting by dot-path and save to config file."""
     data = load_app_data()
     _set_by_path(data, path, value)
+    try:
+        settings = ConfigModel.model_validate(data)
+    except ValidationError as e:
+        raise ValueError(str(e)) from e
+    save_app_data(settings)
+
+
+def set_setting_with_keys(keys: list[str], value: object) -> None:
+    """Set a setting by an explicit list of path components and save to config file.
+
+    Use this instead of ``set_setting`` when any path component contains dots
+    (e.g. a URL used as a dict key: ``["auth", "confluence", "https://x.y", "username"]``).
+    """
+    data = load_app_data()
+    _set_by_keys(data, keys, value)
     try:
         settings = ConfigModel.model_validate(data)
     except ValidationError as e:

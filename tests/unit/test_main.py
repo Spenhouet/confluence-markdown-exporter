@@ -65,7 +65,7 @@ class TestAppConfiguration:
             "pages",
             "pages-with-descendants",
             "spaces",
-            "all-spaces",
+            "orgs",
             "config",
             "version",
         ]
