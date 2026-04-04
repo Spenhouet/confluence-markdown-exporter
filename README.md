@@ -56,21 +56,18 @@ pip install confluence-markdown-exporter
 
 Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information.
 
-> [!TIP]
-> Instead of `confluence-markdown-exporter` you can also use the shorthand `cf-export`.
-
 #### 2.1. Export Page
 
 Export a single Confluence page by ID:
 
 ```sh
-confluence-markdown-exporter pages <page-id e.g. 645208921> --output-path <output path e.g. ./output_path/>
+cme pages <page-id e.g. 645208921> --output-path <output path e.g. ./output_path/>
 ```
 
 or by URL:
 
 ```sh
-confluence-markdown-exporter pages <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> --output-path <output path e.g. ./output_path/>
+cme pages <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> --output-path <output path e.g. ./output_path/>
 ```
 
 #### 2.2. Export Page with Descendants
@@ -78,13 +75,13 @@ confluence-markdown-exporter pages <page-url e.g. https://company.atlassian.net/
 Export a Confluence page and all its descendant pages by page ID:
 
 ```sh
-confluence-markdown-exporter pages-with-descendants <page-id e.g. 645208921> --output-path <output path e.g. ./output_path/>
+cme pages-with-descendants <page-id e.g. 645208921> --output-path <output path e.g. ./output_path/>
 ```
 
 or by URL:
 
 ```sh
-confluence-markdown-exporter pages-with-descendants <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> --output-path <output path e.g. ./output_path/>
+cme pages-with-descendants <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> --output-path <output path e.g. ./output_path/>
 ```
 
 #### 2.3. Export Space
@@ -92,7 +89,7 @@ confluence-markdown-exporter pages-with-descendants <page-url e.g. https://compa
 Export all Confluence pages of a single Space:
 
 ```sh
-confluence-markdown-exporter spaces <space-key e.g. MYSPACE> --output-path <output path e.g. ./output_path/>
+cme spaces <space-key e.g. MYSPACE> --output-path <output path e.g. ./output_path/>
 ```
 
 #### 2.4. Export all Spaces
@@ -100,7 +97,7 @@ confluence-markdown-exporter spaces <space-key e.g. MYSPACE> --output-path <outp
 Export all Confluence pages across all spaces:
 
 ```sh
-confluence-markdown-exporter all-spaces --output-path <output path e.g. ./output_path/>
+cme all-spaces --output-path <output path e.g. ./output_path/>
 ```
 
 ### 3. Output
@@ -127,7 +124,7 @@ All configuration and authentication is stored in a single JSON file managed by 
 To interactively view and change configuration, run:
 
 ```sh
-confluence-markdown-exporter config
+cme config
 ```
 
 This will open a menu where you can:
