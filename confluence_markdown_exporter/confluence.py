@@ -1467,56 +1467,24 @@ def _export_page_worker(page: "Page | Descendant", use_thread_local: bool = Fals
         use_thread_local: If True, use thread-local Confluence instance
                          (required for parallel export).
     """
-    # Retry configuration from settings
-    retry_config = settings.connection_config
-    max_retries = retry_config.max_backoff_retries if retry_config.backoff_and_retry else 0
-    backoff_factor = retry_config.backoff_factor
-    max_backoff = retry_config.max_backoff_seconds
-    retry_codes = retry_config.retry_status_codes
-
-    for attempt in range(max_retries + 1):
+    if use_thread_local:
+        # Use thread-local confluence instance for thread safety
+        global confluence  # noqa: PLW0603
+        old_confluence = confluence
+        confluence = get_thread_confluence()
         try:
-            if use_thread_local:
-                # Use thread-local confluence instance for thread safety
-                global confluence  # noqa: PLW0603
-                old_confluence = confluence
-                confluence = get_thread_confluence()
-                try:
-                    _page = Page.from_id(page.id)
-                    _page.export()
-                    # Record to lockfile if enabled
-                    LockfileManager.record_page(_page)
-                finally:
-                    confluence = old_confluence
-            else:
-                # Serial mode - use global confluence instance
-                _page = Page.from_id(page.id)
-                _page.export()
-                # Record to lockfile if enabled
-                LockfileManager.record_page(_page)
-            # Success - exit retry loop
-            break
-
-        except HTTPError as e:
-            # Check if this is a retriable error
-            if e.response is not None and e.response.status_code in retry_codes:
-                if attempt < max_retries:
-                    # Calculate exponential backoff delay
-                    delay = min(backoff_factor**attempt, max_backoff)
-                    logger.warning(
-                        f"Rate limit/server error (HTTP {e.response.status_code}) "
-                        f"for page {page.id}. Retrying in {delay}s "
-                        f"(attempt {attempt + 1}/{max_retries + 1})"
-                    )
-                    import time
-
-                    time.sleep(delay)
-                    continue
-            # Non-retriable error or max retries exceeded - re-raise
-            raise
-        except Exception:
-            # Non-HTTP errors are not retried
-            raise
+            _page = Page.from_id(page.id)
+            _page.export()
+            # Record to lockfile if enabled
+            LockfileManager.record_page(_page)
+        finally:
+            confluence = old_confluence
+    else:
+        # Serial mode - use global confluence instance
+        _page = Page.from_id(page.id)
+        _page.export()
+        # Record to lockfile if enabled
+        LockfileManager.record_page(_page)
 
 
 def export_pages(pages: list["Page | Descendant"]) -> None:
@@ -1541,7 +1509,7 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
     max_workers = settings.connection_config.max_workers
 
     # Serial mode for debugging or single worker
-    if max_workers <= 1:
+    if DEBUG or max_workers <= 1:
         logger.info("Using serial export mode (max_workers=1)")
         for page in (pbar := tqdm(pages_to_export, smoothing=0.05)):
             pbar.set_postfix_str(f"Exporting page {page.id}")
