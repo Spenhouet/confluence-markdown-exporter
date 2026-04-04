@@ -39,8 +39,8 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     mock_jira = MagicMock()
 
     # Replace with wrapper functions that return mocks
-    confluence_markdown_exporter.api_clients.get_confluence_instance = lambda: mock_confluence
-    confluence_markdown_exporter.api_clients.get_jira_instance = lambda: mock_jira
+    confluence_markdown_exporter.api_clients.get_confluence_instance = lambda _url: mock_confluence
+    confluence_markdown_exporter.api_clients.get_jira_instance = lambda _url: mock_jira
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:  # noqa: ARG001
@@ -92,8 +92,10 @@ def restore_api_functions_for_specific_tests(
         mock_confluence.get_all_spaces.return_value = []
         mock_jira = MagicMock()
 
-        confluence_markdown_exporter.api_clients.get_confluence_instance = lambda: mock_confluence
-        confluence_markdown_exporter.api_clients.get_jira_instance = lambda: mock_jira
+        confluence_markdown_exporter.api_clients.get_confluence_instance = (
+            lambda _url: mock_confluence
+        )
+        confluence_markdown_exporter.api_clients.get_jira_instance = lambda _url: mock_jira
 
 
 @pytest.fixture
