@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-LOCKFILE_VERSION = 1
+LOCKFILE_VERSION = 2
 
 
 class PageEntry(BaseModel):
@@ -32,25 +32,89 @@ class PageEntry(BaseModel):
     export_path: str
 
 
+class SpaceEntry(BaseModel):
+    """Lock file entry for a Confluence space."""
+
+    pages: dict[str, PageEntry] = Field(default_factory=dict)
+
+
+class OrgEntry(BaseModel):
+    """Lock file entry for a Confluence organisation (base URL)."""
+
+    spaces: dict[str, SpaceEntry] = Field(default_factory=dict)
+
+
 class ConfluenceLock(BaseModel):
     """Lock file tracking exported Confluence data."""
 
     lockfile_version: int = Field(default=LOCKFILE_VERSION)
     last_export: str = Field(default="")
-    pages: dict[str, PageEntry] = Field(default_factory=dict)
+    orgs: dict[str, OrgEntry] = Field(default_factory=dict)
 
     @classmethod
     def load(cls, lockfile_path: Path) -> ConfluenceLock:
-        """Load lock file from disk, or return empty if not exists."""
+        """Load lock file from disk, or return empty if not exists or outdated."""
         if lockfile_path.exists():
             try:
                 content = lockfile_path.read_text(encoding="utf-8")
-                return cls.model_validate_json(content)
-            except ValidationError:
-                logger.warning(f"Failed to parse lock file: {lockfile_path}. Starting fresh.")
+                data = json.loads(content)
+                if data.get("lockfile_version", 1) < LOCKFILE_VERSION:
+                    logger.info(
+                        "Lock file format is outdated (v%s → v%s). Starting fresh.",
+                        data.get("lockfile_version", 1),
+                        LOCKFILE_VERSION,
+                    )
+                    return cls()
+                return cls.model_validate(data)
+            except (ValidationError, json.JSONDecodeError):
+                logger.warning("Failed to parse lock file: %s. Starting fresh.", lockfile_path)
         return cls()
 
-    def save(self, lockfile_path: Path, *, delete_ids: set[str] | None = None) -> None:
+    def all_pages(self) -> dict[str, PageEntry]:
+        """Return all page entries as a flat dict keyed by page ID."""
+        result: dict[str, PageEntry] = {}
+        for org in self.orgs.values():
+            for space in org.spaces.values():
+                result.update(space.pages)
+        return result
+
+    def get_page(self, page_id: str) -> PageEntry | None:
+        """Return the PageEntry for *page_id*, searching all orgs and spaces."""
+        for org in self.orgs.values():
+            for space in org.spaces.values():
+                if page_id in space.pages:
+                    return space.pages[page_id]
+        return None
+
+    def remove_page(self, page_id: str) -> None:
+        """Remove *page_id* from whichever org/space entry holds it."""
+        for org in self.orgs.values():
+            for space in org.spaces.values():
+                space.pages.pop(page_id, None)
+
+    def add_page(self, page: Page) -> None:
+        """Add or update a page entry, placed under its org and space."""
+        if page.version is None:
+            logger.warning("Page %s has no version info. Skipping lock entry.", page.id)
+            return
+
+        org_url = page.base_url
+        space_key = page.space.key
+
+        if org_url not in self.orgs:
+            self.orgs[org_url] = OrgEntry()
+        if space_key not in self.orgs[org_url].spaces:
+            self.orgs[org_url].spaces[space_key] = SpaceEntry()
+
+        self.orgs[org_url].spaces[space_key].pages[str(page.id)] = PageEntry(
+            title=page.title,
+            version=page.version.number,
+            export_path=str(page.export_path),
+        )
+
+    def save(  # noqa: C901
+        self, lockfile_path: Path, *, delete_ids: set[str] | None = None
+    ) -> None:
         """Save lock file to disk.
 
         To handle concurrent writes, this method reads the existing lock file
@@ -60,10 +124,25 @@ class ConfluenceLock(BaseModel):
 
         # Read existing lock file and merge to handle concurrent writes
         existing = ConfluenceLock.load(lockfile_path)
-        existing.pages = dict(sorted({**existing.pages, **self.pages}.items()))
+        for org_url, org_entry in self.orgs.items():
+            if org_url not in existing.orgs:
+                existing.orgs[org_url] = OrgEntry()
+            for space_key, space_entry in org_entry.spaces.items():
+                if space_key not in existing.orgs[org_url].spaces:
+                    existing.orgs[org_url].spaces[space_key] = SpaceEntry()
+                existing.orgs[org_url].spaces[space_key].pages.update(space_entry.pages)
+
         if delete_ids:
             for page_id in delete_ids:
-                existing.pages.pop(page_id, None)
+                existing.remove_page(page_id)
+
+        # Sort for deterministic output
+        for org in existing.orgs.values():
+            for space in org.spaces.values():
+                space.pages = dict(sorted(space.pages.items()))
+            org.spaces = dict(sorted(org.spaces.items()))
+        existing.orgs = dict(sorted(existing.orgs.items()))
+
         existing.last_export = datetime.now(timezone.utc).isoformat()
 
         json_str = json.dumps(existing.model_dump(), indent=2, ensure_ascii=False)
@@ -85,20 +164,8 @@ class ConfluenceLock(BaseModel):
             raise
 
         # Update self to reflect merged state
-        self.pages = existing.pages
+        self.orgs = existing.orgs
         self.last_export = existing.last_export
-
-    def add_page(self, page: Page) -> None:
-        """Add or update a page entry in the lock file."""
-        if page.version is None:
-            logger.warning(f"Page {page.id} has no version info. Skipping lock entry.")
-            return
-
-        self.pages[str(page.id)] = PageEntry(
-            title=page.title,
-            version=page.version.number,
-            export_path=str(page.export_path),
-        )
 
 
 class LockfileManager:
@@ -122,7 +189,7 @@ class LockfileManager:
         cls._output_path = settings.export.output_path
         cls._lockfile_path = cls._output_path / settings.export.lockfile_name
         cls._lock = ConfluenceLock.load(cls._lockfile_path)
-        cls._all_entries_snapshot = dict(cls._lock.pages)
+        cls._all_entries_snapshot = dict(cls._lock.all_pages())
         cls._seen_page_ids = set()
 
     @classmethod
@@ -154,10 +221,10 @@ class LockfileManager:
             return True
 
         page_id = str(page.id)
-        if page_id not in cls._lock.pages:
+        entry = cls._lock.get_page(page_id)
+        if entry is None:
             return True
 
-        entry = cls._lock.pages[page_id]
         if page.version is None:
             return True
 
@@ -173,7 +240,7 @@ class LockfileManager:
         """Return lockfile page IDs not encountered during the current export run."""
         if cls._lock is None:
             return set()
-        return set(cls._lock.pages.keys()) - cls._seen_page_ids
+        return set(cls._lock.all_pages().keys()) - cls._seen_page_ids
 
     @classmethod
     def remove_pages(cls, deleted_ids: set[str]) -> None:
@@ -189,19 +256,19 @@ class LockfileManager:
 
         # Handle moved pages: delete old file when export_path changed
         for page_id in cls._seen_page_ids:
-            if page_id in cls._all_entries_snapshot and page_id in cls._lock.pages:
+            if page_id in cls._all_entries_snapshot:
                 old_entry = cls._all_entries_snapshot[page_id]
-                new_entry = cls._lock.pages[page_id]
-                if old_entry.export_path != new_entry.export_path:
+                new_entry = cls._lock.get_page(page_id)
+                if new_entry and old_entry.export_path != new_entry.export_path:
                     (cls._output_path / old_entry.export_path).unlink(missing_ok=True)
-                    logger.info(f"Deleted old path for moved page: {old_entry.export_path}")
+                    logger.info("Deleted old path for moved page: %s", old_entry.export_path)
 
         # Remove files and lockfile entries for pages deleted from Confluence
         for page_id in deleted_ids:
-            if page_id in cls._lock.pages:
-                entry = cls._lock.pages[page_id]
+            entry = cls._lock.get_page(page_id)
+            if entry:
                 (cls._output_path / entry.export_path).unlink(missing_ok=True)
-                logger.info(f"Deleted removed page: {entry.export_path}")
+                logger.info("Deleted removed page: %s", entry.export_path)
                 result_delete_ids.add(page_id)
 
         if result_delete_ids:

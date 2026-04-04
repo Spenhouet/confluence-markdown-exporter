@@ -15,7 +15,9 @@ from confluence_markdown_exporter.utils.app_data_store import ConfigModel
 from confluence_markdown_exporter.utils.app_data_store import get_app_config_path
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import reset_to_defaults
+from confluence_markdown_exporter.utils.app_data_store import save_app_data
 from confluence_markdown_exporter.utils.app_data_store import set_setting
+from confluence_markdown_exporter.utils.app_data_store import set_setting_with_keys
 
 custom_style = Style(
     [
@@ -196,12 +198,185 @@ def get_model_by_path(model: type[BaseModel], path: str) -> type[BaseModel]:
     """Traverse a Pydantic model class using a dot-separated path and return the submodel class."""
     keys = path.split(".")
     for key in keys:
+        # Try direct submodel first
         sub = _get_submodel(model, key)
         if sub is not None:
             model = sub
-        else:
-            break
+            continue
+        # Try dict[str, SomeModel] — the key may be a field name or an instance name
+        if hasattr(model, "model_fields") and key in model.model_fields:
+            dict_sub = _get_dict_value_model(model, key)
+            if dict_sub is not None:
+                model = dict_sub
+                continue
+        # key is an instance name inside a dict[str, SomeModel] — model stays the same
     return model
+
+
+def _get_dict_value_model(model: type[BaseModel], key: str) -> type[BaseModel] | None:
+    """If the field annotation is dict[str, SomeModel], return SomeModel; else None."""
+    if hasattr(model, "model_fields"):
+        annotation = model.model_fields[key].annotation
+    else:
+        annotation = model.__annotations__.get(key)
+    if annotation is None:
+        return None
+    origin = get_origin(annotation)
+    if origin is dict:
+        args = get_args(annotation)
+        if len(args) == 2 and isinstance(args[1], type):  # noqa: PLR2004
+            try:
+                if issubclass(args[1], BaseModel):
+                    return args[1]
+            except TypeError:
+                pass
+    return None
+
+
+def _edit_instance_fields(  # noqa: C901
+    instance_key: str,
+    instance_data: dict,
+    item_model: type[BaseModel],
+    parent_path_parts: list[str],
+) -> None:
+    """Edit the fields of a single named instance using set_setting_with_keys.
+
+    This avoids the dot-split path system so URL keys (which contain dots)
+    work correctly.
+    """
+    selected_field: str | None = None
+    while True:
+        choices = []
+        for k, v in instance_data.items():
+            if v is None:
+                continue
+            try:
+                meta = _get_field_metadata(item_model, k)
+                display_title = meta["title"] if meta and meta["title"] else k
+            except (KeyError, AttributeError):
+                display_title = k
+            display_val = "Not set" if isinstance(v, str | SecretStr) and str(v) == "" else v
+            choices.append(
+                Choice(
+                    title=[
+                        ("class:key", str(display_title)),
+                        ("class:value", f"  {display_val}"),
+                    ],
+                    value=k,
+                )
+            )
+        choices.append(Choice(title="[Back]", value="__back__"))
+        field_key = questionary.select(
+            f"Edit credentials for '{instance_key}':",
+            choices=choices,
+            style=custom_style,
+            default=selected_field,
+        ).ask()
+        if field_key == "__back__" or field_key is None:
+            return
+        selected_field = field_key
+        current_val = instance_data.get(field_key)
+        while True:
+            new_val = _prompt_for_new_value(field_key, current_val, item_model)
+            if new_val is not None:
+                try:
+                    set_setting_with_keys([*parent_path_parts, instance_key, field_key], new_val)
+                    instance_data[field_key] = new_val
+                    questionary.print(f"Updated {field_key}.")
+                    # Offer cross-service sync for auth credential fields
+                    if len(parent_path_parts) >= 2 and parent_path_parts[0] == "auth":  # noqa: PLR2004
+                        _maybe_sync_auth_change(
+                            instance_key, parent_path_parts[1], field_key, new_val, current_val
+                        )
+                    break
+                except (ValueError, TypeError) as e:
+                    questionary.print(f"Error: {e}")
+                    retry = questionary.confirm("Try again?", style=custom_style).ask()
+                    if not retry:
+                        break
+            else:
+                break
+
+
+def _edit_instance_dict_loop(  # noqa: C901, PLR0912
+    instances: dict,
+    item_model: type[BaseModel],
+    parent_key: str,
+) -> None:
+    """Interactive loop for managing a dict[str, BaseModel] (URL-keyed instances)."""
+    parent_path_parts = parent_key.split(".")
+
+    while True:
+        choices = [
+            Choice(title=[("class:key", instance_url)], value=("edit", instance_url))
+            for instance_url in instances
+        ]
+        choices.append(Choice(title="[Add instance]", value=("add", None)))
+        if len(instances) > 1:
+            choices.append(Choice(title="[Remove instance]", value=("remove", None)))
+        choices.append(Choice(title="[Back]", value=("back", None)))
+
+        action, instance_url = questionary.select(
+            f"Manage instances for '{parent_key}':",
+            choices=choices,
+            style=custom_style,
+        ).ask() or ("back", None)
+
+        if action == "back" or action is None:
+            return
+
+        if action == "add":
+            new_url = questionary.text(
+                "Enter the base URL for the new instance (e.g. https://company.atlassian.net):",
+                validate=lambda v: (
+                    "URL cannot be empty" if not v.strip()
+                    else "Instance already exists" if v.strip() in instances
+                    else True
+                ),
+                style=custom_style,
+            ).ask()
+            if new_url:
+                new_url = new_url.strip().rstrip("/")
+                new_instance = item_model()
+                set_setting_with_keys([*parent_path_parts, new_url], new_instance.model_dump())
+                instances[new_url] = new_instance.model_dump()
+            continue
+
+        if action == "remove":
+            if len(instances) <= 1:
+                questionary.print("Cannot remove the only instance.", style="fg:yellow")
+                continue
+            choices_r = [Choice(title=url, value=url) for url in instances]
+            to_remove = questionary.select(
+                "Select instance to remove:",
+                choices=choices_r,
+                style=custom_style,
+            ).ask()
+            if to_remove:
+                confirm = questionary.confirm(
+                    f"Remove instance '{to_remove}'?", default=False, style=custom_style
+                ).ask()
+                if confirm:
+                    instances.pop(to_remove, None)
+                    current = get_settings().model_dump()
+                    sub: dict = current
+                    for k in parent_path_parts:
+                        sub = sub[k]
+                    sub.pop(to_remove, None)
+                    save_app_data(ConfigModel.model_validate(current))
+            continue
+
+        if action == "edit" and instance_url:
+            current_val = instances.get(instance_url, {})
+            if not isinstance(current_val, dict):
+                current_val = current_val.model_dump()  # type: ignore[union-attr]
+            _edit_instance_fields(instance_url, current_val, item_model, parent_path_parts)
+            # Refresh from disk
+            updated = get_settings().model_dump()
+            sub = updated
+            for k in parent_path_parts:
+                sub = sub[k]
+            instances[instance_url] = sub.get(instance_url, current_val)
 
 
 def _main_config_menu(settings: dict, default: tuple[str, bool] | None = None) -> tuple:
@@ -276,18 +451,30 @@ _AUTH_CREDENTIAL_FIELDS = {"username", "api_token", "pat"}
 
 
 def _maybe_sync_auth_change(
-    full_path: str, key: str, value_cast: object, previous_value: object
+    instance_url: str,
+    service: str,
+    key: str,
+    value_cast: object,
+    previous_value: object,
 ) -> None:
-    """After changing a Confluence or Jira auth credential, sync the change to the other service."""
+    """After changing an auth credential, offer to sync it to the paired service instance.
+
+    Args:
+        instance_url: The URL key of the instance being edited (may contain dots).
+        service: ``"confluence"`` or ``"jira"``.
+        key: The field name that changed (``"username"``, ``"api_token"``, or ``"pat"``).
+        value_cast: The new value.
+        previous_value: The old value (used to skip the prompt when was empty before).
+    """
     if key not in _AUTH_CREDENTIAL_FIELDS:
         return
 
-    if full_path.startswith("auth.confluence."):
+    if service == "confluence":
         other_service = "Jira"
-        other_prefix = "auth.jira"
-    elif full_path.startswith("auth.jira."):
+        other_service_key = "jira"
+    elif service == "jira":
         other_service = "Confluence"
-        other_prefix = "auth.confluence"
+        other_service_key = "confluence"
     else:
         return
 
@@ -299,14 +486,14 @@ def _maybe_sync_auth_change(
         return
 
     should_sync = questionary.confirm(
-        f"Also apply this {key} change to the {other_service} authentication config?",
+        f"Also apply this {key} change to the {other_service} instance '{instance_url}'?",
         default=True,
         style=custom_style,
     ).ask()
     if should_sync:
         try:
-            set_setting(f"{other_prefix}.{key}", value_cast)
-            questionary.print(f"{other_prefix}.{key} updated to match.")
+            set_setting_with_keys(["auth", other_service_key, instance_url, key], value_cast)
+            questionary.print(f"auth.{other_service_key}.{instance_url}.{key} updated to match.")
         except (ValueError, TypeError) as e:
             questionary.print(f"Could not sync to {other_service}: {e}")
 
@@ -371,7 +558,7 @@ def _get_choices(config_dict: dict, model: type[BaseModel]) -> list:
     return choices
 
 
-def _edit_dict_config_loop(  # noqa: C901, PLR0912
+def _edit_dict_config_loop(  # noqa: C901, PLR0912, PLR0915
     config_dict: dict,
     model: type[BaseModel],
     parent_key: str,
@@ -411,6 +598,16 @@ def _edit_dict_config_loop(  # noqa: C901, PLR0912
             selected_key = None
             continue
         current_value = config_dict[key] if key else None
+        # Check for dict[str, BaseModel] (named instances, e.g. auth.confluence)
+        dict_value_model = _get_dict_value_model(model, key)
+        if isinstance(current_value, dict) and dict_value_model is not None:
+            _edit_instance_dict_loop(
+                current_value,
+                dict_value_model,
+                f"{parent_key}.{key}" if parent_key else key,
+            )
+            selected_key = key
+            continue
         submodel = _get_submodel(model, key)
         if isinstance(current_value, dict) and submodel is not None:
             # Always set selected_key to the submenu key after returning
@@ -430,12 +627,6 @@ def _edit_dict_config_loop(  # noqa: C901, PLR0912
                         set_setting(f"{parent_key}.{key}" if parent_key else key, value_cast)
                         config_dict[key] = value_cast
                         questionary.print(f"{parent_key}.{key} updated to {value_cast}.")
-                        _maybe_sync_auth_change(
-                            f"{parent_key}.{key}" if parent_key else key,
-                            key,
-                            value_cast,
-                            current_value,
-                        )
                         selected_key = key
                         break
                     except (ValueError, TypeError) as e:
