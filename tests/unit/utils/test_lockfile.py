@@ -10,15 +10,22 @@ import pytest
 
 from confluence_markdown_exporter.utils.lockfile import ConfluenceLock
 from confluence_markdown_exporter.utils.lockfile import LockfileManager
+from confluence_markdown_exporter.utils.lockfile import OrgEntry
 from confluence_markdown_exporter.utils.lockfile import PageEntry
+from confluence_markdown_exporter.utils.lockfile import SpaceEntry
 
 LOCKFILE_FILENAME = "confluence-lock.json"
+_TEST_BASE_URL = "https://test.atlassian.net"
+_TEST_SPACE_KEY = "TEST"
 
 
 def _make_mock_page(
     page_id: int,
     version_number: int,
     export_path: str,
+    *,
+    base_url: str = _TEST_BASE_URL,
+    space_key: str = _TEST_SPACE_KEY,
 ) -> MagicMock:
     """Create a mock page/descendant with the attributes used by LockfileManager."""
     page = MagicMock()
@@ -26,7 +33,45 @@ def _make_mock_page(
     page.version.number = version_number
     page.export_path = Path(export_path)
     page.title = f"Page {page_id}"
+    page.base_url = base_url
+    page.space.key = space_key
     return page
+
+
+def _lock_with_pages(
+    pages: dict,
+    *,
+    base_url: str = _TEST_BASE_URL,
+    space_key: str = _TEST_SPACE_KEY,
+) -> ConfluenceLock:
+    """Build a ConfluenceLock with pages nested under the given org/space."""
+    return ConfluenceLock(
+        orgs={
+            base_url: OrgEntry(
+                spaces={space_key: SpaceEntry(pages=pages)}
+            )
+        }
+    )
+
+
+def _lock_data(
+    pages: dict,
+    *,
+    base_url: str = _TEST_BASE_URL,
+    space_key: str = _TEST_SPACE_KEY,
+) -> dict:
+    """Build a lockfile JSON-compatible dict with pages nested under org/space."""
+    return {
+        "lockfile_version": 2,
+        "last_export": "2025-01-01T00:00:00+00:00",
+        "orgs": {
+            base_url: {
+                "spaces": {
+                    space_key: {"pages": pages}
+                }
+            }
+        },
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +100,7 @@ class TestLockfileManagerInit:
             LockfileManager.init()
 
             assert LockfileManager._lock is not None
-            assert LockfileManager._lock.pages == {}
+            assert LockfileManager._lock.orgs == {}
             assert LockfileManager._lockfile_path == Path(tmp) / LOCKFILE_FILENAME
 
     @patch("confluence_markdown_exporter.utils.app_data_store.get_settings")
@@ -68,24 +113,17 @@ class TestLockfileManagerInit:
             mock_get_settings.return_value.export.output_path = Path(tmp)
             mock_get_settings.return_value.export.lockfile_name = LOCKFILE_FILENAME
             lockfile_path = Path(tmp) / LOCKFILE_FILENAME
-            data = {
-                "lockfile_version": 1,
-                "last_export": "2025-01-01T00:00:00+00:00",
-                "pages": {
-                    "100": {
-                        "title": "Page A",
-                        "version": 3,
-                        "export_path": "space/Page A.md",
-                    }
-                },
-            }
+            data = _lock_data(
+                {"100": {"title": "Page A", "version": 3, "export_path": "space/Page A.md"}}
+            )
             lockfile_path.write_text(json.dumps(data), encoding="utf-8")
 
             LockfileManager.init()
 
             assert LockfileManager._lock is not None
-            assert "100" in LockfileManager._lock.pages
-            assert LockfileManager._lock.pages["100"].version == 3
+            entry = LockfileManager._lock.get_page("100")
+            assert entry is not None
+            assert entry.version == 3
 
     @patch("confluence_markdown_exporter.utils.app_data_store.get_settings")
     def test_init_snapshots_all_entries(
@@ -97,31 +135,40 @@ class TestLockfileManagerInit:
             mock_get_settings.return_value.export.output_path = Path(tmp)
             mock_get_settings.return_value.export.lockfile_name = LOCKFILE_FILENAME
             lockfile_path = Path(tmp) / LOCKFILE_FILENAME
-            data = {
-                "lockfile_version": 1,
-                "last_export": "",
-                "pages": {
-                    "100": {
-                        "title": "A",
-                        "version": 1,
-                        "export_path": "a.md",
-                    },
-                    "200": {
-                        "title": "B",
-                        "version": 2,
-                        "export_path": "b.md",
-                    },
-                },
-            }
+            data = _lock_data({
+                "100": {"title": "A", "version": 1, "export_path": "a.md"},
+                "200": {"title": "B", "version": 2, "export_path": "b.md"},
+            })
             lockfile_path.write_text(json.dumps(data), encoding="utf-8")
 
             LockfileManager.init()
 
-            assert set(LockfileManager._all_entries_snapshot.keys()) == {
-                "100",
-                "200",
-            }
+            assert set(LockfileManager._all_entries_snapshot.keys()) == {"100", "200"}
             assert LockfileManager._seen_page_ids == set()
+
+    @patch("confluence_markdown_exporter.utils.app_data_store.get_settings")
+    def test_init_discards_v1_lockfile(
+        self,
+        mock_get_settings: MagicMock,
+    ) -> None:
+        """A v1 lockfile (flat pages dict) is discarded and replaced with an empty lock."""
+        with tempfile.TemporaryDirectory() as tmp:
+            mock_get_settings.return_value.export.output_path = Path(tmp)
+            mock_get_settings.return_value.export.lockfile_name = LOCKFILE_FILENAME
+            lockfile_path = Path(tmp) / LOCKFILE_FILENAME
+            v1_data = {
+                "lockfile_version": 1,
+                "last_export": "2025-01-01T00:00:00+00:00",
+                "pages": {
+                    "100": {"title": "Old Page", "version": 1, "export_path": "old.md"},
+                },
+            }
+            lockfile_path.write_text(json.dumps(v1_data), encoding="utf-8")
+
+            LockfileManager.init()
+
+            assert LockfileManager._lock is not None
+            assert LockfileManager._lock.orgs == {}
 
 
 class TestLockfileManagerRecordPage:
@@ -139,8 +186,9 @@ class TestLockfileManagerRecordPage:
 
             assert lockfile_path.exists()
             saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
-            assert "100" in saved["pages"]
-            assert saved["pages"]["100"]["version"] == 1
+            pages = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            assert "100" in pages
+            assert pages["100"]["version"] == 1
 
     def test_record_page_does_nothing_when_not_initialized(self) -> None:
         """record_page is a no-op when LockfileManager has not been initialized."""
@@ -154,17 +202,16 @@ class TestLockfileManagerRecordPage:
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / LOCKFILE_FILENAME
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
-                }
-            )
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
+            })
 
             page = _make_mock_page(page_id=100, version_number=2, export_path="space/Page A.md")
             LockfileManager.record_page(page)
 
             saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
-            assert saved["pages"]["100"]["version"] == 2
+            pages = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            assert pages["100"]["version"] == 2
 
     def test_record_page_adds_to_seen_page_ids(self) -> None:
         """record_page adds the page ID to the seen set."""
@@ -178,50 +225,62 @@ class TestLockfileManagerRecordPage:
 
             assert "100" in LockfileManager._seen_page_ids
 
+    def test_record_page_across_multiple_orgs_and_spaces(self) -> None:
+        """Pages from different orgs and spaces are stored independently."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / LOCKFILE_FILENAME
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._lock = ConfluenceLock()
+
+            page_a = _make_mock_page(
+                100, 1, "a.md", base_url="https://org-a.atlassian.net", space_key="AAA"
+            )
+            page_b = _make_mock_page(
+                200, 1, "b.md", base_url="https://org-b.atlassian.net", space_key="BBB"
+            )
+            LockfileManager.record_page(page_a)
+            LockfileManager.record_page(page_b)
+
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            assert "100" in saved["orgs"]["https://org-a.atlassian.net"]["spaces"]["AAA"]["pages"]
+            assert "200" in saved["orgs"]["https://org-b.atlassian.net"]["spaces"]["BBB"]["pages"]
+
 
 class TestLockfileManagerShouldExport:
     """Test cases for LockfileManager.should_export."""
 
     def test_page_not_in_lockfile_should_export(self) -> None:
         """A page not present in the lockfile should be exported."""
-        LockfileManager._lock = ConfluenceLock(
-            pages={
-                "999": PageEntry(title="Other", version=1, export_path="other.md"),
-            }
-        )
+        LockfileManager._lock = _lock_with_pages({
+            "999": PageEntry(title="Other", version=1, export_path="other.md"),
+        })
 
         page = _make_mock_page(page_id=123, version_number=1, export_path="space/New.md")
         assert LockfileManager.should_export(page) is True
 
     def test_page_in_lockfile_same_version_same_path_should_not_export(self) -> None:
         """A page with same version and same path should NOT be exported."""
-        LockfileManager._lock = ConfluenceLock(
-            pages={
-                "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
-            }
-        )
+        LockfileManager._lock = _lock_with_pages({
+            "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
+        })
 
         page = _make_mock_page(page_id=123, version_number=5, export_path="space/Page A.md")
         assert LockfileManager.should_export(page) is False
 
     def test_page_in_lockfile_different_version_should_export(self) -> None:
         """A page whose version has changed should be exported."""
-        LockfileManager._lock = ConfluenceLock(
-            pages={
-                "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
-            }
-        )
+        LockfileManager._lock = _lock_with_pages({
+            "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
+        })
 
         page = _make_mock_page(page_id=123, version_number=6, export_path="space/Page A.md")
         assert LockfileManager.should_export(page) is True
 
     def test_page_in_lockfile_different_export_path_should_export(self) -> None:
         """A page whose export path has changed (file moved) should be exported."""
-        LockfileManager._lock = ConfluenceLock(
-            pages={
-                "123": PageEntry(title="Page A", version=5, export_path="old/Page A.md"),
-            }
-        )
+        LockfileManager._lock = _lock_with_pages({
+            "123": PageEntry(title="Page A", version=5, export_path="old/Page A.md"),
+        })
 
         page = _make_mock_page(page_id=123, version_number=5, export_path="new/Page A.md")
         assert LockfileManager.should_export(page) is True
@@ -238,11 +297,9 @@ class TestLockfileManagerShouldExport:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp)
             LockfileManager._output_path = output
-            LockfileManager._lock = ConfluenceLock(
-                pages={
-                    "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
-                }
-            )
+            LockfileManager._lock = _lock_with_pages({
+                "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
+            })
 
             # File does NOT exist on disk
             page = _make_mock_page(page_id=123, version_number=5, export_path="space/Page A.md")
@@ -257,11 +314,9 @@ class TestLockfileManagerShouldExport:
             md_file.write_text("content")
 
             LockfileManager._output_path = output
-            LockfileManager._lock = ConfluenceLock(
-                pages={
-                    "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
-                }
-            )
+            LockfileManager._lock = _lock_with_pages({
+                "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
+            })
 
             page = _make_mock_page(page_id=123, version_number=5, export_path="space/Page A.md")
             assert LockfileManager.should_export(page) is False
@@ -300,16 +355,10 @@ class TestLockfileManagerCleanup:
             lockfile_path = output / LOCKFILE_FILENAME
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(
-                        title="Removed",
-                        version=1,
-                        export_path="space/Removed.md",
-                    ),
-                }
-            )
-            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.pages)
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Removed", version=1, export_path="space/Removed.md"),
+            })
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
             LockfileManager._seen_page_ids = set()  # page 100 not seen
 
             LockfileManager.remove_pages({"100"})
@@ -323,28 +372,19 @@ class TestLockfileManagerCleanup:
             lockfile_path = output / LOCKFILE_FILENAME
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(
-                        title="Removed",
-                        version=1,
-                        export_path="space/Removed.md",
-                    ),
-                    "200": PageEntry(
-                        title="Kept",
-                        version=1,
-                        export_path="space/Kept.md",
-                    ),
-                }
-            )
-            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.pages)
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Removed", version=1, export_path="space/Removed.md"),
+                "200": PageEntry(title="Kept", version=1, export_path="space/Kept.md"),
+            })
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
             LockfileManager._seen_page_ids = {"200"}
 
             LockfileManager.remove_pages({"100"})
 
             saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
-            assert "100" not in saved["pages"]
-            assert "200" in saved["pages"]
+            pages = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            assert "100" not in pages
+            assert "200" in pages
 
     def test_cleanup_deletes_old_file_for_moved_page(self) -> None:
         """When a page's export_path changes, the old file is deleted."""
@@ -358,21 +398,11 @@ class TestLockfileManagerCleanup:
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
             LockfileManager._all_entries_snapshot = {
-                "100": PageEntry(
-                    title="Page",
-                    version=1,
-                    export_path="old/Page.md",
-                ),
+                "100": PageEntry(title="Page", version=1, export_path="old/Page.md"),
             }
-            LockfileManager._lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(
-                        title="Page",
-                        version=2,
-                        export_path="new/Page.md",
-                    ),
-                }
-            )
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Page", version=2, export_path="new/Page.md"),
+            })
             LockfileManager._seen_page_ids = {"100"}
 
             LockfileManager.remove_pages(set())
@@ -390,22 +420,16 @@ class TestLockfileManagerCleanup:
             lockfile_path = output / LOCKFILE_FILENAME
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(
-                        title="Still",
-                        version=1,
-                        export_path="space/Still.md",
-                    ),
-                }
-            )
-            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.pages)
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Still", version=1, export_path="space/Still.md"),
+            })
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
             LockfileManager._seen_page_ids = set()
 
             LockfileManager.remove_pages(set())
 
             assert md_file.exists()
-            assert "100" in LockfileManager._lock.pages
+            assert LockfileManager._lock.get_page("100") is not None
 
     def test_cleanup_keeps_unchanged_seen_pages(self) -> None:
         """Pages that were seen during export are not checked via API."""
@@ -414,16 +438,10 @@ class TestLockfileManagerCleanup:
             lockfile_path = output / LOCKFILE_FILENAME
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(
-                        title="Seen",
-                        version=1,
-                        export_path="a.md",
-                    ),
-                }
-            )
-            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.pages)
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Seen", version=1, export_path="a.md"),
+            })
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
             LockfileManager._seen_page_ids = {"100"}
 
             LockfileManager.remove_pages(set())
@@ -436,16 +454,10 @@ class TestLockfileManagerCleanup:
             lockfile_path = output / LOCKFILE_FILENAME
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(
-                        title="Gone",
-                        version=1,
-                        export_path="space/Gone.md",
-                    ),
-                }
-            )
-            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.pages)
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Gone", version=1, export_path="space/Gone.md"),
+            })
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
             LockfileManager._seen_page_ids = set()
 
             LockfileManager.remove_pages({"100"})  # Should not raise
@@ -461,26 +473,17 @@ class TestLockfileManagerCleanup:
             lockfile_path = output / LOCKFILE_FILENAME
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(
-                        title="Safe",
-                        version=1,
-                        export_path="space/Safe.md",
-                    ),
-                }
-            )
-            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.pages)
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Safe", version=1, export_path="space/Safe.md"),
+            })
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
             LockfileManager._seen_page_ids = set()
 
             # Pass empty set: safe default — don't delete anything on API failure
             LockfileManager.remove_pages(set())
 
             assert md_file.exists()
-            assert "100" in LockfileManager._lock.pages
-
-
-_TEST_BASE_URL = "https://test.atlassian.net"
+            assert LockfileManager._lock.get_page("100") is not None
 
 
 class TestFetchDeletedPageIds:
@@ -556,17 +559,16 @@ class TestConfluenceLockSave:
         """After save, the file contains valid, complete JSON."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
-                }
-            )
+            lock = _lock_with_pages({
+                "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
+            })
 
             lock.save(lockfile_path)
 
             content = lockfile_path.read_text(encoding="utf-8")
             data = json.loads(content)
-            assert data["pages"]["100"]["version"] == 1
+            pages = data["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            assert pages["100"]["version"] == 1
             tmp_files = list(Path(tmp).glob("*.tmp"))
             assert tmp_files == []
 
@@ -574,11 +576,9 @@ class TestConfluenceLockSave:
         """When writing fails, no .tmp files are left behind."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
-                }
-            )
+            lock = _lock_with_pages({
+                "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
+            })
 
             with (
                 patch(
@@ -596,28 +596,14 @@ class TestConfluenceLockSave:
         """When writing fails, the original lockfile is not corrupted."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            original_data = {
-                "lockfile_version": 1,
-                "last_export": "2025-01-01T00:00:00+00:00",
-                "pages": {
-                    "100": {
-                        "title": "Page A",
-                        "version": 1,
-                        "export_path": "space/Page A.md",
-                    }
-                },
-            }
+            original_data = _lock_data({
+                "100": {"title": "Page A", "version": 1, "export_path": "space/Page A.md"},
+            })
             lockfile_path.write_text(json.dumps(original_data), encoding="utf-8")
 
-            lock = ConfluenceLock(
-                pages={
-                    "200": PageEntry(
-                        title="Page B",
-                        version=1,
-                        export_path="space/Page B.md",
-                    ),
-                }
-            )
+            lock = _lock_with_pages({
+                "200": PageEntry(title="Page B", version=1, export_path="space/Page B.md"),
+            })
 
             with (
                 patch(
@@ -630,24 +616,25 @@ class TestConfluenceLockSave:
 
             content = lockfile_path.read_text(encoding="utf-8")
             data = json.loads(content)
-            assert data == original_data
+            pages = data["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            assert "100" in pages
+            assert "200" not in pages
 
     def test_save_with_delete_ids(self) -> None:
         """Save removes entries specified in delete_ids."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(title="A", version=1, export_path="a.md"),
-                    "200": PageEntry(title="B", version=1, export_path="b.md"),
-                }
-            )
+            lock = _lock_with_pages({
+                "100": PageEntry(title="A", version=1, export_path="a.md"),
+                "200": PageEntry(title="B", version=1, export_path="b.md"),
+            })
 
             lock.save(lockfile_path, delete_ids={"100"})
 
             saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
-            assert "100" not in saved["pages"]
-            assert "200" in saved["pages"]
+            pages = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            assert "100" not in pages
+            assert "200" in pages
 
 
 class TestConfluenceLockSaveSortsKeys:
@@ -657,34 +644,57 @@ class TestConfluenceLockSaveSortsKeys:
         """Pages in the saved lockfile should be sorted by page ID."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = ConfluenceLock(
-                pages={
-                    "999": PageEntry(title="Page C", version=1, export_path="c.md"),
-                    "123": PageEntry(title="Page A", version=2, export_path="a.md"),
-                    "456": PageEntry(title="Page B", version=1, export_path="b.md"),
-                }
-            )
+            lock = _lock_with_pages({
+                "999": PageEntry(title="Page C", version=1, export_path="c.md"),
+                "123": PageEntry(title="Page A", version=2, export_path="a.md"),
+                "456": PageEntry(title="Page B", version=1, export_path="b.md"),
+            })
 
             lock.save(lockfile_path)
 
             content = lockfile_path.read_text(encoding="utf-8")
             data = json.loads(content)
-            page_ids = list(data["pages"].keys())
+            pages = data["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            page_ids = list(pages.keys())
             assert page_ids == ["123", "456", "999"]
 
     def test_save_preserves_model_field_order(self) -> None:
         """Top-level keys should follow the model field order."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = ConfluenceLock(
-                pages={
-                    "100": PageEntry(title="Page A", version=1, export_path="a.md"),
-                }
-            )
+            lock = _lock_with_pages({
+                "100": PageEntry(title="Page A", version=1, export_path="a.md"),
+            })
 
             lock.save(lockfile_path)
 
             content = lockfile_path.read_text(encoding="utf-8")
             data = json.loads(content)
             keys = list(data.keys())
-            assert keys == ["lockfile_version", "last_export", "pages"]
+            assert keys == ["lockfile_version", "last_export", "orgs"]
+
+    def test_save_sorts_spaces_and_orgs(self) -> None:
+        """Orgs and spaces within the saved lockfile should be sorted."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            lock = ConfluenceLock(
+                orgs={
+                    "https://z-org.atlassian.net": OrgEntry(
+                        spaces={
+                            "ZZZ": SpaceEntry(
+                                pages={"1": PageEntry(title="P", version=1, export_path="p.md")}
+                            ),
+                            "AAA": SpaceEntry(pages={}),
+                        }
+                    ),
+                    "https://a-org.atlassian.net": OrgEntry(spaces={}),
+                }
+            )
+
+            lock.save(lockfile_path)
+
+            data = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            org_keys = list(data["orgs"].keys())
+            assert org_keys == ["https://a-org.atlassian.net", "https://z-org.atlassian.net"]
+            space_keys = list(data["orgs"]["https://z-org.atlassian.net"]["spaces"].keys())
+            assert space_keys == ["AAA", "ZZZ"]

@@ -24,7 +24,7 @@
       "justMyCode": false,
       "args": [
         "pages",
-        "<page-id> or <page-url>",
+        "<page-url>",
         "--output-path",
         "scratch"
       ],
@@ -43,7 +43,7 @@
       "justMyCode": false,
       "args": [
         "pages-with-descendants",
-        "<page-id> or <page-url>",
+        "<page-url>",
         "--output-path",
         "scratch"
       ],
@@ -62,7 +62,7 @@
       "justMyCode": false,
       "args": [
         "spaces",
-        "<space-key>",
+        "<space-url>",
         "--output-path",
         "scratch"
       ],
@@ -81,6 +81,7 @@
       "justMyCode": false,
       "args": [
         "all-spaces",
+        "<instance-url>",
         "--output-path",
         "scratch"
       ],

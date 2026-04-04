@@ -180,7 +180,7 @@ class Organization(BaseModel):
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def from_api(cls, base_url: str) -> "Organization":
+    def from_url(cls, base_url: str) -> "Organization":
         return cls.from_json(
             cast(
                 "JsonResponse",
@@ -234,6 +234,29 @@ class Space(BaseModel):
             ),
             base_url,
         )
+
+    @classmethod
+    def from_url(cls, space_url: str) -> "Space":
+        """Retrieve a Space object given a Confluence space URL.
+
+        The Confluence instance is selected automatically by matching the URL's
+        hostname against configured instances.  If no match is found, a new
+        entry is registered in the auth config so the user can fill in
+        credentials via the interactive config menu.
+        """
+        parsed = urllib.parse.urlparse(space_url)
+        base_url = f"{parsed.scheme}://{parsed.hostname}"
+
+        # Ensure a client exists (creates/prompts if first time for this host)
+        get_confluence_instance(base_url)
+
+        path = parsed.path.rstrip("/")
+        if match := re.search(r"(?:/wiki/spaces/|/display/|/)([A-Za-z0-9_-]+)/", path):
+            space_key = match.group(1)
+            return cls.from_key(space_key, base_url)
+
+        msg = f"Could not parse space URL {space_url}."
+        raise ValueError(msg)
 
 
 class Label(BaseModel):
@@ -441,8 +464,7 @@ class Descendant(Document):
                 data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
             ),
             ancestors=[
-                Ancestor.from_json(ancestor, base_url)
-                for ancestor in data.get("ancestors", [])
+                Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])
             ][1:],
             version=Version.from_json(data.get("version", {})),
         )
@@ -618,8 +640,7 @@ class Page(Document):
             ],
             attachments=Attachment.from_page_id(data.get("id", 0), base_url),
             ancestors=[
-                Ancestor.from_json(ancestor, base_url)
-                for ancestor in data.get("ancestors", [])
+                Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])
             ][1:],
             version=Version.from_json(data.get("version", {})),
         )
@@ -686,10 +707,13 @@ class Page(Document):
         get_confluence_instance(base_url)
 
         path = parsed.path.rstrip("/")
+
+        # Match Confluence Cloud Page URL
         if match := re.search(r"/wiki/.+?/pages/(\d+)", path):
             return Page.from_id(int(match.group(1)), base_url)
 
-        if match := re.search(r"^/([^/]+?)/([^/]+)$", path):
+        # Match Confluence Server Page URL
+        if match := re.search(r"^(?:/display)?/([^/]+)/([^/]+)$", path):
             space_key = urllib.parse.unquote_plus(match.group(1))
             page_title = urllib.parse.unquote_plus(match.group(2))
             page_data = cast(
@@ -1023,7 +1047,7 @@ class Page(Document):
                 msg = "Page link does not have valid page_id."
                 raise ValueError(msg)
 
-            page = Page.from_id(page_id)
+            page = Page.from_id(page_id, self.page.base_url)
 
             if page.title == "Page not accessible":
                 logger.warning(
@@ -1068,9 +1092,7 @@ class Page(Document):
         def convert_user_mention(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if aid := el.get("data-account-id"):
                 try:
-                    return self.convert_user(
-                        User.from_accountid(str(aid), self.page.base_url)
-                    )
+                    return self.convert_user(User.from_accountid(str(aid), self.page.base_url))
                 except ApiNotFoundError:
                     logger.warning(f"User {aid} not found. Using text instead.")
 
@@ -1551,10 +1573,7 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
     logger.info(f"Using parallel export mode ({max_workers} workers)")
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all export tasks
-        futures = {
-            executor.submit(_export_page_worker, page): page
-            for page in pages_to_export
-        }
+        futures = {executor.submit(_export_page_worker, page): page for page in pages_to_export}
 
         # Track progress with tqdm
         with tqdm(total=len(pages_to_export), smoothing=0.05) as pbar:

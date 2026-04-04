@@ -10,7 +10,6 @@ from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.measure_time import measure
-from confluence_markdown_exporter.utils.platform_compat import handle_powershell_tilde_expansion
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
 DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
@@ -26,7 +25,7 @@ def override_output_path_config(value: Path | None) -> None:
 
 @app.command(help="Export one or more Confluence pages by URL to Markdown.")
 def pages(
-    pages: Annotated[list[str], typer.Argument(help="Page URL(s)")],
+    page_urls: Annotated[list[str], typer.Argument(help="Confluence Page URL(s)")],
     output_path: Annotated[
         Path | None,
         typer.Option(
@@ -37,16 +36,16 @@ def pages(
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
-    with measure(f"Export pages {', '.join(pages)}"):
+    with measure(f"Export pages {', '.join(page_urls)}"):
         override_output_path_config(output_path)
         LockfileManager.init()
 
         exported_urls: set[str] = set()
-        for page in pages:
-            _page = Page.from_url(page)
-            _page.export()
-            LockfileManager.record_page(_page)
-            exported_urls.add(_page.base_url)
+        for page_url in page_urls:
+            page = Page.from_url(page_url)
+            page.export()
+            LockfileManager.record_page(page)
+            exported_urls.add(page.base_url)
 
         for base_url in exported_urls:
             sync_removed_pages(base_url)
@@ -54,7 +53,7 @@ def pages(
 
 @app.command(help="Export Confluence pages and their descendant pages by URL to Markdown.")
 def pages_with_descendants(
-    pages: Annotated[list[str], typer.Argument(help="Page URL(s)")],
+    page_urls: Annotated[list[str], typer.Argument(help="Confluence Page URL(s)")],
     output_path: Annotated[
         Path | None,
         typer.Option(
@@ -65,15 +64,15 @@ def pages_with_descendants(
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
-    with measure(f"Export pages {', '.join(pages)} with descendants"):
+    with measure(f"Export pages {', '.join(page_urls)} with descendants"):
         override_output_path_config(output_path)
         LockfileManager.init()
 
         exported_urls: set[str] = set()
-        for page in pages:
-            _page = Page.from_url(page)
-            _page.export_with_descendants()
-            exported_urls.add(_page.base_url)
+        for page_url in page_urls:
+            page = Page.from_url(page_url)
+            page.export_with_descendants()
+            exported_urls.add(page.base_url)
 
         for base_url in exported_urls:
             sync_removed_pages(base_url)
@@ -81,8 +80,10 @@ def pages_with_descendants(
 
 @app.command(help="Export all Confluence pages of one or more spaces to Markdown.")
 def spaces(
-    instance_url: Annotated[str, typer.Argument(help="Confluence base URL (e.g. https://company.atlassian.net)")],
-    space_keys: Annotated[list[str], typer.Argument()],
+    space_urls: Annotated[
+        list[str],
+        typer.Argument(help="Confluence Space URL(s)"),
+    ],
     output_path: Annotated[
         Path | None,
         typer.Option(
@@ -93,22 +94,25 @@ def spaces(
     from confluence_markdown_exporter.confluence import Space
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
-    # Personal Confluence spaces start with ~. Exporting them on Windows leads to
-    # Powershell expanding tilde to the Users directory, which is handled here
-    normalized_space_keys = [handle_powershell_tilde_expansion(key) for key in space_keys]
-
-    with measure(f"Export spaces {', '.join(normalized_space_keys)}"):
+    with measure(f"Export spaces {', '.join(space_urls)}"):
         override_output_path_config(output_path)
         LockfileManager.init()
-        for space_key in normalized_space_keys:
-            space = Space.from_key(space_key, instance_url)
+
+        exported_urls: set[str] = set()
+        for space_url in space_urls:
+            space = Space.from_url(space_url)
             space.export()
-        sync_removed_pages(instance_url)
+            exported_urls.add(space.base_url)
+
+        for base_url in exported_urls:
+            sync_removed_pages(base_url)
 
 
-@app.command(help="Export all Confluence pages across all spaces to Markdown.")
-def all_spaces(
-    instance_url: Annotated[str, typer.Argument(help="Confluence base URL (e.g. https://company.atlassian.net)")],
+@app.command(
+    help="Export all Confluence pages across all spaces of one or more organizations to Markdown."
+)
+def orgs(
+    base_urls: Annotated[list[str], typer.Argument(help="Confluence Base URL(s)")],
     output_path: Annotated[
         Path | None,
         typer.Option(
@@ -122,9 +126,11 @@ def all_spaces(
     with measure("Export all spaces"):
         override_output_path_config(output_path)
         LockfileManager.init()
-        org = Organization.from_api(instance_url)
-        org.export()
-        sync_removed_pages(instance_url)
+
+        for base_url in base_urls:
+            org = Organization.from_url(base_url)
+            org.export()
+            sync_removed_pages(base_url)
 
 
 @app.command(help="Open the interactive configuration menu or display current configuration.")
