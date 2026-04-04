@@ -480,6 +480,9 @@ class TestLockfileManagerCleanup:
             assert "100" in LockfileManager._lock.pages
 
 
+_TEST_BASE_URL = "https://test.atlassian.net"
+
+
 class TestFetchDeletedPageIds:
     """Test cases for fetch_deleted_page_ids."""
 
@@ -487,55 +490,63 @@ class TestFetchDeletedPageIds:
         """Empty list returns empty set."""
         from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
 
-        result = fetch_deleted_page_ids([])
+        result = fetch_deleted_page_ids([], _TEST_BASE_URL)
         assert result == set()
 
     @patch("confluence_markdown_exporter.confluence.settings")
-    @patch("confluence_markdown_exporter.confluence.confluence")
+    @patch("confluence_markdown_exporter.confluence.get_thread_confluence")
     def test_returns_deleted_ids(
-        self, mock_confluence: MagicMock, mock_settings: MagicMock
+        self, mock_get_client: MagicMock, mock_settings: MagicMock
     ) -> None:
         """Returns IDs that no longer exist on Confluence."""
         mock_settings.connection_config.use_v2_api = True
         mock_settings.export.existence_check_batch_size = 250
-        mock_confluence.get.return_value = {
+        mock_client = MagicMock()
+        mock_client.get.return_value = {
             "results": [{"id": "100"}, {"id": "300"}],
         }
+        mock_get_client.return_value = mock_client
 
         from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
 
-        result = fetch_deleted_page_ids(["100", "200", "300"])
+        result = fetch_deleted_page_ids(["100", "200", "300"], _TEST_BASE_URL)
         assert result == {"200"}
 
     @patch("confluence_markdown_exporter.confluence.settings")
-    @patch("confluence_markdown_exporter.confluence.confluence")
+    @patch("confluence_markdown_exporter.confluence.get_thread_confluence")
     def test_api_error_returns_no_deleted_ids(
-        self, mock_confluence: MagicMock, mock_settings: MagicMock
+        self, mock_get_client: MagicMock, mock_settings: MagicMock
     ) -> None:
         """On API error, returns empty set (safe: don't delete anything)."""
         mock_settings.connection_config.use_v2_api = True
         mock_settings.export.existence_check_batch_size = 250
-        mock_confluence.get.side_effect = Exception("Network error")
+        mock_client = MagicMock()
+        mock_client.get.side_effect = Exception("Network error")
+        mock_get_client.return_value = mock_client
 
         from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
 
-        result = fetch_deleted_page_ids(["100", "200"])
+        result = fetch_deleted_page_ids(["100", "200"], _TEST_BASE_URL)
         assert result == set()
 
     @patch("confluence_markdown_exporter.confluence.settings")
-    @patch("confluence_markdown_exporter.confluence.confluence")
-    def test_batches_large_sets(self, mock_confluence: MagicMock, mock_settings: MagicMock) -> None:
+    @patch("confluence_markdown_exporter.confluence.get_thread_confluence")
+    def test_batches_large_sets(
+        self, mock_get_client: MagicMock, mock_settings: MagicMock
+    ) -> None:
         """300 IDs are split into 2 v2-API batches of 250."""
         mock_settings.connection_config.use_v2_api = True
         mock_settings.export.existence_check_batch_size = 250
         ids = [str(i) for i in range(300)]
-        mock_confluence.get.return_value = {"results": []}
+        mock_client = MagicMock()
+        mock_client.get.return_value = {"results": []}
+        mock_get_client.return_value = mock_client
 
         from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
 
-        fetch_deleted_page_ids(ids)
+        fetch_deleted_page_ids(ids, _TEST_BASE_URL)
 
-        assert mock_confluence.get.call_count == 2
+        assert mock_client.get.call_count == 2
 
 
 class TestConfluenceLockSave:

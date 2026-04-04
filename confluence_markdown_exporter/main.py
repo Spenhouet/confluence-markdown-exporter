@@ -24,6 +24,13 @@ def override_output_path_config(value: Path | None) -> None:
         set_setting("export.output_path", value)
 
 
+def _resolve_base_url(url: str | None) -> str:
+    """Return the Confluence base URL to use, auto-selecting the single configured instance."""
+    from confluence_markdown_exporter.api_clients import _resolve_confluence_url
+
+    return _resolve_confluence_url(url)
+
+
 @app.command(help="Export one or more Confluence pages by ID or URL to Markdown.")
 def pages(
     pages: Annotated[list[str], typer.Argument(help="Page ID(s) or URL(s)")],
@@ -33,6 +40,15 @@ def pages(
             help="Directory to write exported Markdown files to. Overrides config if set."
         ),
     ] = None,
+    url: Annotated[
+        str | None,
+        typer.Option(
+            help=(
+                "Confluence base URL (e.g. https://company.atlassian.net). "
+                "Required when exporting by page ID with multiple instances configured."
+            ),
+        ),
+    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
@@ -40,11 +56,21 @@ def pages(
     with measure(f"Export pages {', '.join(pages)}"):
         override_output_path_config(output_path)
         LockfileManager.init()
+
+        exported_urls: set[str] = set()
         for page in pages:
-            _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
+            if page.isdigit():
+                base_url = _resolve_base_url(url)
+                _page = Page.from_id(int(page), base_url)
+            else:
+                _page = Page.from_url(page)
+                base_url = _page.base_url
             _page.export()
             LockfileManager.record_page(_page)
-        sync_removed_pages()
+            exported_urls.add(base_url)
+
+        for base_url in exported_urls:
+            sync_removed_pages(base_url)
 
 
 @app.command(help="Export Confluence pages and their descendant pages by ID or URL to Markdown.")
@@ -56,6 +82,15 @@ def pages_with_descendants(
             help="Directory to write exported Markdown files to. Overrides config if set."
         ),
     ] = None,
+    url: Annotated[
+        str | None,
+        typer.Option(
+            help=(
+                "Confluence base URL (e.g. https://company.atlassian.net). "
+                "Required when exporting by page ID with multiple instances configured."
+            ),
+        ),
+    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
@@ -63,10 +98,20 @@ def pages_with_descendants(
     with measure(f"Export pages {', '.join(pages)} with descendants"):
         override_output_path_config(output_path)
         LockfileManager.init()
+
+        exported_urls: set[str] = set()
         for page in pages:
-            _page = Page.from_id(int(page)) if page.isdigit() else Page.from_url(page)
+            if page.isdigit():
+                base_url = _resolve_base_url(url)
+                _page = Page.from_id(int(page), base_url)
+            else:
+                _page = Page.from_url(page)
+                base_url = _page.base_url
             _page.export_with_descendants()
-        sync_removed_pages()
+            exported_urls.add(base_url)
+
+        for base_url in exported_urls:
+            sync_removed_pages(base_url)
 
 
 @app.command(help="Export all Confluence pages of one or more spaces to Markdown.")
@@ -76,6 +121,15 @@ def spaces(
         Path | None,
         typer.Option(
             help="Directory to write exported Markdown files to. Overrides config if set."
+        ),
+    ] = None,
+    url: Annotated[
+        str | None,
+        typer.Option(
+            help=(
+                "Confluence base URL (e.g. https://company.atlassian.net). "
+                "Required when multiple instances are configured."
+            ),
         ),
     ] = None,
 ) -> None:
@@ -88,11 +142,12 @@ def spaces(
 
     with measure(f"Export spaces {', '.join(normalized_space_keys)}"):
         override_output_path_config(output_path)
+        base_url = _resolve_base_url(url)
         LockfileManager.init()
         for space_key in normalized_space_keys:
-            space = Space.from_key(space_key)
+            space = Space.from_key(space_key, base_url)
             space.export()
-        sync_removed_pages()
+        sync_removed_pages(base_url)
 
 
 @app.command(help="Export all Confluence pages across all spaces to Markdown.")
@@ -103,6 +158,16 @@ def all_spaces(
             help="Directory to write exported Markdown files to. Overrides config if set."
         ),
     ] = None,
+    url: Annotated[
+        str | None,
+        typer.Option(
+            help=(
+                "Confluence base URL (e.g. https://company.atlassian.net). "
+                "Required when multiple instances are configured; "
+                "omit to export from all configured instances."
+            ),
+        ),
+    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Organization
     from confluence_markdown_exporter.confluence import sync_removed_pages
@@ -110,9 +175,17 @@ def all_spaces(
     with measure("Export all spaces"):
         override_output_path_config(output_path)
         LockfileManager.init()
-        org = Organization.from_api()
-        org.export()
-        sync_removed_pages()
+
+        settings = get_settings()
+        if url:
+            urls_to_export = [url]
+        else:
+            urls_to_export = list(settings.auth.confluence.keys()) or [_resolve_base_url(None)]
+
+        for base_url in urls_to_export:
+            org = Organization.from_api(base_url)
+            org.export()
+            sync_removed_pages(base_url)
 
 
 @app.command(help="Open the interactive configuration menu or display current configuration.")

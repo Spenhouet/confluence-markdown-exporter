@@ -16,7 +16,6 @@ from concurrent.futures import as_completed
 from os import PathLike
 from pathlib import Path
 from string import Template
-from threading import local
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
@@ -24,7 +23,6 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 
 import yaml
-from atlassian import Confluence as ConfluenceApiSdk
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
 from bs4 import BeautifulSoup
@@ -39,9 +37,9 @@ from tqdm import tqdm
 from confluence_markdown_exporter.api_clients import JiraAuthenticationError
 from confluence_markdown_exporter.api_clients import get_confluence_instance
 from confluence_markdown_exporter.api_clients import get_jira_instance
+from confluence_markdown_exporter.api_clients import get_thread_confluence
 from confluence_markdown_exporter.api_clients import handle_jira_auth_failure
 from confluence_markdown_exporter.utils.app_data_store import get_settings
-from confluence_markdown_exporter.utils.app_data_store import set_setting
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
@@ -58,24 +56,6 @@ DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
-confluence = get_confluence_instance()
-
-# Thread-local storage for API client instances (one per worker thread)
-_thread_local = local()
-
-
-def get_thread_confluence() -> ConfluenceApiSdk:
-    """Get or create Confluence instance for current thread.
-
-    The atlassian-python-api Confluence client uses requests.Session,
-    which is NOT thread-safe. Each worker thread needs its own instance.
-
-    Returns:
-        Confluence: A thread-local Confluence API client instance.
-    """
-    if not hasattr(_thread_local, "confluence"):
-        _thread_local.confluence = get_confluence_instance()
-    return _thread_local.confluence
 
 
 class JiraIssue(BaseModel):
@@ -95,22 +75,23 @@ class JiraIssue(BaseModel):
         )
 
     @classmethod
-    def from_key(cls, issue_key: str) -> "JiraIssue | None":
+    def from_key(cls, issue_key: str, jira_url: str | None = None) -> "JiraIssue | None":
         """Fetch a Jira issue by key, reopening the auth dialog on authentication failure."""
+        settings = get_settings()
         if not settings.export.enable_jira_enrichment:
             return None
 
         while True:
             try:
-                return cls._fetch_cached(issue_key)
+                return cls._fetch_cached(issue_key, jira_url)
             except JiraAuthenticationError:
-                handle_jira_auth_failure()
+                handle_jira_auth_failure(jira_url or "")
                 cls._fetch_cached.cache_clear()
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def _fetch_cached(cls, issue_key: str) -> "JiraIssue":
-        jira_instance = get_jira_instance()
+    def _fetch_cached(cls, issue_key: str, jira_url: str | None) -> "JiraIssue":
+        jira_instance = get_jira_instance(jira_url)
         issue_data = cast("JsonResponse", jira_instance.get_issue(issue_key))
         return cls.from_json(issue_data)
 
@@ -134,21 +115,32 @@ class User(BaseModel):
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def from_username(cls, username: str) -> "User":
+    def from_username(cls, username: str, base_url: str = "") -> "User":
         return cls.from_json(
-            cast("JsonResponse", confluence.get_user_details_by_username(username))
+            cast(
+                "JsonResponse",
+                get_thread_confluence(base_url).get_user_details_by_username(username),
+            )
         )
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def from_userkey(cls, userkey: str) -> "User":
-        return cls.from_json(cast("JsonResponse", confluence.get_user_details_by_userkey(userkey)))
+    def from_userkey(cls, userkey: str, base_url: str = "") -> "User":
+        return cls.from_json(
+            cast(
+                "JsonResponse",
+                get_thread_confluence(base_url).get_user_details_by_userkey(userkey),
+            )
+        )
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def from_accountid(cls, accountid: str) -> "User":
+    def from_accountid(cls, accountid: str, base_url: str = "") -> "User":
         return cls.from_json(
-            cast("JsonResponse", confluence.get_user_details_by_accountid(accountid))
+            cast(
+                "JsonResponse",
+                get_thread_confluence(base_url).get_user_details_by_accountid(accountid),
+            )
         )
 
 
@@ -169,6 +161,7 @@ class Version(BaseModel):
 
 
 class Organization(BaseModel):
+    base_url: str
     spaces: list["Space"]
 
     @property
@@ -179,25 +172,28 @@ class Organization(BaseModel):
         export_pages(self.pages)
 
     @classmethod
-    def from_json(cls, data: JsonResponse) -> "Organization":
+    def from_json(cls, data: JsonResponse, base_url: str) -> "Organization":
         return cls(
-            spaces=[Space.from_json(space) for space in data.get("results", [])],
+            base_url=base_url,
+            spaces=[Space.from_json(space, base_url) for space in data.get("results", [])],
         )
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def from_api(cls) -> "Organization":
+    def from_api(cls, base_url: str) -> "Organization":
         return cls.from_json(
             cast(
                 "JsonResponse",
-                confluence.get_all_spaces(
+                get_thread_confluence(base_url).get_all_spaces(
                     space_type="global", space_status="current", expand="homepage"
                 ),
-            )
+            ),
+            base_url,
         )
 
 
 class Space(BaseModel):
+    base_url: str
     key: str
     name: str
     description: str
@@ -211,7 +207,7 @@ class Space(BaseModel):
             )
             return []
 
-        homepage = Page.from_id(self.homepage)
+        homepage = Page.from_id(self.homepage, self.base_url)
         return [homepage, *homepage.descendants]
 
     def export(self) -> None:
@@ -219,8 +215,9 @@ class Space(BaseModel):
         export_pages(self.pages)
 
     @classmethod
-    def from_json(cls, data: JsonResponse) -> "Space":
+    def from_json(cls, data: JsonResponse, base_url: str) -> "Space":
         return cls(
+            base_url=base_url,
             key=data.get("key", ""),
             name=data.get("name", ""),
             description=data.get("description", {}).get("plain", {}).get("value", ""),
@@ -229,9 +226,13 @@ class Space(BaseModel):
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def from_key(cls, space_key: str) -> "Space":
+    def from_key(cls, space_key: str, base_url: str) -> "Space":
         return cls.from_json(
-            cast("JsonResponse", confluence.get_space(space_key, expand="homepage"))
+            cast(
+                "JsonResponse",
+                get_thread_confluence(base_url).get_space(space_key, expand="homepage"),
+            ),
+            base_url,
         )
 
 
@@ -250,6 +251,7 @@ class Label(BaseModel):
 
 
 class Document(BaseModel):
+    base_url: str
     title: str
     space: Space
     ancestors: list["Ancestor"]
@@ -261,7 +263,9 @@ class Document(BaseModel):
         homepage_title = ""
         if self.space.homepage:
             homepage_id = str(self.space.homepage)
-            homepage_title = sanitize_filename(Page.from_id(self.space.homepage).title)
+            homepage_title = sanitize_filename(
+                Page.from_id(self.space.homepage, self.base_url).title
+            )
 
         return {
             "space_key": sanitize_filename(self.space.key),
@@ -313,13 +317,16 @@ class Attachment(Document):
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
-    def from_json(cls, data: JsonResponse) -> "Attachment":
+    def from_json(cls, data: JsonResponse, base_url: str) -> "Attachment":
         extensions = data.get("extensions", {})
         container = data.get("container", {})
         return cls(
+            base_url=base_url,
             id=data.get("id", ""),
             title=data.get("title", ""),
-            space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
+            space=Space.from_key(
+                data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
+            ),
             file_size=extensions.get("fileSize", 0),
             media_type=extensions.get("mediaType", ""),
             media_type_description=extensions.get("mediaTypeDescription", ""),
@@ -328,14 +335,17 @@ class Attachment(Document):
             download_link=data.get("_links", {}).get("download", ""),
             comment=extensions.get("comment", ""),
             ancestors=[
-                *[Ancestor.from_json(ancestor) for ancestor in container.get("ancestors", [])],
-                Ancestor.from_json(container),
+                *[
+                    Ancestor.from_json(ancestor, base_url)
+                    for ancestor in container.get("ancestors", [])
+                ],
+                Ancestor.from_json(container, base_url),
             ][1:],
             version=Version.from_json(data.get("version", {})),
         )
 
     @classmethod
-    def from_page_id(cls, page_id: int) -> list["Attachment"]:
+    def from_page_id(cls, page_id: int, base_url: str) -> list["Attachment"]:
         attachments = []
         start = 0
         paging_limit = 50
@@ -344,7 +354,7 @@ class Attachment(Document):
         while size >= paging_limit:
             response = cast(
                 "JsonResponse",
-                confluence.get_attachments_from_content(
+                get_thread_confluence(base_url).get_attachments_from_content(
                     page_id,
                     start=start,
                     limit=paging_limit,
@@ -352,7 +362,9 @@ class Attachment(Document):
                 ),
             )
 
-            attachments.extend([cls.from_json(att) for att in response.get("results", [])])
+            attachments.extend(
+                [cls.from_json(att, base_url) for att in response.get("results", [])]
+            )
 
             size = response.get("size", 0)
             start += size
@@ -364,10 +376,11 @@ class Attachment(Document):
         if filepath.exists():
             return
 
+        client = get_thread_confluence(self.base_url)
         try:
-            response = confluence.request(
+            response = client.request(
                 method="GET",
-                path=confluence.url + self.download_link,
+                path=client.url + self.download_link,
                 absolute=True,
                 advanced_mode=True,
             )
@@ -389,11 +402,14 @@ class Ancestor(Document):
     id: int
 
     @classmethod
-    def from_json(cls, data: JsonResponse) -> "Ancestor":
+    def from_json(cls, data: JsonResponse, base_url: str) -> "Ancestor":
         return cls(
+            base_url=base_url,
             id=data.get("id", 0),
             title=data.get("title", ""),
-            space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
+            space=Space.from_key(
+                data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
+            ),
             ancestors=[],  # Ancestors of ancestor is not needed for now.
             version=Version.from_json({}),  # Version of ancestor is not needed for now.
         )
@@ -416,12 +432,18 @@ class Descendant(Document):
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
-    def from_json(cls, data: JsonResponse) -> "Descendant":
+    def from_json(cls, data: JsonResponse, base_url: str) -> "Descendant":
         return cls(
+            base_url=base_url,
             id=data.get("id", 0),
             title=data.get("title", ""),
-            space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
-            ancestors=[Ancestor.from_json(ancestor) for ancestor in data.get("ancestors", [])][1:],
+            space=Space.from_key(
+                data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
+            ),
+            ancestors=[
+                Ancestor.from_json(ancestor, base_url)
+                for ancestor in data.get("ancestors", [])
+            ][1:],
             version=Version.from_json(data.get("version", {})),
         )
 
@@ -443,16 +465,17 @@ class Page(Document):
             "limit": 250,
         }
         results = []
+        client = get_thread_confluence(self.base_url)
 
         try:
-            response = confluence.get(url, params=params)
+            response = client.get(url, params=params)
             results.extend(response.get("results", []))
-            next_path = response.get("_links").get("next")
+            next_path = response.get("_links", {}).get("next")
 
             while next_path:
-                response = confluence.get(next_path)
+                response = client.get(next_path)
                 results.extend(response.get("results", []))
-                next_path = response.get("_links").get("next")
+                next_path = response.get("_links", {}).get("next")
 
         except HTTPError as e:
             if e.response.status_code == 404:  # noqa: PLR2004
@@ -466,7 +489,7 @@ class Page(Document):
                 f"Unexpected error when fetching descendants for content ID {self.id}."
             )
             return []
-        return [Descendant.from_json(result) for result in results]
+        return [Descendant.from_json(result, self.base_url) for result in results]
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -578,11 +601,14 @@ class Page(Document):
         return [attachment for attachment in self.attachments if attachment.title == title]
 
     @classmethod
-    def from_json(cls, data: JsonResponse) -> "Page":
+    def from_json(cls, data: JsonResponse, base_url: str) -> "Page":
         return cls(
+            base_url=base_url,
             id=data.get("id", 0),
             title=data.get("title", ""),
-            space=Space.from_key(data.get("_expandable", {}).get("space", "").split("/")[-1]),
+            space=Space.from_key(
+                data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
+            ),
             body=data.get("body", {}).get("view", {}).get("value", ""),
             body_export=data.get("body", {}).get("export_view", {}).get("value", ""),
             editor2=data.get("body", {}).get("editor2", {}).get("value", ""),
@@ -590,20 +616,25 @@ class Page(Document):
                 Label.from_json(label)
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
-            attachments=Attachment.from_page_id(data.get("id", 0)),
-            ancestors=[Ancestor.from_json(ancestor) for ancestor in data.get("ancestors", [])][1:],
+            attachments=Attachment.from_page_id(data.get("id", 0), base_url),
+            ancestors=[
+                Ancestor.from_json(ancestor, base_url)
+                for ancestor in data.get("ancestors", [])
+            ][1:],
             version=Version.from_json(data.get("version", {})),
         )
 
     @classmethod
     @functools.lru_cache(maxsize=1000)
-    def from_id(cls, page_id: int) -> "Page":
+    def from_id(cls, page_id: int, base_url: str) -> "Page":
+        _empty_space = Space(base_url=base_url, key="", name="", description="", homepage=0)
         if page_id is None:
             logger.warning("Page ID is None, skipping")
             return cls(
+                base_url=base_url,
                 id=0,
                 title="Page not accessible",
-                space=Space(key="", name="", description="", homepage=0),
+                space=_empty_space,
                 body="",
                 body_export="",
                 editor2="",
@@ -615,20 +646,21 @@ class Page(Document):
             return cls.from_json(
                 cast(
                     "JsonResponse",
-                    confluence.get_page_by_id(
+                    get_thread_confluence(base_url).get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
                         "metadata.properties,ancestors,version",
                     ),
-                )
+                ),
+                base_url,
             )
         except (ApiError, HTTPError):
             logger.warning(f"Could not access page with ID {page_id}")
-            # Return a minimal page object with error information
             return cls(
+                base_url=base_url,
                 id=page_id,
                 title="Page not accessible",
-                space=Space(key="", name="", description="", homepage=0),
+                space=_empty_space,
                 body="",
                 body_export="",
                 editor2="",
@@ -640,27 +672,33 @@ class Page(Document):
 
     @classmethod
     def from_url(cls, page_url: str) -> "Page":
-        """Retrieve a Page object given a Confluence page URL."""
-        url = urllib.parse.urlparse(page_url)
-        hostname = url.hostname
-        if hostname and hostname not in str(settings.auth.confluence.url):
-            global confluence  # noqa: PLW0603
-            set_setting("auth.confluence.url", f"{url.scheme}://{hostname}/")
-            confluence = get_confluence_instance()  # Refresh instance with new URL
+        """Retrieve a Page object given a Confluence page URL.
 
-        path = url.path.rstrip("/")
+        The Confluence instance is selected automatically by matching the URL's
+        hostname against configured instances.  If no match is found, a new
+        entry is registered in the auth config so the user can fill in
+        credentials via the interactive config menu.
+        """
+        parsed = urllib.parse.urlparse(page_url)
+        base_url = f"{parsed.scheme}://{parsed.hostname}"
+
+        # Ensure a client exists (creates/prompts if first time for this host)
+        get_confluence_instance(base_url)
+
+        path = parsed.path.rstrip("/")
         if match := re.search(r"/wiki/.+?/pages/(\d+)", path):
-            page_id = match.group(1)
-            return Page.from_id(int(page_id))
+            return Page.from_id(int(match.group(1)), base_url)
 
         if match := re.search(r"^/([^/]+?)/([^/]+)$", path):
             space_key = urllib.parse.unquote_plus(match.group(1))
             page_title = urllib.parse.unquote_plus(match.group(2))
             page_data = cast(
                 "JsonResponse",
-                confluence.get_page_by_title(space=space_key, title=page_title, expand="version"),
+                get_thread_confluence(base_url).get_page_by_title(
+                    space=space_key, title=page_title, expand="version"
+                ),
             )
-            return Page.from_id(page_data["id"])
+            return Page.from_id(page_data["id"], base_url)
 
         msg = f"Could not parse page URL {page_url}."
         raise ValueError(msg)
@@ -1030,7 +1068,9 @@ class Page(Document):
         def convert_user_mention(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if aid := el.get("data-account-id"):
                 try:
-                    return self.convert_user(User.from_accountid(str(aid)))
+                    return self.convert_user(
+                        User.from_accountid(str(aid), self.page.base_url)
+                    )
                 except ApiNotFoundError:
                     logger.warning(f"User {aid} not found. Using text instead.")
 
@@ -1391,7 +1431,7 @@ class Page(Document):
 _CQL_MAX_BATCH_SIZE: int = 25
 
 
-def _fetch_page_ids_v2_batch(batch: list[str]) -> set[str]:
+def _fetch_page_ids_v2_batch(batch: list[str], base_url: str) -> set[str]:
     """Single v2 API request for a batch of page IDs.
 
     Uses GET /api/v2/pages?id=X&id=Y&...  (Atlassian Cloud).
@@ -1399,19 +1439,19 @@ def _fetch_page_ids_v2_batch(batch: list[str]) -> set[str]:
     into the URL path since the SDK only accepts a dict for ``params``.
     """
     query = urllib.parse.urlencode([("id", pid) for pid in batch] + [("limit", len(batch))])
-    response = confluence.get(f"api/v2/pages?{query}")
+    response = get_thread_confluence(base_url).get(f"api/v2/pages?{query}")
     if not response:
         return set()
     return {str(item["id"]) for item in response.get("results", [])}
 
 
-def _fetch_page_ids_cql_batch(batch: list[str]) -> set[str]:
+def _fetch_page_ids_cql_batch(batch: list[str], base_url: str) -> set[str]:
     """Single CQL v1 request for a batch of page IDs.
 
     Uses GET /rest/api/content/search with id in (...) (self-hosted / fallback).
     """
     cql = "id in ({})".format(",".join(batch))
-    response = confluence.get(
+    response = get_thread_confluence(base_url).get(
         "rest/api/content/search",
         params={"cql": cql, "limit": len(batch), "fields": "id"},
     )
@@ -1420,7 +1460,7 @@ def _fetch_page_ids_cql_batch(batch: list[str]) -> set[str]:
     return {str(item["id"]) for item in response.get("results", [])}
 
 
-def fetch_deleted_page_ids(page_ids: list[str]) -> set[str]:
+def fetch_deleted_page_ids(page_ids: list[str], base_url: str) -> set[str]:
     """Return the subset of *page_ids* that no longer exist in Confluence.
 
     Uses the v2 REST API when ``connection_config.use_v2_api`` is enabled
@@ -1443,9 +1483,9 @@ def fetch_deleted_page_ids(page_ids: list[str]) -> set[str]:
         batch = page_ids[i : i + effective_batch_size]
         try:
             if use_v2:
-                existing.update(_fetch_page_ids_v2_batch(batch))
+                existing.update(_fetch_page_ids_v2_batch(batch, base_url))
             else:
-                existing.update(_fetch_page_ids_cql_batch(batch))
+                existing.update(_fetch_page_ids_cql_batch(batch, base_url))
         except Exception:  # noqa: BLE001
             logger.warning(
                 "Failed to check page existence for batch (%d IDs). "
@@ -1457,42 +1497,25 @@ def fetch_deleted_page_ids(page_ids: list[str]) -> set[str]:
     return set(page_ids) - existing
 
 
-def sync_removed_pages() -> None:
+def sync_removed_pages(base_url: str) -> None:
     """Orchestrate stale-file cleanup: check API for deleted pages, then clean up."""
     if not settings.export.cleanup_stale:
         return
 
     unseen = LockfileManager.unseen_ids()
-    deleted = fetch_deleted_page_ids(sorted(unseen)) if unseen else set()
+    deleted = fetch_deleted_page_ids(sorted(unseen), base_url) if unseen else set()
     LockfileManager.remove_pages(deleted)
 
 
-def _export_page_worker(page: "Page | Descendant", use_thread_local: bool = False) -> None:  # noqa: FBT001, FBT002
+def _export_page_worker(page: "Page | Descendant") -> None:
     """Export a single Confluence page to Markdown (worker function).
 
-    Args:
-        page: The page or descendant to export.
-        use_thread_local: If True, use thread-local Confluence instance
-                         (required for parallel export).
+    Each page carries its own ``base_url`` so the correct thread-local client
+    is used automatically — no global state manipulation needed.
     """
-    if use_thread_local:
-        # Use thread-local confluence instance for thread safety
-        global confluence  # noqa: PLW0603
-        old_confluence = confluence
-        confluence = get_thread_confluence()
-        try:
-            _page = Page.from_id(page.id)
-            _page.export()
-            # Record to lockfile if enabled
-            LockfileManager.record_page(_page)
-        finally:
-            confluence = old_confluence
-    else:
-        # Serial mode - use global confluence instance
-        _page = Page.from_id(page.id)
-        _page.export()
-        # Record to lockfile if enabled
-        LockfileManager.record_page(_page)
+    _page = Page.from_id(page.id, page.base_url)
+    _page.export()
+    LockfileManager.record_page(_page)
 
 
 def export_pages(pages: list["Page | Descendant"]) -> None:
@@ -1521,7 +1544,7 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
         logger.info("Using serial export mode (max_workers=1)")
         for page in (pbar := tqdm(pages_to_export, smoothing=0.05)):
             pbar.set_postfix_str(f"Exporting page {page.id}")
-            _export_page_worker(page, use_thread_local=False)
+            _export_page_worker(page)
         return
 
     # Parallel mode
@@ -1529,7 +1552,7 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit all export tasks
         futures = {
-            executor.submit(_export_page_worker, page, use_thread_local=True): page
+            executor.submit(_export_page_worker, page): page
             for page in pages_to_export
         }
 

@@ -9,7 +9,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import AnyHttpUrl
 from pydantic import SecretStr
 
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
@@ -139,11 +138,13 @@ def mock_jira_client() -> MagicMock:
     return mock_client
 
 
+SAMPLE_CONFLUENCE_URL = "https://test.atlassian.net"
+
+
 @pytest.fixture
 def sample_api_details() -> ApiDetails:
     """Create sample API details for testing."""
     return ApiDetails(
-        url=AnyHttpUrl("https://test.atlassian.net/"),
         username=SecretStr("test@example.com"),
         api_token=SecretStr("test-token"),
         pat=SecretStr("test-pat"),
@@ -171,8 +172,8 @@ def sample_config_model(
 ) -> ConfigModel:
     """Create sample configuration for testing."""
     auth_config = AuthConfig(
-        confluence=sample_api_details,
-        jira=sample_api_details,
+        confluence={SAMPLE_CONFLUENCE_URL: sample_api_details},
+        jira={SAMPLE_CONFLUENCE_URL: sample_api_details},
     )
 
     export_config = ExportConfig(
