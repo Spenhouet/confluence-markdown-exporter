@@ -56,48 +56,41 @@ pip install confluence-markdown-exporter
 
 Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information.
 
-#### 2.1. Export Page
+#### 2.1. Export Page(s)
 
-Export a single Confluence page by ID:
+Export Confluence page(s) by URL(s):
 
 ```sh
-cme pages <page-id e.g. 645208921> --output-path <output path e.g. ./output_path/>
+cme pages <page-url> --output-path <output path e.g. ./output_path/>
 ```
 
-or by URL:
+Supported page URL formats:
+- Confluence Cloud: <https://company.atlassian.net/wiki/spaces/SPACEKEY/pages/123456789/Page+Title>
+- Confluence Server (long): <https://company.atlassian.net/display/SPACEKEY/Page+Title>
+- Confluence Server (short): <https://company.atlassian.net/SPACEKEY/Page+Title>
+
+#### 2.2. Export Page(s) with Descendants
+
+Export Confluence page(s) and all their descendant pages by page URL(s):
 
 ```sh
-cme pages <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> --output-path <output path e.g. ./output_path/>
+cme pages-with-descendants <page-url> --output-path <output path e.g. ./output_path/>
 ```
 
-#### 2.2. Export Page with Descendants
+#### 2.3. Export Space(s)
 
-Export a Confluence page and all its descendant pages by page ID:
+Export all Confluence pages of Spaces by URLs:
 
 ```sh
-cme pages-with-descendants <page-id e.g. 645208921> --output-path <output path e.g. ./output_path/>
+cme spaces <space-url> --output-path <output path e.g. ./output_path/>
 ```
 
-or by URL:
+#### 2.4. Export all Spaces of Organization(s)
+
+Export all Confluence pages across all spaces of organization(s) by URL(s):
 
 ```sh
-cme pages-with-descendants <page-url e.g. https://company.atlassian.net/MySpace/My+Page+Title> --output-path <output path e.g. ./output_path/>
-```
-
-#### 2.3. Export Space
-
-Export all Confluence pages of a single Space:
-
-```sh
-cme spaces <space-key e.g. MYSPACE> --output-path <output path e.g. ./output_path/>
-```
-
-#### 2.4. Export all Spaces
-
-Export all Confluence pages across all spaces:
-
-```sh
-cme all-spaces --output-path <output path e.g. ./output_path/>
+cme orgs --output-path <output path e.g. ./output_path/>
 ```
 
 ### 3. Output
