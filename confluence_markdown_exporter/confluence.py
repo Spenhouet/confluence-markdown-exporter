@@ -75,7 +75,7 @@ class JiraIssue(BaseModel):
         )
 
     @classmethod
-    def from_key(cls, issue_key: str, jira_url: str | None = None) -> "JiraIssue | None":
+    def from_key(cls, issue_key: str, jira_url: str) -> "JiraIssue | None":
         """Fetch a Jira issue by key, reopening the auth dialog on authentication failure."""
         settings = get_settings()
         if not settings.export.enable_jira_enrichment:
@@ -85,12 +85,12 @@ class JiraIssue(BaseModel):
             try:
                 return cls._fetch_cached(issue_key, jira_url)
             except JiraAuthenticationError:
-                handle_jira_auth_failure(jira_url or "")
+                handle_jira_auth_failure(jira_url)
                 cls._fetch_cached.cache_clear()
 
     @classmethod
     @functools.lru_cache(maxsize=100)
-    def _fetch_cached(cls, issue_key: str, jira_url: str | None) -> "JiraIssue":
+    def _fetch_cached(cls, issue_key: str, jira_url: str) -> "JiraIssue":
         jira_instance = get_jira_instance(jira_url)
         issue_data = cast("JsonResponse", jira_instance.get_issue(issue_key))
         return cls.from_json(issue_data)
@@ -942,7 +942,7 @@ class Page(Document):
                 return self.process_tag(link, parent_tags)
 
             try:
-                issue = JiraIssue.from_key(str(issue_key))
+                issue = JiraIssue.from_key(str(issue_key), self.page.base_url)
             except HTTPError:
                 return f"[[{issue_key}]]({link.get('href')})"
 

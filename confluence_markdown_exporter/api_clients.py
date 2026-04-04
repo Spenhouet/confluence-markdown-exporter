@@ -96,69 +96,22 @@ class ApiClientFactory:
         return instance
 
 
-def _resolve_confluence_url(url: str | None) -> str:
-    """Return a Confluence URL to connect to.
-
-    If *url* is given, use it directly.  Otherwise use the only configured
-    Confluence instance, prompting the user to add one if none are configured.
-    """
-    if url:
-        return url
-    settings = get_settings()
-    default = settings.auth.default_confluence_url()
-    if default:
-        return default
-    if settings.auth.confluence:
-        msg = (
-            "Multiple Confluence instances are configured. "
-            "Please provide a --url to select one."
-        )
-        raise ValueError(msg)
-    # No instances configured - open config menu
-    questionary.print("No Confluence instance configured.", style="fg:yellow bold")
-    main_config_menu_loop("auth.confluence")
-    return _resolve_confluence_url(None)
-
-
-def _resolve_jira_url(url: str | None) -> str:
-    """Return a Jira URL to connect to (same logic as _resolve_confluence_url)."""
-    if url:
-        return url
-    settings = get_settings()
-    default = settings.auth.default_jira_url()
-    if default:
-        return default
-    if settings.auth.jira:
-        msg = (
-            "Multiple Jira instances are configured. "
-            "Please provide a --url to select one."
-        )
-        raise ValueError(msg)
-    questionary.print("No Jira instance configured.", style="fg:yellow bold")
-    main_config_menu_loop("auth.jira")
-    return _resolve_jira_url(None)
-
-
-def get_confluence_instance(url: str | None = None) -> ConfluenceApiSdk:
+def get_confluence_instance(url: str) -> ConfluenceApiSdk:
     """Get authenticated Confluence API client for *url*.
 
     Creates a new client if one doesn't exist for that URL yet and caches it.
     Prompts for auth config on connection failure.
     """
-    resolved_url = _resolve_confluence_url(url)
-
     with _clients_lock:
-        if resolved_url in _confluence_clients:
-            return _confluence_clients[resolved_url]
+        if url in _confluence_clients:
+            return _confluence_clients[url]
 
     settings = get_settings()
 
     while True:
-        auth = settings.auth.get_instance(resolved_url) or ApiDetails()
+        auth = settings.auth.get_instance(url) or ApiDetails()
         try:
-            client = ApiClientFactory(settings.connection_config).create_confluence(
-                resolved_url, auth
-            )
+            client = ApiClientFactory(settings.connection_config).create_confluence(url, auth)
             break
         except ConnectionError as e:
             questionary.print(
@@ -172,7 +125,7 @@ def get_confluence_instance(url: str | None = None) -> ConfluenceApiSdk:
         client.session.hooks["response"] = [response_hook]
 
     with _clients_lock:
-        _confluence_clients[resolved_url] = client
+        _confluence_clients[url] = client
     return client
 
 
@@ -190,7 +143,7 @@ def get_thread_confluence(base_url: str) -> ConfluenceApiSdk:
     return _thread_local.clients[base_url]
 
 
-def get_jira_instance(url: str | None = None) -> JiraApiSdk:
+def get_jira_instance(url: str) -> JiraApiSdk:
     """Get authenticated Jira API client for *url*.
 
     Creates a new client if one doesn't exist for that URL yet and caches it.
@@ -201,18 +154,14 @@ def get_jira_instance(url: str | None = None) -> JiraApiSdk:
         msg = "Jira API client was requested eventhough Jira enrichment is disabled."
         raise RuntimeWarning(msg)
 
-    resolved_url = _resolve_jira_url(url)
-
     with _clients_lock:
-        if resolved_url in _jira_clients:
-            return _jira_clients[resolved_url]
+        if url in _jira_clients:
+            return _jira_clients[url]
 
     while True:
-        auth = settings.auth.get_jira_instance(resolved_url) or ApiDetails()
+        auth = settings.auth.get_jira_instance(url) or ApiDetails()
         try:
-            client = ApiClientFactory(settings.connection_config).create_jira(
-                resolved_url, auth
-            )
+            client = ApiClientFactory(settings.connection_config).create_jira(url, auth)
             break
         except ConnectionError:
             use_confluence = questionary.confirm(
@@ -221,10 +170,8 @@ def get_jira_instance(url: str | None = None) -> JiraApiSdk:
                 style=Style([("question", "fg:yellow")]),
             ).ask()
             if use_confluence:
-                confluence_auth = settings.auth.get_instance(resolved_url) or ApiDetails()
-                set_setting_with_keys(
-                    ["auth", "jira", resolved_url], confluence_auth.model_dump()
-                )
+                confluence_auth = settings.auth.get_instance(url) or ApiDetails()
+                set_setting_with_keys(["auth", "jira", url], confluence_auth.model_dump())
                 settings = get_settings()
                 continue
 
@@ -241,7 +188,7 @@ def get_jira_instance(url: str | None = None) -> JiraApiSdk:
         client.session.hooks["response"].append(response_hook)
 
     with _clients_lock:
-        _jira_clients[resolved_url] = client
+        _jira_clients[url] = client
     return client
 
 
