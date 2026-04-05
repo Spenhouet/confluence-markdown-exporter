@@ -188,7 +188,8 @@ cme config set export.skip_unchanged=false
 
 Sets one or more key=value pairs directly. Values are parsed as JSON where possible (so `true`, `false`, and numbers work as expected), falling back to a plain string.
 
-> **Note:** For auth keys that contain a URL (e.g. `auth.confluence.https://...`), use `cme config edit auth.confluence` instead — the interactive editor handles URL-based keys correctly.
+> [!Note]
+> For auth keys that contain a URL (e.g. `auth.confluence.https://...`), use `cme config edit auth.confluence` instead — the interactive editor handles URL-based keys correctly.
 
 #### Edit a Specific Key Interactively
 
@@ -216,47 +217,241 @@ cme config reset --yes   # skip confirmation
 
 Resets the entire configuration to factory defaults after confirmation.
 
-### Available Configuration Options
+### Configuration Options
 
 All options can be set via the config file (using `cme config set`) or overridden for the current session via environment variables. ENV vars take precedence over stored config and are **not** persisted. ENV var names use the `CME_` prefix and `__` as the nested delimiter (matching the key in uppercase).
 
-| Key                                   | Description                                                                                                           | Default                                                             | ENV Var                                          |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------ |
-| export.log_level                      | Controls output verbosity: `DEBUG` (every step), `INFO` (key milestones), `WARNING` (warnings/errors only), `ERROR` (errors only). | INFO                                                                | `CME_EXPORT__LOG_LEVEL`                          |
-| export.output_path                    | The directory where all exported files and folders will be written. Used as the base for relative and absolute links. | ./ (current working directory)                                      | `CME_EXPORT__OUTPUT_PATH`                        |
-| export.page_href                      | How to generate links to pages in Markdown. Options: "relative" (default) or "absolute".                              | relative                                                            | `CME_EXPORT__PAGE_HREF`                          |
-| export.page_path                      | Path template for exported pages                                                                                      | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md     | `CME_EXPORT__PAGE_PATH`                          |
-| export.attachment_href                | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute".                        | relative                                                            | `CME_EXPORT__ATTACHMENT_HREF`                    |
-| export.attachment_path                | Path template for attachments                                                                                         | {space_name}/attachments/{attachment_file_id}{attachment_extension} | `CME_EXPORT__ATTACHMENT_PATH`                    |
-| export.attachment_export_all          | Export all attachments, not only those referenced by a page. Note: exporting large or many attachments increases export time. | False                                                          | `CME_EXPORT__ATTACHMENT_EXPORT_ALL`              |
-| export.page_breadcrumbs               | Whether to include breadcrumb links at the top of the page.                                                           | True                                                                | `CME_EXPORT__PAGE_BREADCRUMBS`                   |
-| export.filename_encoding              | Character mapping for filename encoding.                                                                              | Default mappings for forbidden characters.                          | `CME_EXPORT__FILENAME_ENCODING`                  |
-| export.filename_length                | Maximum length of filenames.                                                                                          | 255                                                                 | `CME_EXPORT__FILENAME_LENGTH`                    |
-| export.include_document_title         | Whether to include the document title in the exported markdown file.                                                  | True                                                                | `CME_EXPORT__INCLUDE_DOCUMENT_TITLE`             |
-| export.enable_jira_enrichment         | Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links include the issue summary. Requires Jira auth to be configured. | True                                     | `CME_EXPORT__ENABLE_JIRA_ENRICHMENT`             |
-| export.skip_unchanged                 | Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.                 | True                                                                | `CME_EXPORT__SKIP_UNCHANGED`                     |
-| export.cleanup_stale                  | After export, delete local files for pages removed from Confluence or whose export path has changed.                  | True                                                                | `CME_EXPORT__CLEANUP_STALE`                      |
-| export.lockfile_name                  | Name of the lock file used to track exported pages.                                                                   | confluence-lock.json                                                | `CME_EXPORT__LOCKFILE_NAME`                      |
-| export.existence_check_batch_size     | Number of page IDs per batch when checking page existence during cleanup. Capped at 25 for self-hosted (CQL).         | 250                                                                 | `CME_EXPORT__EXISTENCE_CHECK_BATCH_SIZE`         |
-| connection_config.backoff_and_retry   | Enable automatic retry with exponential backoff                                                                       | True                                                                | `CME_CONNECTION_CONFIG__BACKOFF_AND_RETRY`       |
-| connection_config.backoff_factor      | Multiplier for exponential backoff                                                                                    | 2                                                                   | `CME_CONNECTION_CONFIG__BACKOFF_FACTOR`          |
-| connection_config.max_backoff_seconds | Maximum seconds to wait between retries                                                                               | 60                                                                  | `CME_CONNECTION_CONFIG__MAX_BACKOFF_SECONDS`     |
-| connection_config.max_backoff_retries | Maximum number of retry attempts                                                                                      | 5                                                                   | `CME_CONNECTION_CONFIG__MAX_BACKOFF_RETRIES`     |
-| connection_config.retry_status_codes  | HTTP status codes that trigger a retry                                                                                | \[413, 429, 502, 503, 504\]                                         | `CME_CONNECTION_CONFIG__RETRY_STATUS_CODES`      |
-| connection_config.timeout             | Timeout in seconds for API requests. Prevents hanging on slow or unresponsive servers.                                | 30                                                                  | `CME_CONNECTION_CONFIG__TIMEOUT`                 |
-| connection_config.verify_ssl          | Whether to verify SSL certificates for HTTPS requests.                                                                | True                                                                | `CME_CONNECTION_CONFIG__VERIFY_SSL`              |
-| connection_config.use_v2_api          | Enable Confluence REST API v2 endpoints. Supported on Atlassian Cloud and Data Center 8+. Disable for self-hosted Server instances. | False                                                    | `CME_CONNECTION_CONFIG__USE_V2_API`              |
-| connection_config.max_workers         | Maximum number of parallel workers for page export. Set to `1` for serial/debug mode. Higher values improve performance but may hit API rate limits. | 20                                          | `CME_CONNECTION_CONFIG__MAX_WORKERS`             |
-| auth.confluence.url                   | Confluence instance URL                                                                                               | ""                                                                  | —                                                |
-| auth.confluence.username              | Confluence username/email                                                                                             | ""                                                                  | —                                                |
-| auth.confluence.api_token             | Confluence API token                                                                                                  | ""                                                                  | —                                                |
-| auth.confluence.pat                   | Confluence Personal Access Token                                                                                      | ""                                                                  | —                                                |
-| auth.jira.url                         | Jira instance URL                                                                                                     | ""                                                                  | —                                                |
-| auth.jira.username                    | Jira username/email                                                                                                   | ""                                                                  | —                                                |
-| auth.jira.api_token                   | Jira API token                                                                                                        | ""                                                                  | —                                                |
-| auth.jira.pat                         | Jira Personal Access Token                                                                                            | ""                                                                  | —                                                |
+#### export.*
 
-> **Note on auth options:** Auth credentials use URL-keyed nested dicts (e.g. `auth.confluence["https://company.atlassian.net"]`) and cannot be mapped to flat ENV var names. Use `cme config edit auth.confluence` or `cme config set` for auth configuration.
+##### export.log_level
+
+Controls output verbosity: `DEBUG` (every step), `INFO` (key milestones), `WARNING` (warnings/errors only), `ERROR` (errors only).
+
+- Default: `INFO`
+- ENV Var: `CME_EXPORT__LOG_LEVEL`
+
+##### export.output_path
+
+The directory where all exported files and folders will be written. Used as the base for relative and absolute links.
+
+- Default: `./` (current working directory)
+- ENV Var: `CME_EXPORT__OUTPUT_PATH`
+
+##### export.page_href
+
+How to generate links to pages in Markdown. Options: `relative` (default) or `absolute`.
+
+- Default: `relative`
+- ENV Var: `CME_EXPORT__PAGE_HREF`
+
+##### export.page_path
+
+Path template for exported pages.
+
+- Default: `{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md`
+- ENV Var: `CME_EXPORT__PAGE_PATH`
+
+##### export.attachment_href
+
+How to generate links to attachments in Markdown. Options: `relative` (default) or `absolute`.
+
+- Default: `relative`
+- ENV Var: `CME_EXPORT__ATTACHMENT_HREF`
+
+##### export.attachment_path
+
+Path template for attachments.
+
+- Default: `{space_name}/attachments/{attachment_file_id}{attachment_extension}`
+- ENV Var: `CME_EXPORT__ATTACHMENT_PATH`
+
+##### export.attachment_export_all
+
+Export all attachments, not only those referenced by a page. Note: exporting large or many attachments increases export time.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__ATTACHMENT_EXPORT_ALL`
+
+##### export.page_breadcrumbs
+
+Whether to include breadcrumb links at the top of the page.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__PAGE_BREADCRUMBS`
+
+##### export.filename_encoding
+
+Character mapping for filename encoding.
+
+- Default: Default mappings for forbidden characters.
+- ENV Var: `CME_EXPORT__FILENAME_ENCODING`
+
+##### export.filename_length
+
+Maximum length of filenames.
+
+- Default: `255`
+- ENV Var: `CME_EXPORT__FILENAME_LENGTH`
+
+##### export.include_document_title
+
+Whether to include the document title in the exported markdown file.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__INCLUDE_DOCUMENT_TITLE`
+
+##### export.enable_jira_enrichment
+
+Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links include the issue summary. Requires Jira auth to be configured.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__ENABLE_JIRA_ENRICHMENT`
+
+##### export.skip_unchanged
+
+Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__SKIP_UNCHANGED`
+
+##### export.cleanup_stale
+
+After export, delete local files for pages removed from Confluence or whose export path has changed.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__CLEANUP_STALE`
+
+##### export.lockfile_name
+
+Name of the lock file used to track exported pages.
+
+- Default: `confluence-lock.json`
+- ENV Var: `CME_EXPORT__LOCKFILE_NAME`
+
+##### export.existence_check_batch_size
+
+Number of page IDs per batch when checking page existence during cleanup. Capped at 25 for self-hosted (CQL).
+
+- Default: `250`
+- ENV Var: `CME_EXPORT__EXISTENCE_CHECK_BATCH_SIZE`
+
+#### connection_config.*
+
+##### connection_config.backoff_and_retry
+
+Enable automatic retry with exponential backoff.
+
+- Default: `True`
+- ENV Var: `CME_CONNECTION_CONFIG__BACKOFF_AND_RETRY`
+
+##### connection_config.backoff_factor
+
+Multiplier for exponential backoff.
+
+- Default: `2`
+- ENV Var: `CME_CONNECTION_CONFIG__BACKOFF_FACTOR`
+
+##### connection_config.max_backoff_seconds
+
+Maximum seconds to wait between retries.
+
+- Default: `60`
+- ENV Var: `CME_CONNECTION_CONFIG__MAX_BACKOFF_SECONDS`
+
+##### connection_config.max_backoff_retries
+
+Maximum number of retry attempts.
+
+- Default: `5`
+- ENV Var: `CME_CONNECTION_CONFIG__MAX_BACKOFF_RETRIES`
+
+##### connection_config.retry_status_codes
+
+HTTP status codes that trigger a retry.
+
+- Default: `[413, 429, 502, 503, 504]`
+- ENV Var: `CME_CONNECTION_CONFIG__RETRY_STATUS_CODES`
+
+##### connection_config.timeout
+
+Timeout in seconds for API requests. Prevents hanging on slow or unresponsive servers.
+
+- Default: `30`
+- ENV Var: `CME_CONNECTION_CONFIG__TIMEOUT`
+
+##### connection_config.verify_ssl
+
+Whether to verify SSL certificates for HTTPS requests.
+
+- Default: `True`
+- ENV Var: `CME_CONNECTION_CONFIG__VERIFY_SSL`
+
+##### connection_config.use_v2_api
+
+Enable Confluence REST API v2 endpoints. Supported on Atlassian Cloud and Data Center 8+. Disable for self-hosted Server instances.
+
+- Default: `False`
+- ENV Var: `CME_CONNECTION_CONFIG__USE_V2_API`
+
+##### connection_config.max_workers
+
+Maximum number of parallel workers for page export. Set to `1` for serial/debug mode. Higher values improve performance but may hit API rate limits.
+
+- Default: `20`
+- ENV Var: `CME_CONNECTION_CONFIG__MAX_WORKERS`
+
+#### auth.*
+
+> [!Note]
+> Auth credentials use URL-keyed nested dicts (e.g. `auth.confluence["https://company.atlassian.net"]`) and cannot be mapped to flat ENV var names. Use `cme config edit auth.confluence` or `cme config set` for auth configuration.
+
+##### auth.confluence.url
+
+Confluence instance URL.
+
+- Default: `""`
+
+##### auth.confluence.username
+
+Confluence username/email.
+
+- Default: `""`
+
+##### auth.confluence.api_token
+
+Confluence API token.
+
+- Default: `""`
+
+##### auth.confluence.pat
+
+Confluence Personal Access Token.
+
+- Default: `""`
+
+##### auth.jira.url
+
+Jira instance URL.
+
+- Default: `""`
+
+##### auth.jira.username
+
+Jira username/email.
+
+- Default: `""`
+
+##### auth.jira.api_token
+
+Jira API token.
+
+- Default: `""`
+
+##### auth.jira.pat
+
+Jira Personal Access Token.
+
+- Default: `""`
 
 You can always view and change the current config with the interactive menu above.
 
@@ -266,17 +461,27 @@ Some platforms have specific requirements for Markdown formatting, file structur
 
 #### Obsidian
 
-- **Document Title**: Obsidian already displays the document title. Ensure `export.include_document_title` is `False` so the documented title is not redundant.
-- **Breadcrumbs**: Obsidian already displays page breadcrumbs. Ensure `export.breadcrumbs` is `False` so the breadcrumbs are not redundant.
+Run the following command to configure the exporter for Obsidian:
+
+```sh
+cme config set export.include_document_title=false export.page_breadcrumbs=false
+```
+
+Obsidian natively renders the document title and page breadcrumbs, so both are disabled to avoid redundant output.
 
 #### Azure DevOps (ADO) Wikis
 
-- **Absolute Attachment Links**: Ensure `export.attachment_href` is set to `absolute`.
-- **Attachment Path Template**: Set `export.attachment_path` to `.attachments/{attachment_file_id}{attachment_extension}` so ADO Wiki can find attachments.
-- **Filename sanitizing**:
-  - Set `export.filename_encoding` to `" ":"-","\"":"%22","*":"%2A","-":"%2D",":":"%3A","<":"%3C",">":"%3E","?":"%3F","|":"%7C","\\":"_","#":"_","/":"_","\u0000":"_"`
-    for ADO compatibility (spaces become `-`, dashes become `%2D`, and forbidden characters become `_`)
-  - Set `export.filename_length` to `200`
+Run the following command to configure the exporter for ADO Wikis:
+
+```sh
+cme config set \
+  export.attachment_href=absolute \
+  'export.attachment_path=.attachments/{attachment_file_id}{attachment_extension}' \
+  'export.filename_encoding={" ":"-","\"":"%22","*":"%2A","-":"%2D",":":"%3A","<":"%3C",">":"%3E","?":"%3F","|":"%7C","\\":"_","#":"_","/":"_","\u0000":"_"}' \
+  export.filename_length=200
+```
+
+ADO Wikis require absolute attachment links and expect attachments in a specific `.attachments/` folder. Filenames are sanitized to match ADO's restrictions: spaces become dashes, dashes are percent-encoded, and other forbidden characters are replaced with underscores. The filename length is capped to stay within ADO's limits.
 
 ### Custom Config File Location
 
@@ -330,10 +535,11 @@ It generally was tested on:
 - Confluence Cloud 1000.0.0-b5426ab8524f (2025-05-28)
 - Confluence Server 8.5.20
 
-## Known Issues
+## Known Issues and Limitations
 
 1. **Missing Attachment File ID on Server**: For some Confluence Server version/configuration the attachment file ID might not be provided (https://github.com/Spenhouet/confluence-markdown-exporter/issues/39). In the default configuration, this is used for the export path. Solution: Adjust the attachment path in the export config and use the `{attachment_id}` or `{attachment_title}` instead.
 2. **Connection Issues when behind Proxy or VPN**: There might be connection issues if your Confluence Server is behind a proxy or VPN (https://github.com/Spenhouet/confluence-markdown-exporter/issues/38). If you experience issues, help to fix this is appreciated.
+3. **Scoped API-Tokens are Incompatible**: The python Atlassian SDK mainly uses v1 API routes, which do not fully support scoped API-tokens (see https://github.com/atlassian-api/atlassian-python-api/issues/1546). This is waiting for https://github.com/atlassian-api/atlassian-python-api/pull/1523 to be implemented.
 
 ## Contributing
 
