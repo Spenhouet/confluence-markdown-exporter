@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from confluence_markdown_exporter.utils.lockfile import AttachmentEntry
 from confluence_markdown_exporter.utils.lockfile import ConfluenceLock
 from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.lockfile import OrgEntry
@@ -698,3 +699,108 @@ class TestConfluenceLockSaveSortsKeys:
             assert org_keys == ["https://a-org.atlassian.net", "https://z-org.atlassian.net"]
             space_keys = list(data["orgs"]["https://z-org.atlassian.net"]["spaces"].keys())
             assert space_keys == ["AAA", "ZZZ"]
+
+
+class TestAttachmentEntryTracking:
+    """Tests for attachment tracking in the lock file."""
+
+    def test_page_entry_stores_attachments(self) -> None:
+        """PageEntry persists attachment entries keyed by attachment ID."""
+        entry = PageEntry(
+            title="Page",
+            version=1,
+            export_path="a.md",
+            attachments={
+                "att1": AttachmentEntry(version=3, path="space/attachments/uuid-a.png"),
+            },
+        )
+        assert entry.attachments["att1"].version == 3
+        assert entry.attachments["att1"].path == "space/attachments/uuid-a.png"
+
+    def test_page_entry_attachments_default_empty(self) -> None:
+        """PageEntry.attachments defaults to empty dict (backward-compatible)."""
+        entry = PageEntry(title="Page", version=1, export_path="a.md")
+        assert entry.attachments == {}
+
+    def test_lock_file_roundtrip_with_attachments(self) -> None:
+        """Attachment entries survive a JSON save/load cycle."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            lock = _lock_with_pages({
+                "100": PageEntry(
+                    title="Page A",
+                    version=1,
+                    export_path="a.md",
+                    attachments={
+                        "att1": AttachmentEntry(version=2, path="space/attachments/file.png"),
+                    },
+                ),
+            })
+
+            lock.save(lockfile_path)
+
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            att = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]["100"]["attachments"]["att1"]
+            assert att["version"] == 2
+            assert att["path"] == "space/attachments/file.png"
+
+    def test_lock_file_missing_attachments_field_loads_as_empty(self) -> None:
+        """Old lock files without 'attachments' field load without error."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            old_format = _lock_data({
+                "100": {"title": "Page A", "version": 3, "export_path": "a.md"},
+            })
+            lockfile_path.write_text(json.dumps(old_format), encoding="utf-8")
+
+            lock = ConfluenceLock.load(lockfile_path)
+
+            entry = lock.get_page("100")
+            assert entry is not None
+            assert entry.attachments == {}
+
+    def test_record_page_stores_attachment_entries(self) -> None:
+        """record_page persists attachment entries to the lock file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / LOCKFILE_FILENAME
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._lock = ConfluenceLock()
+
+            page = _make_mock_page(page_id=100, version_number=1, export_path="a.md")
+            attachment_entries = {
+                "att42": AttachmentEntry(version=5, path="space/attachments/abc.png"),
+            }
+            LockfileManager.record_page(page, attachment_entries)
+
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            pages = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            att = pages["100"]["attachments"]["att42"]
+            assert att["version"] == 5
+            assert att["path"] == "space/attachments/abc.png"
+
+    def test_get_page_attachment_entries_returns_entries(self) -> None:
+        """get_page_attachment_entries returns the stored attachment dict for a page."""
+        LockfileManager._lock = _lock_with_pages({
+            "100": PageEntry(
+                title="Page",
+                version=1,
+                export_path="a.md",
+                attachments={
+                    "att1": AttachmentEntry(version=2, path="space/attachments/x.png"),
+                },
+            ),
+        })
+
+        entries = LockfileManager.get_page_attachment_entries("100")
+        assert "att1" in entries
+        assert entries["att1"].version == 2
+
+    def test_get_page_attachment_entries_returns_empty_for_unknown_page(self) -> None:
+        """get_page_attachment_entries returns {} for a page not in the lock."""
+        LockfileManager._lock = _lock_with_pages({})
+        assert LockfileManager.get_page_attachment_entries("999") == {}
+
+    def test_get_page_attachment_entries_returns_empty_when_not_initialized(self) -> None:
+        """get_page_attachment_entries returns {} when the manager is not initialized."""
+        assert LockfileManager._lock is None
+        assert LockfileManager.get_page_attachment_entries("100") == {}

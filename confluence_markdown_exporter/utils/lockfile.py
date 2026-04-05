@@ -24,12 +24,20 @@ logger = logging.getLogger(__name__)
 LOCKFILE_VERSION = 2
 
 
+class AttachmentEntry(BaseModel):
+    """Entry for a single attachment tracked in the lock file."""
+
+    version: int
+    path: str
+
+
 class PageEntry(BaseModel):
     """Entry for a single page in the lock file."""
 
     title: str
     version: int
     export_path: str
+    attachments: dict[str, AttachmentEntry] = Field(default_factory=dict)
 
 
 class SpaceEntry(BaseModel):
@@ -92,7 +100,11 @@ class ConfluenceLock(BaseModel):
             for space in org.spaces.values():
                 space.pages.pop(page_id, None)
 
-    def add_page(self, page: Page) -> None:
+    def add_page(
+        self,
+        page: Page,
+        attachment_entries: dict[str, AttachmentEntry] | None = None,
+    ) -> None:
         """Add or update a page entry, placed under its org and space."""
         if page.version is None:
             logger.warning("Page %s has no version info. Skipping lock entry.", page.id)
@@ -110,6 +122,7 @@ class ConfluenceLock(BaseModel):
             title=page.title,
             version=page.version.number,
             export_path=str(page.export_path),
+            attachments=attachment_entries or {},
         )
 
     def save(  # noqa: C901
@@ -191,14 +204,31 @@ class LockfileManager:
         cls._lock = ConfluenceLock.load(cls._lockfile_path)
         cls._all_entries_snapshot = dict(cls._lock.all_pages())
         cls._seen_page_ids = set()
+        logger.debug(
+            "Lockfile initialized: %s (%d tracked page(s))",
+            cls._lockfile_path,
+            len(cls._all_entries_snapshot),
+        )
 
     @classmethod
-    def record_page(cls, page: Page) -> None:
+    def get_page_attachment_entries(cls, page_id: str) -> dict[str, AttachmentEntry]:
+        """Return attachment entries for *page_id* from the lock file, or empty dict."""
+        if cls._lock is None:
+            return {}
+        entry = cls._lock.get_page(page_id)
+        return entry.attachments if entry else {}
+
+    @classmethod
+    def record_page(
+        cls,
+        page: Page,
+        attachment_entries: dict[str, AttachmentEntry] | None = None,
+    ) -> None:
         """Record a page export to the lock file."""
         if cls._lock is None or cls._lockfile_path is None:
             return
 
-        cls._lock.add_page(page)
+        cls._lock.add_page(page, attachment_entries)
         cls._lock.save(cls._lockfile_path)
         cls._seen_page_ids.add(str(page.id))
 
@@ -223,17 +253,30 @@ class LockfileManager:
         page_id = str(page.id)
         entry = cls._lock.get_page(page_id)
         if entry is None:
+            logger.debug("Page id=%s not in lockfile — will export", page_id)
             return True
 
         if page.version is None:
+            logger.debug("Page id=%s has no version info — will export", page_id)
             return True
 
         # Re-export if the output file is missing from disk
         if cls._output_path is not None and not (cls._output_path / entry.export_path).exists():
+            logger.debug("Page id=%s output file missing — will re-export", page_id)
             return True
 
         # Export if version or export_path has changed
-        return entry.version != page.version.number or entry.export_path != str(page.export_path)
+        if entry.version != page.version.number or entry.export_path != str(page.export_path):
+            logger.debug(
+                "Page id=%s changed (v%s -> v%s) — will export",
+                page_id,
+                entry.version,
+                page.version.number,
+            )
+            return True
+
+        logger.debug("Page id=%s unchanged (v%s) — skipping", page_id, entry.version)
+        return False
 
     @classmethod
     def unseen_ids(cls) -> set[str]:

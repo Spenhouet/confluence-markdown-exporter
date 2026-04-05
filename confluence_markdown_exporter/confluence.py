@@ -51,6 +51,7 @@ from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_d
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
+from confluence_markdown_exporter.utils.lockfile import AttachmentEntry
 from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.rich_console import ExportStats
 from confluence_markdown_exporter.utils.rich_console import console
@@ -182,6 +183,7 @@ class Organization(BaseModel):
         """Export all pages across all spaces, showing per-space discovery progress."""
         all_pages: list[Page | Descendant] = []
         n = len(self.spaces)
+        logger.info("Exporting %d space(s) from %s", n, self.base_url)
         with console.status("", spinner="dots") as status:
             for i, space in enumerate(self.spaces, 1):
                 status.update(
@@ -189,6 +191,7 @@ class Organization(BaseModel):
                     f" ({i}/{n})…[/dim]"
                 )
                 all_pages.extend(space.pages)
+        logger.info("Discovered %d page(s) across %d space(s)", len(all_pages), n)
         export_pages(all_pages)
 
     @classmethod
@@ -201,10 +204,11 @@ class Organization(BaseModel):
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_url(cls, base_url: str) -> "Organization":
+        logger.debug("Fetching space list from %s", base_url)
         with console.status(
             f"[dim]Fetching space list from [highlight]{base_url}[/highlight]…[/dim]"
         ):
-            return cls.from_json(
+            org = cls.from_json(
                 cast(
                     "JsonResponse",
                     get_thread_confluence(base_url).get_all_spaces(
@@ -213,6 +217,8 @@ class Organization(BaseModel):
                 ),
                 base_url,
             )
+        logger.info("Found %d space(s) in %s", len(org.spaces), base_url)
+        return org
 
 
 class Space(BaseModel):
@@ -235,10 +241,12 @@ class Space(BaseModel):
 
     def export(self) -> None:
         """Export all pages in this space to Markdown."""
+        logger.debug("Fetching pages for space '%s' (%s)", self.name, self.key)
         with console.status(
             f"[dim]Fetching pages for space [highlight]{self.name}[/highlight]…[/dim]"
         ):
             pages = self.pages
+        logger.info("Found %d page(s) in space '%s'", len(pages), self.name)
         export_pages(pages)
 
     @classmethod
@@ -280,6 +288,7 @@ class Space(BaseModel):
         path = parsed.path.rstrip("/")
         if match := re.search(r"(?:/wiki/spaces/|/display/|/)([A-Za-z0-9_-]+)/", path):
             space_key = match.group(1)
+            logger.debug("Resolved space key '%s' from URL %s", space_key, space_url)
             return cls.from_key(space_key, base_url)
 
         msg = f"Could not parse space URL {space_url}."
@@ -419,13 +428,16 @@ class Attachment(Document):
             size = response.get("size", 0)
             start += size
 
+        logger.debug("Found %d attachment(s) for page id=%s", len(attachments), page_id)
         return attachments
 
     def export(self) -> None:
         filepath = settings.export.output_path / self.export_path
         if filepath.exists():
+            logger.debug("Skipping attachment '%s' — already exists at %s", self.title, filepath)
             return
 
+        logger.debug("Downloading attachment '%s' to %s", self.title, filepath)
         client = get_thread_confluence(self.base_url)
         try:
             response = client.request(
@@ -436,16 +448,14 @@ class Attachment(Document):
             )
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
-            logger.warning(f"There is no attachment with title '{self.title}'. Skipping export.")
+            logger.warning("There is no attachment with title '%s'. Skipping export.", self.title)
             return
         except RequestException as e:
-            logger.warning(f"Failed to download attachment '{self.title}': {e}. Skipping.")
+            logger.warning("Failed to download attachment '%s': %s. Skipping.", self.title, e)
             return
 
-        save_file(
-            filepath,
-            response.content,
-        )
+        save_file(filepath, response.content)
+        logger.debug("Saved attachment '%s' (%d bytes)", self.title, len(response.content))
 
 
 class Ancestor(Document):
@@ -563,19 +573,23 @@ class Page(Document):
     def markdown(self) -> str:
         return self.Converter(self).markdown
 
-    def export(self) -> None:
+    def export(self) -> dict[str, AttachmentEntry]:
         if self.title == "Page not accessible":
-            logger.warning(f"Skipping export for inaccessible page with ID {self.id}")
-            return
+            logger.warning("Skipping export for inaccessible page id=%s", self.id)
+            return {}
 
+        logger.debug("Exporting page id=%s '%s'", self.id, self.title)
         if DEBUG:
             self.export_body()
         # Export attachments first so the files can be utilized during markdown conversion
-        logger.info("Exporting attachments for page id=%s", self.id)
-        self.export_attachments()
-        logger.info("Converting to Markdown and writing file for page id=%s", self.id)
+        logger.debug("Exporting attachments for page id=%s", self.id)
+        attachment_entries = self.export_attachments()
+        logger.debug("Converting to Markdown for page id=%s", self.id)
         self.export_markdown()
-        logger.info("Exported to %s", settings.export.output_path / self.export_path)
+        logger.info(
+            "Exported '%s' -> %s", self.title, settings.export.output_path / self.export_path
+        )
+        return attachment_entries
 
     def export_with_descendants(self) -> None:
         with console.status(
@@ -612,27 +626,56 @@ class Page(Document):
             self.markdown,
         )
 
-    def export_attachments(self) -> None:
+    def _attachments_for_export(self) -> list["Attachment"]:
+        """Return the subset of attachments that should be exported for this page."""
         if settings.export.attachment_export_all:
-            for attachment in self.attachments:
-                attachment.export()
-        else:
-            for attachment in self.attachments:
-                if (
-                    attachment.filename.endswith(".drawio")
-                    and f"diagramName={attachment.title}" in self.body
-                ):
-                    attachment.export()
+            return list(self.attachments)
+        return [
+            a
+            for a in self.attachments
+            if (
+                a.filename.endswith(".drawio") and f"diagramName={a.title}" in self.body
+            )
+            or (
+                a.filename.endswith((".drawio.png", ".drawio"))
+                and a.title.replace(" ", "%20") in self.body_export
+            )
+            or a.file_id in self.body
+        ]
+
+    def export_attachments(self) -> dict[str, AttachmentEntry]:
+        old_entries = LockfileManager.get_page_attachment_entries(str(self.id))
+        new_entries: dict[str, AttachmentEntry] = {}
+        output_path = settings.export.output_path
+
+        for attachment in self._attachments_for_export():
+            att_id = attachment.id
+            att_version = attachment.version.number if attachment.version else 0
+
+            # Skip download if the same attachment version is tracked and the file still exists
+            if att_id in old_entries:
+                old = old_entries[att_id]
+                if old.version == att_version and (output_path / old.path).exists():
+                    new_entries[att_id] = old
+                    logger.debug(
+                        "Skipping unchanged attachment '%s' (v%d)", attachment.title, att_version
+                    )
                     continue
-                if (
-                    attachment.filename.endswith(".drawio.png")
-                    or attachment.filename.endswith(".drawio")
-                ) and attachment.title.replace(" ", "%20") in self.body_export:
-                    attachment.export()
-                    continue
-                if attachment.file_id in self.body:
-                    attachment.export()
-                    continue
+
+            attachment.export()
+            if att_version:
+                new_entries[att_id] = AttachmentEntry(
+                    version=att_version, path=str(attachment.export_path)
+                )
+
+        # Clean up orphaned attachment files when an attachment was re-versioned
+        for att_id, old_entry in old_entries.items():
+            if att_id in new_entries and old_entry.path != new_entries[att_id].path:
+                old_file = output_path / old_entry.path
+                old_file.unlink(missing_ok=True)
+                logger.info("Deleted old attachment file: %s", old_entry.path)
+
+        return new_entries
 
     def get_attachment_by_id(self, attachment_id: str) -> Attachment | None:
         """Get the Attachment object by its ID.
@@ -684,7 +727,7 @@ class Page(Document):
     def from_id(cls, page_id: int, base_url: str) -> "Page":
         _empty_space = Space(base_url=base_url, key="", name="", description="", homepage=0)
         if page_id is None:
-            logger.warning("Page ID is None, skipping")
+            logger.warning("Page ID is None, returning empty page")
             return cls(
                 base_url=base_url,
                 id=0,
@@ -697,6 +740,7 @@ class Page(Document):
                 attachments=[],
                 ancestors=[],
             )
+        logger.debug("Fetching page id=%s from %s", page_id, base_url)
         try:
             return cls.from_json(
                 cast(
@@ -710,7 +754,7 @@ class Page(Document):
                 base_url,
             )
         except (ApiError, HTTPError):
-            logger.warning(f"Could not access page with ID {page_id}")
+            logger.warning("Could not access page id=%s — treating as inaccessible", page_id)
             return cls(
                 base_url=base_url,
                 id=page_id,
@@ -744,12 +788,18 @@ class Page(Document):
 
         # Match Confluence Cloud Page URL
         if match := re.search(r"/wiki/.+?/pages/(\d+)", path):
-            return Page.from_id(int(match.group(1)), base_url)
+            page_id = int(match.group(1))
+            logger.debug("Resolved page id=%s from Cloud URL %s", page_id, page_url)
+            return Page.from_id(page_id, base_url)
 
         # Match Confluence Server Page URL
         if match := re.search(r"^(?:/display)?/([^/]+)/([^/]+)$", path):
             space_key = urllib.parse.unquote_plus(match.group(1))
             page_title = urllib.parse.unquote_plus(match.group(2))
+            logger.debug(
+                "Resolving page '%s' in space '%s' from Server URL %s",
+                page_title, space_key, page_url,
+            )
             page_data = cast(
                 "JsonResponse",
                 get_thread_confluence(base_url).get_page_by_title(
@@ -1533,6 +1583,13 @@ def fetch_deleted_page_ids(page_ids: list[str], base_url: str) -> set[str]:
     use_v2 = settings.connection_config.use_v2_api
     batch_size = settings.export.existence_check_batch_size
     effective_batch_size = batch_size if use_v2 else min(batch_size, _CQL_MAX_BATCH_SIZE)
+    n_batches = -(-len(page_ids) // effective_batch_size)  # ceil division
+    logger.debug(
+        "Checking existence of %d page(s) in %d batch(es) via %s API",
+        len(page_ids),
+        n_batches,
+        "v2" if use_v2 else "v1 CQL",
+    )
     existing: set[str] = set()
 
     for i in range(0, len(page_ids), effective_batch_size):
@@ -1556,10 +1613,12 @@ def fetch_deleted_page_ids(page_ids: list[str], base_url: str) -> set[str]:
 def sync_removed_pages(base_url: str) -> None:
     """Orchestrate stale-file cleanup: check API for deleted pages, then clean up."""
     if not settings.export.cleanup_stale:
+        logger.debug("Stale page cleanup disabled — skipping.")
         return
 
     unseen = LockfileManager.unseen_ids()
     if not unseen:
+        logger.debug("No unseen pages in lockfile — nothing to clean up.")
         return
 
     with console.status(
@@ -1598,8 +1657,8 @@ def _export_page_worker(page: "Page | Descendant", stats: ExportStats | None = N
         stats: Optional stats tracker to update on completion.
     """
     _page = Page.from_id(page.id, page.base_url)
-    _page.export()
-    LockfileManager.record_page(_page)
+    attachment_entries = _page.export()
+    LockfileManager.record_page(_page, attachment_entries)
     if stats is not None:
         stats.inc_exported()
 
@@ -1622,6 +1681,9 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
     stats = reset_stats(total=len(pages))
     for _ in range(skipped_count):
         stats.inc_skipped()
+
+    if skipped_count:
+        logger.info("Skipping %d unchanged page(s).", skipped_count)
 
     if not pages_to_export:
         logger.info("All %d page(s) unchanged — nothing to export.", len(pages))
