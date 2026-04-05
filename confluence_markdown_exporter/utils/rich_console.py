@@ -46,7 +46,7 @@ def setup_logging(log_level: str = "INFO") -> None:
         console=console,
         rich_tracebacks=True,
         show_path=log_level == "DEBUG",
-        markup=True,
+        markup=False,
         log_time_format="[%X]",
     )
     handler.setLevel(level)
