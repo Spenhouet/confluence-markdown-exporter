@@ -1,6 +1,5 @@
 """Basic tests for confluence-markdown-exporter package."""
 
-import json
 import subprocess
 import sys
 
@@ -21,7 +20,7 @@ def test_version_command() -> None:
     """Test that the version command works correctly."""
     try:
         # Test the version command
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [sys.executable, "-m", "confluence_markdown_exporter.main", "version"],
             capture_output=True,
             text=True,
@@ -50,7 +49,7 @@ def test_config_list_command() -> None:
     import yaml
 
     try:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [
                 sys.executable,
                 "-m",

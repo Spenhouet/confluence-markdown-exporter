@@ -49,8 +49,10 @@ def response_hook(
     """Log response headers when requests fail."""
     if not response.ok:
         logger.warning(
-            f"Request to {response.url} failed with status {response.status_code}"
-            f"Response headers: {dict(response.headers)}"
+            "Request to %s failed with status %s. Response headers: %s",
+            response.url,
+            response.status_code,
+            dict(response.headers),
         )
     return response
 
@@ -104,14 +106,17 @@ def get_confluence_instance(url: str) -> ConfluenceApiSdk:
     """
     with _clients_lock:
         if url in _confluence_clients:
+            logger.debug("Confluence client cache hit for %s", url)
             return _confluence_clients[url]
 
+    logger.debug("Creating new Confluence client for %s", url)
     settings = get_settings()
 
     while True:
         auth = settings.auth.get_instance(url) or ApiDetails()
         try:
             client = ApiClientFactory(settings.connection_config).create_confluence(url, auth)
+            logger.info("Connected to Confluence at %s", url)
             break
         except ConnectionError as e:
             questionary.print(
@@ -139,6 +144,7 @@ def get_thread_confluence(base_url: str) -> ConfluenceApiSdk:
     if not hasattr(_thread_local, "clients"):
         _thread_local.clients = {}
     if base_url not in _thread_local.clients:
+        logger.debug("Initializing thread-local Confluence client for %s", base_url)
         _thread_local.clients[base_url] = get_confluence_instance(base_url)
     return _thread_local.clients[base_url]
 
@@ -156,12 +162,15 @@ def get_jira_instance(url: str) -> JiraApiSdk:
 
     with _clients_lock:
         if url in _jira_clients:
+            logger.debug("Jira client cache hit for %s", url)
             return _jira_clients[url]
 
+    logger.debug("Creating new Jira client for %s", url)
     while True:
         auth = settings.auth.get_jira_instance(url) or ApiDetails()
         try:
             client = ApiClientFactory(settings.connection_config).create_jira(url, auth)
+            logger.info("Connected to Jira at %s", url)
             break
         except ConnectionError:
             use_confluence = questionary.confirm(

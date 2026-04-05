@@ -740,7 +740,8 @@ class TestAttachmentEntryTracking:
             lock.save(lockfile_path)
 
             saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
-            att = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]["100"]["attachments"]["att1"]
+            org = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]
+            att = org["pages"]["100"]["attachments"]["att1"]
             assert att["version"] == 2
             assert att["path"] == "space/attachments/file.png"
 
