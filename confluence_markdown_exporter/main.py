@@ -83,11 +83,30 @@ def _print_summary() -> None:
     grid.add_column(style="dim", justify="right")
     grid.add_column()
 
-    grid.add_row("Total pages", str(stats.total))
-    grid.add_row("[success]Exported[/success]", f"[success]{stats.exported}[/success]")
-    grid.add_row("[dim]Skipped (unchanged)[/dim]", str(stats.skipped))
+    grid.add_row("Pages", "")
+    grid.add_row("  Total", str(stats.total))
+    grid.add_row("  [success]Exported[/success]", f"[success]{stats.exported}[/success]")
+    grid.add_row("  [dim]Skipped (unchanged)[/dim]", str(stats.skipped))
+    if stats.removed:
+        grid.add_row("  [dim]Removed[/dim]", str(stats.removed))
     if stats.failed:
-        grid.add_row("[error]Failed[/error]", f"[error]{stats.failed}[/error]")
+        grid.add_row("  [error]Failed[/error]", f"[error]{stats.failed}[/error]")
+
+    attachments_total = (
+        stats.attachments_exported + stats.attachments_skipped + stats.attachments_failed
+    )
+    if attachments_total or stats.attachments_removed:
+        grid.add_row("Attachments", "")
+        if attachments_total:
+            grid.add_row("  Total", str(attachments_total))
+        att_exp = stats.attachments_exported
+        grid.add_row("  [success]Exported[/success]", f"[success]{att_exp}[/success]")
+        grid.add_row("  [dim]Skipped (unchanged)[/dim]", str(stats.attachments_skipped))
+        if stats.attachments_removed:
+            grid.add_row("  [dim]Removed[/dim]", str(stats.attachments_removed))
+        if stats.attachments_failed:
+            grid.add_row("  [error]Failed[/error]", f"[error]{stats.attachments_failed}[/error]")
+
     grid.add_row("Output", str(output_path))
 
     if stats.failed:

@@ -15,6 +15,8 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
 
+from confluence_markdown_exporter.utils.rich_console import get_stats
+
 if TYPE_CHECKING:
     from confluence_markdown_exporter.confluence import Descendant
     from confluence_markdown_exporter.confluence import Page
@@ -316,3 +318,7 @@ class LockfileManager:
 
         if result_delete_ids:
             cls._lock.save(cls._lockfile_path, delete_ids=result_delete_ids)
+
+        stats = get_stats()
+        for _ in result_delete_ids:
+            stats.inc_removed()

@@ -234,6 +234,11 @@ class ExportStats:
     exported: int = 0
     skipped: int = 0
     failed: int = 0
+    removed: int = 0
+    attachments_exported: int = 0
+    attachments_skipped: int = 0
+    attachments_failed: int = 0
+    attachments_removed: int = 0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def inc_exported(self) -> None:
@@ -250,6 +255,31 @@ class ExportStats:
         """Increment the failed counter by 1."""
         with self._lock:
             self.failed += 1
+
+    def inc_removed(self) -> None:
+        """Increment the pages removed counter by 1."""
+        with self._lock:
+            self.removed += 1
+
+    def inc_attachments_exported(self) -> None:
+        """Increment the attachments exported counter by 1."""
+        with self._lock:
+            self.attachments_exported += 1
+
+    def inc_attachments_skipped(self) -> None:
+        """Increment the attachments skipped counter by 1."""
+        with self._lock:
+            self.attachments_skipped += 1
+
+    def inc_attachments_failed(self) -> None:
+        """Increment the attachments failed counter by 1."""
+        with self._lock:
+            self.attachments_failed += 1
+
+    def inc_attachments_removed(self) -> None:
+        """Increment the attachments removed counter by 1."""
+        with self._lock:
+            self.attachments_removed += 1
 
 
 # Module-level stats instance reset at the start of each export run

@@ -55,6 +55,7 @@ from confluence_markdown_exporter.utils.lockfile import AttachmentEntry
 from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.rich_console import ExportStats
 from confluence_markdown_exporter.utils.rich_console import console
+from confluence_markdown_exporter.utils.rich_console import get_stats
 from confluence_markdown_exporter.utils.rich_console import reset_stats
 from confluence_markdown_exporter.utils.table_converter import TableConverter
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
@@ -432,6 +433,7 @@ class Attachment(Document):
         return attachments
 
     def export(self) -> None:
+        stats = get_stats()
         filepath = settings.export.output_path / self.export_path
         if filepath.exists():
             logger.debug("Skipping attachment '%s' — already exists at %s", self.title, filepath)
@@ -449,13 +451,16 @@ class Attachment(Document):
             response.raise_for_status()  # Raise error if request fails
         except HTTPError:
             logger.warning("There is no attachment with title '%s'. Skipping export.", self.title)
+            stats.inc_attachments_failed()
             return
         except RequestException as e:
             logger.warning("Failed to download attachment '%s': %s. Skipping.", self.title, e)
+            stats.inc_attachments_failed()
             return
 
         save_file(filepath, response.content)
         logger.debug("Saved attachment '%s' (%d bytes)", self.title, len(response.content))
+        stats.inc_attachments_exported()
 
 
 class Ancestor(Document):
@@ -647,6 +652,7 @@ class Page(Document):
         old_entries = LockfileManager.get_page_attachment_entries(str(self.id))
         new_entries: dict[str, AttachmentEntry] = {}
         output_path = settings.export.output_path
+        stats = get_stats()
 
         for attachment in self._attachments_for_export():
             att_id = attachment.id
@@ -660,6 +666,7 @@ class Page(Document):
                     logger.debug(
                         "Skipping unchanged attachment '%s' (v%d)", attachment.title, att_version
                     )
+                    stats.inc_attachments_skipped()
                     continue
 
             attachment.export()
@@ -674,6 +681,7 @@ class Page(Document):
                 old_file = output_path / old_entry.path
                 old_file.unlink(missing_ok=True)
                 logger.info("Deleted old attachment file: %s", old_entry.path)
+                stats.inc_attachments_removed()
 
         return new_entries
 
