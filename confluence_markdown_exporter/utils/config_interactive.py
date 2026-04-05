@@ -507,7 +507,7 @@ def _reset_and_reload(parent_key: str | None, display_title: str | None = None) 
     confirm = questionary.confirm(confirm_msg, style=custom_style).ask()
     if not confirm:
         return
-    reset_to_defaults(parent_key if parent_key else None)
+    reset_to_defaults(parent_key or None)
     updated = get_settings().model_dump()
     if parent_key:
         # Traverse to the correct nested dict for jmespath/dot-paths

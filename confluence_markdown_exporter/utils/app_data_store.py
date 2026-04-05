@@ -117,12 +117,12 @@ class ApiDetails(BaseModel):
     """
 
     username: SecretStr = Field(
-        SecretStr(""),
+        default=SecretStr(""),
         title="Username (email)",
         description="Username or email for API authentication.",
     )
     api_token: SecretStr = Field(
-        SecretStr(""),
+        default=SecretStr(""),
         title="API Token",
         description=(
             "API token for authentication (if required). "
@@ -132,7 +132,7 @@ class ApiDetails(BaseModel):
         ),
     )
     pat: SecretStr = Field(
-        SecretStr(""),
+        default=SecretStr(""),
         title="Personal Access Token (PAT)",
         description=(
             "Personal Access Token for authentication. "

@@ -127,4 +127,6 @@ def load_and_parse_drawio(file_path: str | Path) -> str | None:
         return None
 
     # Format as markdown
-    return format_mermaid_markdown(mermaid_diagram)
+    result = format_mermaid_markdown(mermaid_diagram)
+    logger.debug("Extracted mermaid diagram from %s", file_path)
+    return result

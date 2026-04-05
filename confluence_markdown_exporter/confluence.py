@@ -527,12 +527,12 @@ class Page(Document):
         client = get_thread_confluence(self.base_url)
 
         try:
-            response = client.get(url, params=params)
+            response = cast("dict", client.get(url, params=params))
             results.extend(response.get("results", []))
             next_path = response.get("_links", {}).get("next")
 
             while next_path:
-                response = client.get(next_path)
+                response = cast("dict", client.get(next_path))
                 results.extend(response.get("results", []))
                 next_path = response.get("_links", {}).get("next")
 
@@ -814,7 +814,7 @@ class Page(Document):
     class Converter(TableConverter, MarkdownConverter):
         """Create a custom MarkdownConverter for Confluence HTML to Markdown conversion."""
 
-        class Options(MarkdownConverter.DefaultOptions):
+        class Options(MarkdownConverter.DefaultOptions):  # type: ignore[assignment]
             bullets = "-"
             heading_style = ATX
             macros_to_ignore: Set[str] = frozenset(["qc-read-and-understood-signature-box"])
@@ -1059,7 +1059,7 @@ class Page(Document):
 
             return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
 
-        def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # type: ignore[override]
             if not text:
                 return ""
 
@@ -1337,7 +1337,7 @@ class Page(Document):
 
             return ""
 
-        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911
+        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911, C901
             """Convert PlantUML diagrams from editor2 XML to Markdown code blocks.
 
             PlantUML diagrams are stored in the editor2 XML as structured macros with
@@ -1359,8 +1359,10 @@ class Page(Document):
             # element and attribute names
             # So ac:structured-macro becomes structured-macro, ac:name becomes name, etc.
             plantuml_macros = soup_editor2.find_all("structured-macro")
-            plantuml_macro = None
+            plantuml_macro: Tag | None = None
             for macro in plantuml_macros:
+                if not isinstance(macro, Tag):
+                    continue
                 if macro.get("name") == "plantuml" and macro.get("macro-id") == macro_id:
                     plantuml_macro = macro
                     break
@@ -1371,7 +1373,7 @@ class Page(Document):
 
             # Extract the plain-text-body containing the JSON
             plain_text_body = plantuml_macro.find("plain-text-body")
-            if not plain_text_body:
+            if not isinstance(plain_text_body, Tag):
                 logger.warning(f"PlantUML macro {macro_id} has no plain-text-body")
                 return "\n<!-- PlantUML diagram (no content found) -->\n\n"
 
@@ -1399,27 +1401,28 @@ class Page(Document):
 
         def _find_element_with_namespace(
             self, parent: BeautifulSoup, tag_name: str
-        ) -> BeautifulSoup | None:
+        ) -> Tag | None:
             """Find an element with or without namespace prefix."""
-            return parent.find(f"ac:{tag_name}") or parent.find(tag_name)
+            result = parent.find(f"ac:{tag_name}") or parent.find(tag_name)
+            return result if isinstance(result, Tag) else None
 
-        def _find_structured_macro(self, el: BeautifulSoup) -> BeautifulSoup | None:
+        def _find_structured_macro(self, el: BeautifulSoup) -> Tag | None:
             """Find structured-macro element with or without namespace."""
             return self._find_element_with_namespace(el, "structured-macro")
 
-        def _extract_plain_text_body(self, el: BeautifulSoup) -> str | None:
+        def _extract_plain_text_body(self, el: BeautifulSoup | Tag) -> str | None:
             """Extract markdown content from plain-text-body element."""
-            plain_text_body = self._find_element_with_namespace(el, "plain-text-body")
+            plain_text_body = self._find_element_with_namespace(el, "plain-text-body")  # type: ignore[arg-type]
             if plain_text_body:
                 return plain_text_body.get_text()
             return None
 
-        def _extract_markdown_parameter(self, el: BeautifulSoup) -> str | None:
+        def _extract_markdown_parameter(self, el: BeautifulSoup | Tag) -> str | None:
             """Extract markdown content from parameter element."""
             param = el.find("ac:parameter", {"ac:name": "markdown"})
             if param is None:
                 param = el.find("parameter", {"name": "markdown"})
-            if param:
+            if isinstance(param, Tag):
                 return param.get_text()
             return None
 
@@ -1459,18 +1462,20 @@ class Page(Document):
             # becomes structured-macro
             markdown_macros = soup_editor2.find_all("structured-macro")
             for macro in markdown_macros:
+                if not isinstance(macro, Tag):
+                    continue
                 if (
                     macro.get("name") in ("markdown", "mohamicorp-markdown")
                     and macro.get("macro-id") == macro_id
                 ):
                     # Try plain-text-body first
                     plain_text_body = macro.find("plain-text-body")
-                    if plain_text_body:
+                    if isinstance(plain_text_body, Tag):
                         return plain_text_body.get_text(strip=True)
 
                     # Try parameter for mohamicorp-markdown
                     param = macro.find("parameter", {"name": "markdown"})
-                    if param:
+                    if isinstance(param, Tag):
                         return param.get_text(strip=True)
 
             return None
@@ -1490,7 +1495,7 @@ class Page(Document):
             # If not found, try editor2 XML (similar to plantuml)
             if not markdown_content:
                 macro_id = el.get("data-macro-id")
-                if macro_id:
+                if macro_id and isinstance(macro_id, str):
                     markdown_content = self._extract_markdown_from_editor2(macro_id)
 
             if not markdown_content:
@@ -1545,7 +1550,7 @@ def _fetch_page_ids_v2_batch(batch: list[str], base_url: str) -> set[str]:
     into the URL path since the SDK only accepts a dict for ``params``.
     """
     query = urllib.parse.urlencode([("id", pid) for pid in batch] + [("limit", len(batch))])
-    response = get_thread_confluence(base_url).get(f"api/v2/pages?{query}")
+    response = cast("dict", get_thread_confluence(base_url).get(f"api/v2/pages?{query}"))
     if not response:
         return set()
     return {str(item["id"]) for item in response.get("results", [])}
@@ -1557,9 +1562,12 @@ def _fetch_page_ids_cql_batch(batch: list[str], base_url: str) -> set[str]:
     Uses GET /rest/api/content/search with id in (...) (self-hosted / fallback).
     """
     cql = "id in ({})".format(",".join(batch))
-    response = get_thread_confluence(base_url).get(
-        "rest/api/content/search",
-        params={"cql": cql, "limit": len(batch), "fields": "id"},
+    response = cast(
+        "dict",
+        get_thread_confluence(base_url).get(
+            "rest/api/content/search",
+            params={"cql": cql, "limit": len(batch), "fields": "id"},
+        ),
     )
     if not response:
         return set()
