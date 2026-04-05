@@ -61,7 +61,7 @@ Run the exporter with the desired Confluence page ID or space key. Execute the c
 Export Confluence page(s) by URL(s):
 
 ```sh
-cme pages <page-url> --output-path <output path e.g. ./output_path/>
+cme pages <page-url>
 ```
 
 Supported page URL formats:
@@ -74,7 +74,7 @@ Supported page URL formats:
 Export Confluence page(s) and all their descendant pages by page URL(s):
 
 ```sh
-cme pages-with-descendants <page-url> --output-path <output path e.g. ./output_path/>
+cme pages-with-descendants <page-url>
 ```
 
 #### 2.3. Export Space(s)
@@ -82,7 +82,7 @@ cme pages-with-descendants <page-url> --output-path <output path e.g. ./output_p
 Export all Confluence pages of Spaces by URLs:
 
 ```sh
-cme spaces <space-url> --output-path <output path e.g. ./output_path/>
+cme spaces <space-url>
 ```
 
 Supported space URL formats:
@@ -95,12 +95,12 @@ Supported space URL formats:
 Export all Confluence pages across all spaces of organization(s) by URL(s):
 
 ```sh
-cme orgs --output-path <output path e.g. ./output_path/>
+cme orgs <base-url>
 ```
 
 ### 3. Output
 
-The exported Markdown file(s) will be saved in the specified `output` directory e.g.:
+The exported Markdown file(s) will be saved in the configured output directory (see `export.output_path`) e.g.:
 
 ```sh
 output_path/
@@ -117,70 +117,128 @@ output_path/
 
 All configuration and authentication is stored in a single JSON file managed by the application. You do not need to manually edit this file.
 
-### Interactive Configuration
+### Config Commands
 
-To interactively view and change configuration, run:
+| Command | Description |
+| ------- | ----------- |
+| `cme config` | Open the interactive configuration menu |
+| `cme config list` | Print the full configuration as YAML |
+| `cme config get <key>` | Print the value of a single config key |
+| `cme config set <key=value>...` | Set one or more config values |
+| `cme config edit <key>` | Open the interactive editor for a specific key |
+| `cme config path` | Print the path to the config file |
+| `cme config reset` | Reset all configuration to defaults |
+
+#### Interactive Menu
 
 ```sh
 cme config
 ```
 
-This will open a menu where you can:
+Opens a full interactive menu where you can:
 
 - See all config options and their current values
-- Select a config to change (including authentication)
+- Select any option to change it (including authentication)
+- Navigate into nested sections (e.g. `auth.confluence`)
 - Reset all config to defaults
-- Navigate directly to any config section (e.g. `auth.confluence`)
 
-To display the current configuration as YAML without opening the interactive menu:
-
-```sh
-cme config --show
-```
-
-To jump directly to a specific config section:
+#### List Current Configuration
 
 ```sh
-cme config --jump-to auth.confluence
+cme config list           # YAML (default)
+cme config list -o json   # JSON
 ```
+
+Prints the entire current configuration. Output format defaults to YAML; use `-o json` for JSON.
+
+#### Get a Single Value
+
+```sh
+cme config get export.log_level
+cme config get connection_config.max_workers
+```
+
+Prints the current value of the specified key. Nested sections are printed as YAML.
+
+#### Set Values
+
+```sh
+cme config set export.log_level=DEBUG
+cme config set export.output_path=/tmp/export
+cme config set export.skip_unchanged=false
+```
+
+Sets one or more key=value pairs directly. Values are parsed as JSON where possible (so `true`, `false`, and numbers work as expected), falling back to a plain string.
+
+> **Note:** For auth keys that contain a URL (e.g. `auth.confluence.https://...`), use `cme config edit auth.confluence` instead — the interactive editor handles URL-based keys correctly.
+
+#### Edit a Specific Key Interactively
+
+```sh
+cme config edit auth.confluence
+cme config edit export.log_level
+```
+
+Opens the interactive editor directly at the specified config section, skipping the top-level menu.
+
+#### Show Config File Path
+
+```sh
+cme config path
+```
+
+Prints the absolute path to the configuration file. Useful when `CME_CONFIG_PATH` is set or when locating the file for backup/inspection.
+
+#### Reset to Defaults
+
+```sh
+cme config reset
+cme config reset --yes   # skip confirmation
+```
+
+Resets the entire configuration to factory defaults after confirmation.
 
 ### Available Configuration Options
 
-| Key                                   | Description                                                                                                           | Default                                                             |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| export.log_level                      | Controls output verbosity: `DEBUG` (every step), `INFO` (key milestones), `WARNING` (warnings/errors only), `ERROR` (errors only). | INFO                                                                |
-| export.output_path                    | The directory where all exported files and folders will be written. Used as the base for relative and absolute links. | ./ (current working directory)                                      |
-| export.page_href                      | How to generate links to pages in Markdown. Options: "relative" (default) or "absolute".                              | relative                                                            |
-| export.page_path                      | Path template for exported pages                                                                                      | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md     |
-| export.attachment_href                | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute".                        | relative                                                            |
-| export.attachment_path                | Path template for attachments                                                                                         | {space_name}/attachments/{attachment_file_id}{attachment_extension} |
-| export.attachment_export_all          | Export all attachments, not only those referenced by a page. Note: exporting large or many attachments increases export time. | False                                                          |
-| export.page_breadcrumbs               | Whether to include breadcrumb links at the top of the page.                                                           | True                                                                |
-| export.filename_encoding              | Character mapping for filename encoding.                                                                              | Default mappings for forbidden characters.                          |
-| export.filename_length                | Maximum length of filenames.                                                                                          | 255                                                                 |
-| export.include_document_title         | Whether to include the document title in the exported markdown file.                                                  | True                                                                |
-| export.enable_jira_enrichment         | Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links include the issue summary. Requires Jira auth to be configured. | True                                     |
-| export.skip_unchanged                 | Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.                 | True                                                                |
-| export.cleanup_stale                  | After export, delete local files for pages removed from Confluence or whose export path has changed.                  | True                                                                |
-| export.lockfile_name                  | Name of the lock file used to track exported pages.                                                                   | confluence-lock.json                                                |
-| export.existence_check_batch_size     | Number of page IDs per batch when checking page existence during cleanup. Capped at 25 for self-hosted (CQL).         | 250                                                                 |
-| connection_config.backoff_and_retry   | Enable automatic retry with exponential backoff                                                                       | True                                                                |
-| connection_config.backoff_factor      | Multiplier for exponential backoff                                                                                    | 2                                                                   |
-| connection_config.max_backoff_seconds | Maximum seconds to wait between retries                                                                               | 60                                                                  |
-| connection_config.max_backoff_retries | Maximum number of retry attempts                                                                                      | 5                                                                   |
-| connection_config.retry_status_codes  | HTTP status codes that trigger a retry                                                                                | \[413, 429, 502, 503, 504\]                                         |
-| connection_config.timeout             | Timeout in seconds for API requests. Prevents hanging on slow or unresponsive servers.                                | 30                                                                  |
-| connection_config.verify_ssl          | Whether to verify SSL certificates for HTTPS requests.                                                                | True                                                                |
-| connection_config.use_v2_api          | Enable Confluence REST API v2 endpoints. Supported on Atlassian Cloud and Data Center 8+. Disable for self-hosted Server instances. | False                                                    |
-| connection_config.max_workers         | Maximum number of parallel workers for page export. Set to `1` for serial/debug mode. Higher values improve performance but may hit API rate limits. | 20                                          |
-| auth.confluence.url                   | Confluence instance URL                                                                                               | ""                                                                  |
-| auth.confluence.username              | Confluence username/email                                                                                             | ""                                                                  |
-| auth.confluence.api_token             | Confluence API token                                                                                                  | ""                                                                  |
-| auth.confluence.pat                   | Confluence Personal Access Token                                                                                      | ""                                                                  |
-| auth.jira.url                         | Jira instance URL                                                                                                     | ""                                                                  |
-| auth.jira.username                    | Jira username/email                                                                                                   | ""                                                                  |
-| auth.jira.api_token                   | Jira API token                                                                                                        | ""                                                                  |
-| auth.jira.pat                         | Jira Personal Access Token                                                                                            | ""                                                                  |
+All options can be set via the config file (using `cme config set`) or overridden for the current session via environment variables. ENV vars take precedence over stored config and are **not** persisted. ENV var names use the `CME_` prefix and `__` as the nested delimiter (matching the key in uppercase).
+
+| Key                                   | Description                                                                                                           | Default                                                             | ENV Var                                          |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------ |
+| export.log_level                      | Controls output verbosity: `DEBUG` (every step), `INFO` (key milestones), `WARNING` (warnings/errors only), `ERROR` (errors only). | INFO                                                                | `CME_EXPORT__LOG_LEVEL`                          |
+| export.output_path                    | The directory where all exported files and folders will be written. Used as the base for relative and absolute links. | ./ (current working directory)                                      | `CME_EXPORT__OUTPUT_PATH`                        |
+| export.page_href                      | How to generate links to pages in Markdown. Options: "relative" (default) or "absolute".                              | relative                                                            | `CME_EXPORT__PAGE_HREF`                          |
+| export.page_path                      | Path template for exported pages                                                                                      | {space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md     | `CME_EXPORT__PAGE_PATH`                          |
+| export.attachment_href                | How to generate links to attachments in Markdown. Options: "relative" (default) or "absolute".                        | relative                                                            | `CME_EXPORT__ATTACHMENT_HREF`                    |
+| export.attachment_path                | Path template for attachments                                                                                         | {space_name}/attachments/{attachment_file_id}{attachment_extension} | `CME_EXPORT__ATTACHMENT_PATH`                    |
+| export.attachment_export_all          | Export all attachments, not only those referenced by a page. Note: exporting large or many attachments increases export time. | False                                                          | `CME_EXPORT__ATTACHMENT_EXPORT_ALL`              |
+| export.page_breadcrumbs               | Whether to include breadcrumb links at the top of the page.                                                           | True                                                                | `CME_EXPORT__PAGE_BREADCRUMBS`                   |
+| export.filename_encoding              | Character mapping for filename encoding.                                                                              | Default mappings for forbidden characters.                          | `CME_EXPORT__FILENAME_ENCODING`                  |
+| export.filename_length                | Maximum length of filenames.                                                                                          | 255                                                                 | `CME_EXPORT__FILENAME_LENGTH`                    |
+| export.include_document_title         | Whether to include the document title in the exported markdown file.                                                  | True                                                                | `CME_EXPORT__INCLUDE_DOCUMENT_TITLE`             |
+| export.enable_jira_enrichment         | Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links include the issue summary. Requires Jira auth to be configured. | True                                     | `CME_EXPORT__ENABLE_JIRA_ENRICHMENT`             |
+| export.skip_unchanged                 | Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.                 | True                                                                | `CME_EXPORT__SKIP_UNCHANGED`                     |
+| export.cleanup_stale                  | After export, delete local files for pages removed from Confluence or whose export path has changed.                  | True                                                                | `CME_EXPORT__CLEANUP_STALE`                      |
+| export.lockfile_name                  | Name of the lock file used to track exported pages.                                                                   | confluence-lock.json                                                | `CME_EXPORT__LOCKFILE_NAME`                      |
+| export.existence_check_batch_size     | Number of page IDs per batch when checking page existence during cleanup. Capped at 25 for self-hosted (CQL).         | 250                                                                 | `CME_EXPORT__EXISTENCE_CHECK_BATCH_SIZE`         |
+| connection_config.backoff_and_retry   | Enable automatic retry with exponential backoff                                                                       | True                                                                | `CME_CONNECTION_CONFIG__BACKOFF_AND_RETRY`       |
+| connection_config.backoff_factor      | Multiplier for exponential backoff                                                                                    | 2                                                                   | `CME_CONNECTION_CONFIG__BACKOFF_FACTOR`          |
+| connection_config.max_backoff_seconds | Maximum seconds to wait between retries                                                                               | 60                                                                  | `CME_CONNECTION_CONFIG__MAX_BACKOFF_SECONDS`     |
+| connection_config.max_backoff_retries | Maximum number of retry attempts                                                                                      | 5                                                                   | `CME_CONNECTION_CONFIG__MAX_BACKOFF_RETRIES`     |
+| connection_config.retry_status_codes  | HTTP status codes that trigger a retry                                                                                | \[413, 429, 502, 503, 504\]                                         | `CME_CONNECTION_CONFIG__RETRY_STATUS_CODES`      |
+| connection_config.timeout             | Timeout in seconds for API requests. Prevents hanging on slow or unresponsive servers.                                | 30                                                                  | `CME_CONNECTION_CONFIG__TIMEOUT`                 |
+| connection_config.verify_ssl          | Whether to verify SSL certificates for HTTPS requests.                                                                | True                                                                | `CME_CONNECTION_CONFIG__VERIFY_SSL`              |
+| connection_config.use_v2_api          | Enable Confluence REST API v2 endpoints. Supported on Atlassian Cloud and Data Center 8+. Disable for self-hosted Server instances. | False                                                    | `CME_CONNECTION_CONFIG__USE_V2_API`              |
+| connection_config.max_workers         | Maximum number of parallel workers for page export. Set to `1` for serial/debug mode. Higher values improve performance but may hit API rate limits. | 20                                          | `CME_CONNECTION_CONFIG__MAX_WORKERS`             |
+| auth.confluence.url                   | Confluence instance URL                                                                                               | ""                                                                  | —                                                |
+| auth.confluence.username              | Confluence username/email                                                                                             | ""                                                                  | —                                                |
+| auth.confluence.api_token             | Confluence API token                                                                                                  | ""                                                                  | —                                                |
+| auth.confluence.pat                   | Confluence Personal Access Token                                                                                      | ""                                                                  | —                                                |
+| auth.jira.url                         | Jira instance URL                                                                                                     | ""                                                                  | —                                                |
+| auth.jira.username                    | Jira username/email                                                                                                   | ""                                                                  | —                                                |
+| auth.jira.api_token                   | Jira API token                                                                                                        | ""                                                                  | —                                                |
+| auth.jira.pat                         | Jira Personal Access Token                                                                                            | ""                                                                  | —                                                |
+
+> **Note on auth options:** Auth credentials use URL-keyed nested dicts (e.g. `auth.confluence["https://company.atlassian.net"]`) and cannot be mapped to flat ENV var names. Use `cme config edit auth.confluence` or `cme config set` for auth configuration.
 
 You can always view and change the current config with the interactive menu above.
 
@@ -220,17 +278,23 @@ Detection is based on two standard environment variables:
 | -------- | ------ |
 | `CI=true` | Disables ANSI color codes and live terminal output |
 | `NO_COLOR=1` | Same effect (follows the [no-color.org](https://no-color.org) convention) |
-| `DEBUG=true` | Enables verbose debug logging and additional diagnostics |
 
 Most CI platforms (GitHub Actions, GitLab CI, CircleCI, Jenkins, etc.) set `CI=true` automatically.
 
-You can also reduce output verbosity via the `export.log_level` config option (or by setting it to `WARNING` for quiet runs):
+You can control output verbosity via the `CME_EXPORT__LOG_LEVEL` env var or the `export.log_level` config option:
 
 ```sh
-cme config  # set export.log_level to WARNING
+# Enable verbose debug logging for a single run (not persisted):
+CME_EXPORT__LOG_LEVEL=DEBUG cme pages <page-url>
+
+# Reduce verbosity permanently:
+cme config set export.log_level=WARNING
+
+# Or for the current session only:
+CME_EXPORT__LOG_LEVEL=WARNING cme pages <page-url>
 ```
 
-This is useful for using different configs for different environments or for scripting.
+This is useful for using different log levels for different environments or for scripting.
 
 ## Update
 
