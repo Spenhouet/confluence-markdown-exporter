@@ -654,10 +654,17 @@ def main_config_menu_loop(jump_to: str | None = None) -> None:  # noqa: C901
     settings = get_settings().model_dump()
     if jump_to:
         submenu = jmespath.search(jump_to, settings)
+        preselect: str | None = None
+        if not isinstance(submenu, dict):
+            # jump_to points to a leaf value — open its parent section with cursor on that item
+            leaf_key = jump_to.rsplit(".", 1)[-1]
+            jump_to = jump_to.rsplit(".", 1)[0] if "." in jump_to else jump_to
+            submenu = jmespath.search(jump_to, settings)
+            preselect = leaf_key
         submodel = get_model_by_path(ConfigModel, jump_to)
         parent_path = jump_to.rsplit(".", 1)[0] if "." in jump_to else None
         parent_model = get_model_by_path(ConfigModel, parent_path) if parent_path else ConfigModel
-        _edit_dict_config(submenu, submodel, jump_to, parent_model)
+        _edit_dict_config(submenu, submodel, jump_to, parent_model, last_selected=preselect)
         return
     last_selected = None
     while True:
