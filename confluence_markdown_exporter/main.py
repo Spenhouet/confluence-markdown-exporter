@@ -1,6 +1,4 @@
 import logging
-import os
-from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -8,34 +6,24 @@ from rich.panel import Panel
 from rich.table import Table
 
 from confluence_markdown_exporter import __version__
+from confluence_markdown_exporter import config as config_module
 from confluence_markdown_exporter.utils.app_data_store import get_settings
-from confluence_markdown_exporter.utils.app_data_store import set_setting
-from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.measure_time import measure
 from confluence_markdown_exporter.utils.rich_console import console
 from confluence_markdown_exporter.utils.rich_console import get_stats
 from confluence_markdown_exporter.utils.rich_console import reset_stats
 from confluence_markdown_exporter.utils.rich_console import setup_logging
-from confluence_markdown_exporter.utils.type_converter import str_to_bool
-
-DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
 logger = logging.getLogger(__name__)
 
 app = typer.Typer()
+app.add_typer(config_module.app, name="config")
 
 
 def _init_logging() -> None:
-    """Initialize logging from config (or DEBUG env override)."""
-    log_level = "DEBUG" if DEBUG else get_settings().export.log_level
-    setup_logging(log_level)
-
-
-def override_output_path_config(value: Path | None) -> None:
-    """Override the default output path if provided."""
-    if value is not None:
-        set_setting("export.output_path", value)
+    """Initialize logging from config (CME_EXPORT__LOG_LEVEL env var takes precedence)."""
+    setup_logging(get_settings().export.log_level)
 
 
 def _print_summary() -> None:
@@ -67,12 +55,6 @@ def _print_summary() -> None:
 @app.command(help="Export one or more Confluence pages by URL to Markdown.")
 def pages(
     page_urls: Annotated[list[str], typer.Argument(help="Confluence Page URL(s)")],
-    output_path: Annotated[
-        Path | None,
-        typer.Option(
-            help="Directory to write exported Markdown files to. Overrides config if set."
-        ),
-    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
@@ -80,7 +62,6 @@ def pages(
     _init_logging()
     stats = reset_stats(total=len(page_urls))
     with measure(f"Export pages {', '.join(page_urls)}"):
-        override_output_path_config(output_path)
         LockfileManager.init()
 
         exported_urls: set[str] = set()
@@ -106,19 +87,12 @@ def pages(
 @app.command(help="Export Confluence pages and their descendant pages by URL to Markdown.")
 def pages_with_descendants(
     page_urls: Annotated[list[str], typer.Argument(help="Confluence Page URL(s)")],
-    output_path: Annotated[
-        Path | None,
-        typer.Option(
-            help="Directory to write exported Markdown files to. Overrides config if set."
-        ),
-    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
     _init_logging()
     with measure(f"Export pages {', '.join(page_urls)} with descendants"):
-        override_output_path_config(output_path)
         LockfileManager.init()
 
         exported_urls: set[str] = set()
@@ -139,19 +113,12 @@ def spaces(
         list[str],
         typer.Argument(help="Confluence Space URL(s)"),
     ],
-    output_path: Annotated[
-        Path | None,
-        typer.Option(
-            help="Directory to write exported Markdown files to. Overrides config if set."
-        ),
-    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Space
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
     _init_logging()
     with measure(f"Export spaces {', '.join(space_urls)}"):
-        override_output_path_config(output_path)
         LockfileManager.init()
 
         exported_urls: set[str] = set()
@@ -171,19 +138,12 @@ def spaces(
 )
 def orgs(
     base_urls: Annotated[list[str], typer.Argument(help="Confluence Base URL(s)")],
-    output_path: Annotated[
-        Path | None,
-        typer.Option(
-            help="Directory to write exported Markdown files to. Overrides config if set."
-        ),
-    ] = None,
 ) -> None:
     from confluence_markdown_exporter.confluence import Organization
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
     _init_logging()
     with measure("Export all spaces"):
-        override_output_path_config(output_path)
         LockfileManager.init()
 
         for base_url in base_urls:
@@ -192,30 +152,6 @@ def orgs(
             sync_removed_pages(base_url)
 
     _print_summary()
-
-
-@app.command(help="Open the interactive configuration menu or display current configuration.")
-def config(
-    jump_to: Annotated[
-        str | None,
-        typer.Option(help="Jump directly to a config submenu, e.g. 'auth.confluence'"),
-    ] = None,
-    *,
-    show: Annotated[
-        bool,
-        typer.Option(
-            "--show",
-            help="Display current configuration as YAML instead of opening the interactive menu",
-        ),
-    ] = False,
-) -> None:
-    """Interactive configuration menu or display current configuration."""
-    if show:
-        current_settings = get_settings()
-        json_output = current_settings.model_dump_json(indent=2)
-        typer.echo(f"```json\n{json_output}\n```")
-    else:
-        main_config_menu_loop(jump_to)
 
 
 @app.command(help="Show the current version of confluence-markdown-exporter.")

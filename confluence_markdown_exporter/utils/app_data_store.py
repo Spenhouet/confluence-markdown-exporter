@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
@@ -11,6 +12,9 @@ from pydantic import SecretStr
 from pydantic import ValidationError
 from pydantic import field_serializer
 from pydantic import model_validator
+from pydantic_settings import BaseSettings
+from pydantic_settings import PydanticBaseSettingsSource
+from pydantic_settings import SettingsConfigDict
 from typer import get_app_dir
 
 
@@ -398,13 +402,70 @@ class ExportConfig(BaseModel):
 
 
 class ConfigModel(BaseModel):
-    """Top-level application configuration model."""
+    """Top-level application configuration model (used for persistence only)."""
 
     export: ExportConfig = Field(default_factory=ExportConfig, title="Export Settings")
     connection_config: ConnectionConfig = Field(
         default_factory=ConnectionConfig, title="Connection Configuration"
     )
     auth: AuthConfig = Field(default_factory=AuthConfig, title="Authentication")
+
+
+class _JsonConfigSource(PydanticBaseSettingsSource):
+    """Settings source that reads from the JSON config file (lower priority than ENV vars)."""
+
+    def get_field_value(self, field: Any, field_name: str) -> Any:  # noqa: ANN401
+        return None, field_name, False
+
+    def field_is_complex(self, field: Any) -> bool:  # noqa: ANN401
+        return True
+
+    def __call__(self) -> dict[str, Any]:
+        if APP_CONFIG_PATH.exists():
+            try:
+                raw = json.loads(APP_CONFIG_PATH.read_text())
+                return ConfigModel(**raw).model_dump()
+            except Exception:  # noqa: BLE001
+                return ConfigModel().model_dump()
+        return ConfigModel().model_dump()
+
+
+class AppSettings(BaseSettings):
+    """Effective application settings: ENV vars take precedence over the config file.
+
+    ENV vars use the prefix ``CME_`` and double-underscore (``__``) as the nested field
+    delimiter, matching the dot-notation config keys but uppercased.  For example::
+
+        CME_EXPORT__LOG_LEVEL=DEBUG
+        CME_EXPORT__OUTPUT_PATH=/tmp/export
+        CME_CONNECTION_CONFIG__MAX_WORKERS=5
+        CME_CONNECTION_CONFIG__VERIFY_SSL=false
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="CME_",
+        env_nested_delimiter="__",
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    export: ExportConfig = Field(default_factory=ExportConfig, title="Export Settings")
+    connection_config: ConnectionConfig = Field(
+        default_factory=ConnectionConfig, title="Connection Configuration"
+    )
+    auth: AuthConfig = Field(default_factory=AuthConfig, title="Authentication")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,  # noqa: ARG003
+        file_secret_settings: PydanticBaseSettingsSource,  # noqa: ARG003
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """ENV vars override JSON file config; init values override both."""
+        return (init_settings, env_settings, _JsonConfigSource(settings_cls))
 
 
 def load_app_data() -> dict[str, dict]:
@@ -423,10 +484,9 @@ def save_app_data(config_model: ConfigModel) -> None:
     APP_CONFIG_PATH.write_text(json_str)
 
 
-def get_settings() -> ConfigModel:
-    """Get the current application settings as a ConfigModel instance."""
-    data = load_app_data()
-    return ConfigModel.model_validate(data)
+def get_settings() -> AppSettings:
+    """Get the effective application settings (ENV vars override stored config)."""
+    return AppSettings()
 
 
 def _set_by_path(obj: dict, path: str, value: object) -> None:
