@@ -107,3 +107,13 @@ class TestTableConverter:
         # Should have no escaped pipes
         assert "\\|" not in result
 
+    def test_convert_p_handles_non_list_parent_tags(self) -> None:
+        """convert_p should ignore non-list parent_tags values."""
+        converter = TableConverter()
+        el = BeautifulSoup("<p>text.</p>", "html.parser").p
+
+        assert el is not None
+        result = converter.convert_p(el, "text.", False)  # type: ignore[arg-type]
+
+        assert "text." in result
+

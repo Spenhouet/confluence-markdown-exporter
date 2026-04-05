@@ -105,17 +105,17 @@ class TableConverter(MarkdownConverter):
         return text
 
     def convert_ol(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-        if "td" in parent_tags:
+        if isinstance(parent_tags, list) and "td" in parent_tags:
             return str(el)
         return super().convert_ol(el, text, parent_tags)
 
     def convert_ul(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-        if "td" in parent_tags:
+        if isinstance(parent_tags, list) and "td" in parent_tags:
             return str(el)
         return super().convert_ul(el, text, parent_tags)
 
     def convert_p(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         md = super().convert_p(el, text, parent_tags)
-        if "td" in parent_tags:
+        if isinstance(parent_tags, list) and "td" in parent_tags:
             md = md.replace("\n", "") + "<br/>"
         return md
