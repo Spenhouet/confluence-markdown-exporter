@@ -54,14 +54,20 @@ pip install confluence-markdown-exporter
 
 ### 2. Exporting
 
-Run the exporter with the desired Confluence page ID or space key. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `all-spaces` or `config`. If a command is unclear, you can always add `--help` to get additional information.
+Run the exporter with the desired Confluence page URL or space URL. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `orgs` or `config`. If a command is unclear, you can always add `--help` to get additional information.
+
+All export commands accept one or more URLs as space-separated arguments. Each command also has a singular alias (`page`, `page-with-descendants`, `space`, `org`) that behaves identically.
 
 #### 2.1. Export Page(s)
 
-Export Confluence page(s) by URL(s):
+Export one or more Confluence pages by URL:
 
 ```sh
 cme pages <page-url>
+cme pages <page-url-1> <page-url-2> ...
+
+# Singular alias (identical behaviour):
+cme page <page-url>
 ```
 
 Supported page URL formats:
@@ -71,18 +77,26 @@ Supported page URL formats:
 
 #### 2.2. Export Page(s) with Descendants
 
-Export Confluence page(s) and all their descendant pages by page URL(s):
+Export one or more Confluence pages and all their descendant pages by URL:
 
 ```sh
 cme pages-with-descendants <page-url>
+cme pages-with-descendants <page-url-1> <page-url-2> ...
+
+# Singular alias (identical behaviour):
+cme page-with-descendants <page-url>
 ```
 
 #### 2.3. Export Space(s)
 
-Export all Confluence pages of Spaces by URLs:
+Export all Confluence pages of one or more spaces by URL:
 
 ```sh
 cme spaces <space-url>
+cme spaces <space-url-1> <space-url-2> ...
+
+# Singular alias (identical behaviour):
+cme space <space-url>
 ```
 
 Supported space URL formats:
@@ -92,10 +106,14 @@ Supported space URL formats:
 
 #### 2.4. Export all Spaces of Organization(s)
 
-Export all Confluence pages across all spaces of organization(s) by URL(s):
+Export all Confluence pages across all spaces of one or more organizations by URL:
 
 ```sh
 cme orgs <base-url>
+cme orgs <base-url-1> <base-url-2> ...
+
+# Singular alias (identical behaviour):
+cme org <base-url>
 ```
 
 ### 3. Output

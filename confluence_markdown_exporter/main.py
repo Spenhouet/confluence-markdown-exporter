@@ -84,6 +84,9 @@ def pages(
     _print_summary()
 
 
+app.command(name="page", help="Export one or more Confluence pages by URL to Markdown.")(pages)
+
+
 @app.command(help="Export Confluence pages and their descendant pages by URL to Markdown.")
 def pages_with_descendants(
     page_urls: Annotated[list[str], typer.Argument(help="Confluence Page URL(s)")],
@@ -105,6 +108,12 @@ def pages_with_descendants(
             sync_removed_pages(base_url)
 
     _print_summary()
+
+
+app.command(
+    name="page-with-descendants",
+    help="Export Confluence pages and their descendant pages by URL to Markdown.",
+)(pages_with_descendants)
 
 
 @app.command(help="Export all Confluence pages of one or more spaces to Markdown.")
@@ -133,6 +142,11 @@ def spaces(
     _print_summary()
 
 
+app.command(name="space", help="Export all Confluence pages of one or more spaces to Markdown.")(
+    spaces
+)
+
+
 @app.command(
     help="Export all Confluence pages across all spaces of one or more organizations to Markdown."
 )
@@ -152,6 +166,12 @@ def orgs(
             sync_removed_pages(base_url)
 
     _print_summary()
+
+
+app.command(
+    name="org",
+    help="Export all Confluence pages across all spaces of one or more organizations to Markdown.",
+)(orgs)
 
 
 @app.command(help="Show the current version of confluence-markdown-exporter.")
