@@ -323,8 +323,11 @@ def _maybe_sync_new_instance(instance_url: str, parent_path_parts: list[str]) ->
     if not other_service:
         return
 
+    from confluence_markdown_exporter.api_clients import _to_jira_gateway_url
+
+    target_url = _to_jira_gateway_url(instance_url) if other_service == "jira" else instance_url
     should_sync = questionary.confirm(
-        f"Also save the same credentials for {other_service.capitalize()} at '{instance_url}'?",
+        f"Also save the same credentials for {other_service.capitalize()} at '{target_url}'?",
         default=True,
         style=custom_style,
     ).ask()
@@ -337,8 +340,8 @@ def _maybe_sync_new_instance(instance_url: str, parent_path_parts: list[str]) ->
         source = source[k]
     entry = source.get(instance_url)
     if entry:
-        set_setting_with_keys(["auth", other_service, instance_url], entry)
-        questionary.print(f"auth.{other_service}.{instance_url} updated to match.")
+        set_setting_with_keys(["auth", other_service, target_url], entry)
+        questionary.print(f"auth.{other_service}.{target_url} updated to match.")
 
 
 def _edit_instance_dict_loop(  # noqa: C901, PLR0912, PLR0915
