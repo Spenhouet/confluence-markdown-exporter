@@ -140,14 +140,12 @@ class TestGetConfluenceInstance:
     """Test cases for get_confluence_instance function."""
 
     @patch("confluence_markdown_exporter.api_clients._confluence_clients", {})
-    @patch("confluence_markdown_exporter.api_clients._try_fetch_cloud_id", return_value=None)
     @patch("confluence_markdown_exporter.api_clients.get_settings")
     @patch("confluence_markdown_exporter.api_clients.ApiClientFactory")
     def test_successful_connection(
         self,
         mock_factory_class: MagicMock,
         mock_get_settings: MagicMock,
-        _mock_fetch_cloud_id: MagicMock,
         sample_config_model: ConfigModel,
     ) -> None:
         """Test successful Confluence instance creation."""
@@ -167,14 +165,12 @@ class TestGetConfluenceInstance:
         )
 
     @patch("confluence_markdown_exporter.api_clients._confluence_clients", {})
-    @patch("confluence_markdown_exporter.api_clients._try_fetch_cloud_id", return_value=None)
     @patch("confluence_markdown_exporter.api_clients.get_settings")
     @patch("confluence_markdown_exporter.api_clients.ApiClientFactory")
     def test_connection_failure_raises(
         self,
         mock_factory_class: MagicMock,
         mock_get_settings: MagicMock,
-        _mock_fetch_cloud_id: MagicMock,
         sample_config_model: ConfigModel,
     ) -> None:
         """Test that a Confluence connection failure raises AuthNotConfiguredError."""
