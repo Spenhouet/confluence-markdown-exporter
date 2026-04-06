@@ -233,16 +233,18 @@ def _get_dict_value_model(model: type[BaseModel], key: str) -> type[BaseModel] |
     return None
 
 
-def _edit_instance_fields(  # noqa: C901
+def _edit_instance_fields(  # noqa: C901, PLR0912
     instance_key: str,
     instance_data: dict,
     item_model: type[BaseModel],
     parent_path_parts: list[str],
-) -> None:
+) -> str | None:
     """Edit the fields of a single named instance using set_setting_with_keys.
 
     This avoids the dot-split path system so URL keys (which contain dots)
     work correctly.
+
+    Returns ``"__remove__"`` if the user chose to remove this instance, else ``None``.
     """
     selected_field: str | None = None
     while True:
@@ -265,6 +267,7 @@ def _edit_instance_fields(  # noqa: C901
                     value=k,
                 )
             )
+        choices.append(Choice(title="[Remove]", value="__remove__"))
         choices.append(Choice(title="[Back]", value="__back__"))
         field_key = questionary.select(
             f"Edit credentials for '{instance_key}':",
@@ -273,7 +276,14 @@ def _edit_instance_fields(  # noqa: C901
             default=selected_field,
         ).ask()
         if field_key == "__back__" or field_key is None:
-            return
+            return None
+        if field_key == "__remove__":
+            confirm = questionary.confirm(
+                f"Remove instance '{instance_key}'?", default=False, style=custom_style
+            ).ask()
+            if confirm:
+                return "__remove__"
+            continue
         selected_field = field_key
         current_val = instance_data.get(field_key)
         while True:
@@ -298,13 +308,78 @@ def _edit_instance_fields(  # noqa: C901
                 break
 
 
-def _edit_instance_dict_loop(  # noqa: C901, PLR0912
+_SERVICE_PAIRS = {"confluence": "jira", "jira": "confluence"}
+
+
+def _maybe_sync_new_instance(instance_url: str, parent_path_parts: list[str]) -> None:
+    """After configuring a new instance, offer to copy its credentials to the paired service.
+
+    Only applicable when the parent path is ``auth.confluence`` or ``auth.jira``.
+    """
+    if len(parent_path_parts) < 2 or parent_path_parts[0] != "auth":  # noqa: PLR2004
+        return
+    service = parent_path_parts[1]
+    other_service = _SERVICE_PAIRS.get(service)
+    if not other_service:
+        return
+
+    from confluence_markdown_exporter.api_clients import _to_jira_gateway_url
+
+    target_url = _to_jira_gateway_url(instance_url) if other_service == "jira" else instance_url
+    should_sync = questionary.confirm(
+        f"Also save the same credentials for {other_service.capitalize()} at '{target_url}'?",
+        default=True,
+        style=custom_style,
+    ).ask()
+    if not should_sync:
+        return
+
+    settings = get_settings().model_dump()
+    source: dict = settings
+    for k in parent_path_parts:
+        source = source[k]
+    entry = source.get(instance_url)
+    if entry:
+        set_setting_with_keys(["auth", other_service, target_url], entry)
+        questionary.print(f"auth.{other_service}.{target_url} updated to match.")
+
+
+def _edit_instance_dict_loop(  # noqa: C901, PLR0912, PLR0915
     instances: dict,
     item_model: type[BaseModel],
     parent_key: str,
+    new_instance_url: str | None = None,
 ) -> None:
-    """Interactive loop for managing a dict[str, BaseModel] (URL-keyed instances)."""
+    """Interactive loop for managing a dict[str, BaseModel] (URL-keyed instances).
+
+    When *new_instance_url* is provided the loop skips the selection list and jumps
+    directly to editing that specific URL (creating a blank entry first if needed).
+    This is used when an export command detects missing auth for a known URL.
+    """
     parent_path_parts = parent_key.split(".")
+
+    # If a specific URL was requested, jump straight to its editor and then return.
+    if new_instance_url:
+        new_instance_url = new_instance_url.strip().rstrip("/")
+        if new_instance_url not in instances:
+            blank = item_model()
+            set_setting_with_keys([*parent_path_parts, new_instance_url], blank.model_dump())
+            instances[new_instance_url] = blank.model_dump()
+        current_val = instances.get(new_instance_url, {})
+        if not isinstance(current_val, dict):
+            current_val = current_val.model_dump()  # type: ignore[union-attr]
+        result = _edit_instance_fields(new_instance_url, current_val, item_model, parent_path_parts)
+        if result == "__remove__":
+            instances.pop(new_instance_url, None)
+            current = get_settings().model_dump()
+            sub: dict = current
+            for k in parent_path_parts:
+                sub = sub[k]
+            sub.pop(new_instance_url, None)
+            save_app_data(ConfigModel.model_validate(current))
+        else:
+            _maybe_sync_new_instance(new_instance_url, parent_path_parts)
+        return
 
     while True:
         choices = [
@@ -312,8 +387,6 @@ def _edit_instance_dict_loop(  # noqa: C901, PLR0912
             for instance_url in instances
         ]
         choices.append(Choice(title="[Add instance]", value=("add", None)))
-        if len(instances) > 1:
-            choices.append(Choice(title="[Remove instance]", value=("remove", None)))
         choices.append(Choice(title="[Back]", value=("back", None)))
 
         action, instance_url = questionary.select(
@@ -329,8 +402,10 @@ def _edit_instance_dict_loop(  # noqa: C901, PLR0912
             new_url = questionary.text(
                 "Enter the base URL for the new instance (e.g. https://company.atlassian.net):",
                 validate=lambda v: (
-                    "URL cannot be empty" if not v.strip()
-                    else "Instance already exists" if v.strip() in instances
+                    "URL cannot be empty"
+                    if not v.strip()
+                    else "Instance already exists"
+                    if v.strip() in instances
                     else True
                 ),
                 style=custom_style,
@@ -342,35 +417,25 @@ def _edit_instance_dict_loop(  # noqa: C901, PLR0912
                 instances[new_url] = new_instance.model_dump()
             continue
 
-        if action == "remove":
-            if len(instances) <= 1:
-                questionary.print("Cannot remove the only instance.", style="fg:yellow")
-                continue
-            choices_r = [Choice(title=url, value=url) for url in instances]
-            to_remove = questionary.select(
-                "Select instance to remove:",
-                choices=choices_r,
-                style=custom_style,
-            ).ask()
-            if to_remove:
-                confirm = questionary.confirm(
-                    f"Remove instance '{to_remove}'?", default=False, style=custom_style
-                ).ask()
-                if confirm:
-                    instances.pop(to_remove, None)
-                    current = get_settings().model_dump()
-                    sub: dict = current
-                    for k in parent_path_parts:
-                        sub = sub[k]
-                    sub.pop(to_remove, None)
-                    save_app_data(ConfigModel.model_validate(current))
-            continue
-
         if action == "edit" and instance_url:
             current_val = instances.get(instance_url, {})
             if not isinstance(current_val, dict):
                 current_val = current_val.model_dump()  # type: ignore[union-attr]
-            _edit_instance_fields(instance_url, current_val, item_model, parent_path_parts)
+            result = _edit_instance_fields(
+                instance_url,
+                current_val,
+                item_model,
+                parent_path_parts,
+            )
+            if result == "__remove__":
+                instances.pop(instance_url, None)
+                current = get_settings().model_dump()
+                sub: dict = current
+                for k in parent_path_parts:
+                    sub = sub[k]
+                sub.pop(instance_url, None)
+                save_app_data(ConfigModel.model_validate(current))
+                continue
             # Refresh from disk
             updated = get_settings().model_dump()
             sub = updated
@@ -650,7 +715,10 @@ def _edit_dict_config(
     return _edit_dict_config_loop(config_dict, model, parent_key, parent_model, last_selected)
 
 
-def main_config_menu_loop(jump_to: str | None = None) -> None:  # noqa: C901
+def main_config_menu_loop(  # noqa: C901, PLR0912
+    jump_to: str | None = None,
+    new_instance_url: str | None = None,
+) -> None:
     settings = get_settings().model_dump()
     if jump_to:
         submenu = jmespath.search(jump_to, settings)
@@ -661,9 +729,19 @@ def main_config_menu_loop(jump_to: str | None = None) -> None:  # noqa: C901
             jump_to = jump_to.rsplit(".", 1)[0] if "." in jump_to else jump_to
             submenu = jmespath.search(jump_to, settings)
             preselect = leaf_key
-        submodel = get_model_by_path(ConfigModel, jump_to)
         parent_path = jump_to.rsplit(".", 1)[0] if "." in jump_to else None
         parent_model = get_model_by_path(ConfigModel, parent_path) if parent_path else ConfigModel
+        # If jump_to resolves to a dict[str, BaseModel] field (URL-keyed instances such as
+        # auth.confluence), delegate directly to the instance-dict editor so that
+        # URL keys are never mistaken for Pydantic field names.
+        last_segment = jump_to.rsplit(".", 1)[-1] if "." in jump_to else jump_to
+        dict_value_model = _get_dict_value_model(parent_model, last_segment)
+        if dict_value_model is not None and isinstance(submenu, dict):
+            _edit_instance_dict_loop(
+                submenu, dict_value_model, jump_to, new_instance_url=new_instance_url
+            )
+            return
+        submodel = get_model_by_path(ConfigModel, jump_to)
         _edit_dict_config(submenu, submodel, jump_to, parent_model, last_selected=preselect)
         return
     last_selected = None
