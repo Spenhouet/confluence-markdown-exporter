@@ -233,12 +233,11 @@ def _get_dict_value_model(model: type[BaseModel], key: str) -> type[BaseModel] |
     return None
 
 
-def _edit_instance_fields(  # noqa: C901
+def _edit_instance_fields(  # noqa: C901, PLR0912
     instance_key: str,
     instance_data: dict,
     item_model: type[BaseModel],
     parent_path_parts: list[str],
-    can_remove: bool = True,
 ) -> str | None:
     """Edit the fields of a single named instance using set_setting_with_keys.
 
@@ -268,8 +267,7 @@ def _edit_instance_fields(  # noqa: C901
                     value=k,
                 )
             )
-        if can_remove:
-            choices.append(Choice(title="[Remove this instance]", value="__remove__"))
+        choices.append(Choice(title="[Remove]", value="__remove__"))
         choices.append(Choice(title="[Back]", value="__back__"))
         field_key = questionary.select(
             f"Edit credentials for '{instance_key}':",
@@ -310,7 +308,7 @@ def _edit_instance_fields(  # noqa: C901
                 break
 
 
-def _edit_instance_dict_loop(  # noqa: C901, PLR0912
+def _edit_instance_dict_loop(
     instances: dict,
     item_model: type[BaseModel],
     parent_key: str,
@@ -324,8 +322,6 @@ def _edit_instance_dict_loop(  # noqa: C901, PLR0912
             for instance_url in instances
         ]
         choices.append(Choice(title="[Add instance]", value=("add", None)))
-        if len(instances) > 1:
-            choices.append(Choice(title="[Remove instance]", value=("remove", None)))
         choices.append(Choice(title="[Back]", value=("back", None)))
 
         action, instance_url = questionary.select(
@@ -341,8 +337,10 @@ def _edit_instance_dict_loop(  # noqa: C901, PLR0912
             new_url = questionary.text(
                 "Enter the base URL for the new instance (e.g. https://company.atlassian.net):",
                 validate=lambda v: (
-                    "URL cannot be empty" if not v.strip()
-                    else "Instance already exists" if v.strip() in instances
+                    "URL cannot be empty"
+                    if not v.strip()
+                    else "Instance already exists"
+                    if v.strip() in instances
                     else True
                 ),
                 style=custom_style,
@@ -354,35 +352,25 @@ def _edit_instance_dict_loop(  # noqa: C901, PLR0912
                 instances[new_url] = new_instance.model_dump()
             continue
 
-        if action == "remove":
-            if len(instances) <= 1:
-                questionary.print("Cannot remove the only instance.", style="fg:yellow")
-                continue
-            choices_r = [Choice(title=url, value=url) for url in instances]
-            to_remove = questionary.select(
-                "Select instance to remove:",
-                choices=choices_r,
-                style=custom_style,
-            ).ask()
-            if to_remove:
-                confirm = questionary.confirm(
-                    f"Remove instance '{to_remove}'?", default=False, style=custom_style
-                ).ask()
-                if confirm:
-                    instances.pop(to_remove, None)
-                    current = get_settings().model_dump()
-                    sub: dict = current
-                    for k in parent_path_parts:
-                        sub = sub[k]
-                    sub.pop(to_remove, None)
-                    save_app_data(ConfigModel.model_validate(current))
-            continue
-
         if action == "edit" and instance_url:
             current_val = instances.get(instance_url, {})
             if not isinstance(current_val, dict):
                 current_val = current_val.model_dump()  # type: ignore[union-attr]
-            _edit_instance_fields(instance_url, current_val, item_model, parent_path_parts)
+            result = _edit_instance_fields(
+                instance_url,
+                current_val,
+                item_model,
+                parent_path_parts,
+            )
+            if result == "__remove__":
+                instances.pop(instance_url, None)
+                current = get_settings().model_dump()
+                sub: dict = current
+                for k in parent_path_parts:
+                    sub = sub[k]
+                sub.pop(instance_url, None)
+                save_app_data(ConfigModel.model_validate(current))
+                continue
             # Refresh from disk
             updated = get_settings().model_dump()
             sub = updated
