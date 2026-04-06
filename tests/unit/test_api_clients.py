@@ -8,6 +8,7 @@ import requests
 from atlassian.errors import ApiError
 
 from confluence_markdown_exporter.api_clients import ApiClientFactory
+from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
 from confluence_markdown_exporter.api_clients import get_confluence_instance
 from confluence_markdown_exporter.api_clients import response_hook
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
@@ -169,31 +170,23 @@ class TestGetConfluenceInstance:
     @patch("confluence_markdown_exporter.api_clients._try_fetch_cloud_id", return_value=None)
     @patch("confluence_markdown_exporter.api_clients.get_settings")
     @patch("confluence_markdown_exporter.api_clients.ApiClientFactory")
-    @patch("confluence_markdown_exporter.api_clients.main_config_menu_loop")
-    @patch("confluence_markdown_exporter.api_clients.questionary.print")
-    def test_connection_failure_retry(
+    def test_connection_failure_raises(
         self,
-        mock_questionary_print: MagicMock,
-        mock_config_menu: MagicMock,
         mock_factory_class: MagicMock,
         mock_get_settings: MagicMock,
         _mock_fetch_cloud_id: MagicMock,
         sample_config_model: ConfigModel,
     ) -> None:
-        """Test Confluence connection failure and retry."""
-        mock_get_settings.side_effect = [sample_config_model, sample_config_model]
+        """Test that a Confluence connection failure raises AuthNotConfiguredError."""
+        mock_get_settings.return_value = sample_config_model
 
         mock_factory = MagicMock()
-        mock_confluence = MagicMock()
-        mock_factory.create_confluence.side_effect = [
-            ConnectionError("Connection failed"),
-            mock_confluence,
-        ]
+        mock_factory.create_confluence.side_effect = ConnectionError("Connection failed")
         mock_factory_class.return_value = mock_factory
 
-        result = get_confluence_instance(SAMPLE_CONFLUENCE_URL)
+        with pytest.raises(AuthNotConfiguredError) as exc_info:
+            get_confluence_instance(SAMPLE_CONFLUENCE_URL)
 
-        assert result == mock_confluence
-        assert mock_factory.create_confluence.call_count == 2
-        mock_questionary_print.assert_called_once()
-        mock_config_menu.assert_called_once_with("auth.confluence")
+        assert exc_info.value.url == SAMPLE_CONFLUENCE_URL
+        assert exc_info.value.service == "Confluence"
+        assert mock_factory.create_confluence.call_count == 1

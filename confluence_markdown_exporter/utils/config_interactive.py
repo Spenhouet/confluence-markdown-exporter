@@ -308,13 +308,40 @@ def _edit_instance_fields(  # noqa: C901, PLR0912
                 break
 
 
-def _edit_instance_dict_loop(
+def _edit_instance_dict_loop(  # noqa: C901, PLR0912
     instances: dict,
     item_model: type[BaseModel],
     parent_key: str,
+    new_instance_url: str | None = None,
 ) -> None:
-    """Interactive loop for managing a dict[str, BaseModel] (URL-keyed instances)."""
+    """Interactive loop for managing a dict[str, BaseModel] (URL-keyed instances).
+
+    When *new_instance_url* is provided the loop skips the selection list and jumps
+    directly to editing that specific URL (creating a blank entry first if needed).
+    This is used when an export command detects missing auth for a known URL.
+    """
     parent_path_parts = parent_key.split(".")
+
+    # If a specific URL was requested, jump straight to its editor and then return.
+    if new_instance_url:
+        new_instance_url = new_instance_url.strip().rstrip("/")
+        if new_instance_url not in instances:
+            blank = item_model()
+            set_setting_with_keys([*parent_path_parts, new_instance_url], blank.model_dump())
+            instances[new_instance_url] = blank.model_dump()
+        current_val = instances.get(new_instance_url, {})
+        if not isinstance(current_val, dict):
+            current_val = current_val.model_dump()  # type: ignore[union-attr]
+        result = _edit_instance_fields(new_instance_url, current_val, item_model, parent_path_parts)
+        if result == "__remove__":
+            instances.pop(new_instance_url, None)
+            current = get_settings().model_dump()
+            sub: dict = current
+            for k in parent_path_parts:
+                sub = sub[k]
+            sub.pop(new_instance_url, None)
+            save_app_data(ConfigModel.model_validate(current))
+        return
 
     while True:
         choices = [
@@ -650,7 +677,10 @@ def _edit_dict_config(
     return _edit_dict_config_loop(config_dict, model, parent_key, parent_model, last_selected)
 
 
-def main_config_menu_loop(jump_to: str | None = None) -> None:  # noqa: C901, PLR0912
+def main_config_menu_loop(  # noqa: C901, PLR0912
+    jump_to: str | None = None,
+    new_instance_url: str | None = None,
+) -> None:
     settings = get_settings().model_dump()
     if jump_to:
         submenu = jmespath.search(jump_to, settings)
@@ -669,7 +699,9 @@ def main_config_menu_loop(jump_to: str | None = None) -> None:  # noqa: C901, PL
         last_segment = jump_to.rsplit(".", 1)[-1] if "." in jump_to else jump_to
         dict_value_model = _get_dict_value_model(parent_model, last_segment)
         if dict_value_model is not None and isinstance(submenu, dict):
-            _edit_instance_dict_loop(submenu, dict_value_model, jump_to)
+            _edit_instance_dict_loop(
+                submenu, dict_value_model, jump_to, new_instance_url=new_instance_url
+            )
             return
         submodel = get_model_by_path(ConfigModel, jump_to)
         _edit_dict_config(submenu, submodel, jump_to, parent_model, last_selected=preselect)
