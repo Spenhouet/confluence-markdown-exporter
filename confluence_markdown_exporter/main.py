@@ -1,4 +1,5 @@
 import logging
+import sys
 from typing import Annotated
 
 import typer
@@ -20,6 +21,33 @@ from confluence_markdown_exporter.utils.rich_console import setup_logging
 typer.rich_utils._get_rich_console = get_rich_console
 
 logger = logging.getLogger(__name__)
+
+
+class _CmeTyper(typer.Typer):
+    """Typer subclass that intercepts AuthNotConfiguredError at the app boundary.
+
+    When an export command raises AuthNotConfiguredError, the exception propagates
+    through any active console.status() context managers (stopping spinners cleanly
+    via their __exit__) before reaching here.  We then open the config menu at the
+    exact failing URL and exit — no traceback, no per-command boilerplate.
+    """
+
+    def __call__(self, *args: object, **kwargs: object) -> None:
+        try:
+            super().__call__(*args, **kwargs)
+        except Exception as e:
+            from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
+
+            if not isinstance(e, AuthNotConfiguredError):
+                raise
+            from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
+
+            console.print(
+                f"[red bold]Authentication failed for {e.service} at {e.url}[/red bold]\n"
+                "Please configure credentials and re-run the export."
+            )
+            main_config_menu_loop(f"auth.{e.service.lower()}", new_instance_url=e.url)
+            sys.exit(1)
 
 
 # Each list item must be its own \n\n-separated block so typer's epilog renderer
@@ -49,7 +77,7 @@ _SPACE_URL_FORMATS = (
     "- **Server (short)**: `https://confluence.company.com/SPACEKEY`\n\n"
 )
 
-app = typer.Typer(
+app = _CmeTyper(
     rich_markup_mode="markdown",
     no_args_is_help=True,
     help=(
@@ -70,19 +98,6 @@ def _init_logging() -> None:
     """Initialize logging from config (CME_EXPORT__LOG_LEVEL env var takes precedence)."""
     setup_logging(get_settings().export.log_level)
 
-
-def _handle_auth_error(e: Exception) -> None:
-    """Stop on auth failure: show the config menu at the failing URL, then exit."""
-    from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
-    from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
-
-    assert isinstance(e, AuthNotConfiguredError)  # callers guarantee this  # noqa: S101
-    console.print(
-        f"[red bold]Authentication failed for {e.service} at {e.url}[/red bold]\n"
-        "Please configure credentials and re-run the export."
-    )
-    main_config_menu_loop(f"auth.{e.service.lower()}", new_instance_url=e.url)
-    raise typer.Exit(1)
 
 
 def _print_summary() -> None:
@@ -159,7 +174,6 @@ def pages(
         ),
     ],
 ) -> None:
-    from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
@@ -170,11 +184,8 @@ def pages(
 
         exported_urls: set[str] = set()
         for page_url in page_urls:
-            try:
-                with console.status(f"[dim]Fetching [highlight]{page_url}[/highlight]…[/dim]"):
-                    page = Page.from_url(page_url)
-            except AuthNotConfiguredError as e:
-                _handle_auth_error(e)
+            with console.status(f"[dim]Fetching [highlight]{page_url}[/highlight]…[/dim]"):
+                page = Page.from_url(page_url)
             LockfileManager.mark_seen([page.id])
             if not LockfileManager.should_export(page):
                 stats.inc_skipped()
@@ -185,8 +196,6 @@ def pages(
                     attachment_entries = page.export()
                 LockfileManager.record_page(page, attachment_entries)
                 stats.inc_exported()
-            except AuthNotConfiguredError as e:
-                _handle_auth_error(e)
             except Exception:
                 logger.exception("Failed to export page %s", page.title)
                 stats.inc_failed()
@@ -239,7 +248,6 @@ def pages_with_descendants(
         ),
     ],
 ) -> None:
-    from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
@@ -249,11 +257,8 @@ def pages_with_descendants(
 
         exported_urls: set[str] = set()
         for page_url in page_urls:
-            try:
-                page = Page.from_url(page_url)
-                page.export_with_descendants()
-            except AuthNotConfiguredError as e:
-                _handle_auth_error(e)
+            page = Page.from_url(page_url)
+            page.export_with_descendants()
             exported_urls.add(page.base_url)
 
         for base_url in exported_urls:
@@ -304,7 +309,6 @@ def spaces(
         ),
     ],
 ) -> None:
-    from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
     from confluence_markdown_exporter.confluence import Space
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
@@ -314,11 +318,8 @@ def spaces(
 
         exported_urls: set[str] = set()
         for space_url in space_urls:
-            try:
-                space = Space.from_url(space_url)
-                space.export()
-            except AuthNotConfiguredError as e:
-                _handle_auth_error(e)
+            space = Space.from_url(space_url)
+            space.export()
             exported_urls.add(space.base_url)
 
         for base_url in exported_urls:
@@ -367,7 +368,6 @@ def orgs(
         ),
     ],
 ) -> None:
-    from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
     from confluence_markdown_exporter.confluence import Organization
     from confluence_markdown_exporter.confluence import sync_removed_pages
 
@@ -376,11 +376,8 @@ def orgs(
         LockfileManager.init()
 
         for base_url in base_urls:
-            try:
-                org = Organization.from_url(base_url)
-                org.export()
-            except AuthNotConfiguredError as e:
-                _handle_auth_error(e)
+            org = Organization.from_url(base_url)
+            org.export()
             sync_removed_pages(base_url)
 
     _print_summary()
