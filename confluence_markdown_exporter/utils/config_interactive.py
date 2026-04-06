@@ -650,7 +650,7 @@ def _edit_dict_config(
     return _edit_dict_config_loop(config_dict, model, parent_key, parent_model, last_selected)
 
 
-def main_config_menu_loop(jump_to: str | None = None) -> None:  # noqa: C901
+def main_config_menu_loop(jump_to: str | None = None) -> None:  # noqa: C901, PLR0912
     settings = get_settings().model_dump()
     if jump_to:
         submenu = jmespath.search(jump_to, settings)
@@ -661,9 +661,17 @@ def main_config_menu_loop(jump_to: str | None = None) -> None:  # noqa: C901
             jump_to = jump_to.rsplit(".", 1)[0] if "." in jump_to else jump_to
             submenu = jmespath.search(jump_to, settings)
             preselect = leaf_key
-        submodel = get_model_by_path(ConfigModel, jump_to)
         parent_path = jump_to.rsplit(".", 1)[0] if "." in jump_to else None
         parent_model = get_model_by_path(ConfigModel, parent_path) if parent_path else ConfigModel
+        # If jump_to resolves to a dict[str, BaseModel] field (URL-keyed instances such as
+        # auth.confluence), delegate directly to the instance-dict editor so that
+        # URL keys are never mistaken for Pydantic field names.
+        last_segment = jump_to.rsplit(".", 1)[-1] if "." in jump_to else jump_to
+        dict_value_model = _get_dict_value_model(parent_model, last_segment)
+        if dict_value_model is not None and isinstance(submenu, dict):
+            _edit_instance_dict_loop(submenu, dict_value_model, jump_to)
+            return
+        submodel = get_model_by_path(ConfigModel, jump_to)
         _edit_dict_config(submenu, submodel, jump_to, parent_model, last_selected=preselect)
         return
     last_selected = None
