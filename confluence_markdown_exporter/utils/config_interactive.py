@@ -308,7 +308,40 @@ def _edit_instance_fields(  # noqa: C901, PLR0912
                 break
 
 
-def _edit_instance_dict_loop(  # noqa: C901, PLR0912
+_SERVICE_PAIRS = {"confluence": "jira", "jira": "confluence"}
+
+
+def _maybe_sync_new_instance(instance_url: str, parent_path_parts: list[str]) -> None:
+    """After configuring a new instance, offer to copy its credentials to the paired service.
+
+    Only applicable when the parent path is ``auth.confluence`` or ``auth.jira``.
+    """
+    if len(parent_path_parts) < 2 or parent_path_parts[0] != "auth":  # noqa: PLR2004
+        return
+    service = parent_path_parts[1]
+    other_service = _SERVICE_PAIRS.get(service)
+    if not other_service:
+        return
+
+    should_sync = questionary.confirm(
+        f"Also save the same credentials for {other_service.capitalize()} at '{instance_url}'?",
+        default=True,
+        style=custom_style,
+    ).ask()
+    if not should_sync:
+        return
+
+    settings = get_settings().model_dump()
+    source: dict = settings
+    for k in parent_path_parts:
+        source = source[k]
+    entry = source.get(instance_url)
+    if entry:
+        set_setting_with_keys(["auth", other_service, instance_url], entry)
+        questionary.print(f"auth.{other_service}.{instance_url} updated to match.")
+
+
+def _edit_instance_dict_loop(  # noqa: C901, PLR0912, PLR0915
     instances: dict,
     item_model: type[BaseModel],
     parent_key: str,
@@ -341,6 +374,8 @@ def _edit_instance_dict_loop(  # noqa: C901, PLR0912
                 sub = sub[k]
             sub.pop(new_instance_url, None)
             save_app_data(ConfigModel.model_validate(current))
+        else:
+            _maybe_sync_new_instance(new_instance_url, parent_path_parts)
         return
 
     while True:
