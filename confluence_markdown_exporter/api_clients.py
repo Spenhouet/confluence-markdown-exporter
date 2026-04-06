@@ -68,8 +68,12 @@ def _get_jira_sdk_url(base_url: str, auth: ApiDetails) -> str:
     return base_url
 
 
-class AuthNotConfiguredError(Exception):
-    """Raised when a connection attempt fails and no valid auth is configured for the URL."""
+class AuthNotConfiguredError(BaseException):
+    """Raised when a connection attempt fails and no valid auth is configured for the URL.
+
+    Inherits from BaseException (not Exception) so that broad ``except Exception`` handlers
+    in export loops do not accidentally swallow it — it must propagate to the app boundary.
+    """
 
     def __init__(self, url: str, service: str = "Confluence") -> None:
         self.url = url
