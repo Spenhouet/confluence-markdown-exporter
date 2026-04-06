@@ -140,6 +140,18 @@ class ApiDetails(BaseModel):
             "See your Atlassian instance documentation for how to create a PAT."
         ),
     )
+    cloud_id: str = Field(
+        default="",
+        title="Cloud ID",
+        description=(
+            "Atlassian Cloud ID for this instance. When set, API calls are routed through "
+            "the Atlassian API gateway (https://api.atlassian.com/ex/confluence/{cloud_id}), "
+            "which enables the use of scoped API tokens. "
+            "For Atlassian Cloud instances this is fetched and stored automatically. "
+            "To find your Cloud ID manually, see "
+            "https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/."
+        ),
+    )
 
     @field_serializer("username", "api_token", "pat", when_used="json")
     def dump_secret(self, v: SecretStr) -> str:
@@ -230,9 +242,18 @@ class AuthConfig(BaseModel):
     def _match_by_host(instances: dict[str, ApiDetails], url: str) -> ApiDetails | None:
         import urllib.parse
 
-        host = urllib.parse.urlparse(url).hostname or url
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or url
+        # Gateway URLs (with a meaningful path) must match exactly — hostname alone is ambiguous
+        # because multiple tenants share api.atlassian.com.
+        if parsed.path and parsed.path.strip("/"):
+            return None
         for key, details in instances.items():
-            if urllib.parse.urlparse(key).hostname == host:
+            key_parsed = urllib.parse.urlparse(key)
+            # Skip gateway-style keys when doing hostname-only matching
+            if key_parsed.path and key_parsed.path.strip("/"):
+                continue
+            if key_parsed.hostname == host:
                 return details
         return None
 
