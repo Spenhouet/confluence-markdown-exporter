@@ -33,13 +33,11 @@ class _CmeTyper(typer.Typer):
     """
 
     def __call__(self, *args: object, **kwargs: object) -> None:
+        from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
+
         try:
             super().__call__(*args, **kwargs)
-        except Exception as e:
-            from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
-
-            if not isinstance(e, AuthNotConfiguredError):
-                raise
+        except AuthNotConfiguredError as e:
             from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 
             console.print(
