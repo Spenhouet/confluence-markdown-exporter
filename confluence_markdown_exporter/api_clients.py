@@ -13,6 +13,7 @@ from questionary import Style
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
 from confluence_markdown_exporter.utils.app_data_store import AtlassianSdkConnectionConfig
 from confluence_markdown_exporter.utils.app_data_store import get_settings
+from confluence_markdown_exporter.utils.app_data_store import normalize_instance_url
 from confluence_markdown_exporter.utils.app_data_store import set_setting_with_keys
 from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
@@ -150,6 +151,7 @@ def get_confluence_instance(url: str) -> ConfluenceApiSdk:
     which enables the use of scoped API tokens.  For standard Atlassian Cloud instances
     (``.atlassian.net``) the Cloud ID is fetched and stored automatically on first connection.
     """
+    url = normalize_instance_url(url)
     with _clients_lock:
         if url in _confluence_clients:
             logger.debug("Confluence client cache hit for %s", url)
@@ -197,6 +199,7 @@ def get_thread_confluence(base_url: str) -> ConfluenceApiSdk:
     NOT thread-safe.  Each worker thread keeps its own dict of clients keyed by
     base URL so that multi-instance exports are also thread-safe.
     """
+    base_url = normalize_instance_url(base_url)
     if not hasattr(_thread_local, "clients"):
         _thread_local.clients = {}
     if base_url not in _thread_local.clients:
@@ -214,6 +217,7 @@ def get_jira_instance(url: str) -> JiraApiSdk:
     the Atlassian API gateway (``https://api.atlassian.com/ex/jira/{cloud_id}``).
     For standard Atlassian Cloud instances the Cloud ID is fetched and stored automatically.
     """
+    url = normalize_instance_url(url)
     settings = get_settings()
 
     if not settings.export.enable_jira_enrichment:
@@ -275,13 +279,13 @@ def get_jira_instance(url: str) -> JiraApiSdk:
 def invalidate_confluence_client(url: str) -> None:
     """Remove a cached Confluence client so the next call creates a fresh one."""
     with _clients_lock:
-        _confluence_clients.pop(url, None)
+        _confluence_clients.pop(normalize_instance_url(url), None)
 
 
 def invalidate_jira_client(url: str) -> None:
     """Remove a cached Jira client so the next call creates a fresh one."""
     with _clients_lock:
-        _jira_clients.pop(url, None)
+        _jira_clients.pop(normalize_instance_url(url), None)
 
 
 def handle_jira_auth_failure(url: str) -> None:
