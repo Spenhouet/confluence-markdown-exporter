@@ -4,18 +4,15 @@ import urllib.parse
 from threading import Lock
 from threading import local
 
-import questionary
 import requests
 from atlassian import Confluence as ConfluenceApiSdk
 from atlassian import Jira as JiraApiSdk
-from questionary import Style
 
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
 from confluence_markdown_exporter.utils.app_data_store import AtlassianSdkConnectionConfig
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import normalize_instance_url
 from confluence_markdown_exporter.utils.app_data_store import set_setting_with_keys
-from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
 DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
@@ -69,6 +66,15 @@ def _get_jira_sdk_url(base_url: str, auth: ApiDetails) -> str:
     if auth.cloud_id:
         return f"{_GATEWAY_PREFIX}/jira/{auth.cloud_id}"
     return base_url
+
+
+class AuthNotConfiguredError(Exception):
+    """Raised when a connection attempt fails and no valid auth is configured for the URL."""
+
+    def __init__(self, url: str, service: str = "Confluence") -> None:
+        self.url = url
+        self.service = service
+        super().__init__(f"No valid authentication configured for {service} at {url}")
 
 
 class JiraAuthenticationError(Exception):
@@ -169,20 +175,13 @@ def get_confluence_instance(url: str) -> ConfluenceApiSdk:
             set_setting_with_keys(["auth", "confluence", url, "cloud_id"], cloud_id)
             settings = get_settings()
 
-    while True:
-        auth = settings.auth.get_instance(url) or ApiDetails()
-        sdk_url = _get_confluence_sdk_url(url, auth)
-        try:
-            client = ApiClientFactory(settings.connection_config).create_confluence(sdk_url, auth)
-            logger.info("Connected to Confluence at %s", sdk_url)
-            break
-        except ConnectionError as e:
-            questionary.print(
-                f"{e}\nRedirecting to Confluence authentication config...",
-                style="fg:red bold",
-            )
-            main_config_menu_loop("auth.confluence")
-            settings = get_settings()
+    auth = settings.auth.get_instance(url) or ApiDetails()
+    sdk_url = _get_confluence_sdk_url(url, auth)
+    try:
+        client = ApiClientFactory(settings.connection_config).create_confluence(sdk_url, auth)
+        logger.info("Connected to Confluence at %s", sdk_url)
+    except ConnectionError as e:
+        raise AuthNotConfiguredError(url, "Confluence") from e
 
     if DEBUG:
         client.session.hooks["response"] = [response_hook]
@@ -240,31 +239,13 @@ def get_jira_instance(url: str) -> JiraApiSdk:
             set_setting_with_keys(["auth", "jira", url, "cloud_id"], cloud_id)
             settings = get_settings()
 
-    while True:
-        auth = settings.auth.get_jira_instance(url) or ApiDetails()
-        sdk_url = _get_jira_sdk_url(url, auth)
-        try:
-            client = ApiClientFactory(settings.connection_config).create_jira(sdk_url, auth)
-            logger.info("Connected to Jira at %s", sdk_url)
-            break
-        except ConnectionError:
-            use_confluence = questionary.confirm(
-                "Jira connection failed. Use the same authentication as for Confluence?",
-                default=False,
-                style=Style([("question", "fg:yellow")]),
-            ).ask()
-            if use_confluence:
-                confluence_auth = settings.auth.get_instance(url) or ApiDetails()
-                set_setting_with_keys(["auth", "jira", url], confluence_auth.model_dump())
-                settings = get_settings()
-                continue
-
-            questionary.print(
-                "Redirecting to Jira authentication config...",
-                style="fg:red bold",
-            )
-            main_config_menu_loop("auth.jira")
-            settings = get_settings()
+    auth = settings.auth.get_jira_instance(url) or ApiDetails()
+    sdk_url = _get_jira_sdk_url(url, auth)
+    try:
+        client = ApiClientFactory(settings.connection_config).create_jira(sdk_url, auth)
+        logger.info("Connected to Jira at %s", sdk_url)
+    except ConnectionError as e:
+        raise AuthNotConfiguredError(url, "Jira") from e
 
     client.session.hooks["response"].append(_jira_auth_failure_hook)
 
@@ -289,10 +270,6 @@ def invalidate_jira_client(url: str) -> None:
 
 
 def handle_jira_auth_failure(url: str) -> None:
-    """Handle a Jira authentication failure: open the Jira auth config dialog."""
-    questionary.print(
-        "Jira authentication failed.\nRedirecting to Jira authentication config...",
-        style="fg:red bold",
-    )
+    """Handle a Jira authentication failure by invalidating the cached client and raising."""
     invalidate_jira_client(url)
-    main_config_menu_loop("auth.jira")
+    raise AuthNotConfiguredError(url, "Jira")

@@ -112,17 +112,16 @@ class JiraIssue(BaseModel):
 
     @classmethod
     def from_key(cls, issue_key: str, jira_url: str) -> "JiraIssue | None":
-        """Fetch a Jira issue by key, reopening the auth dialog on authentication failure."""
+        """Fetch a Jira issue by key."""
         settings = get_settings()
         if not settings.export.enable_jira_enrichment:
             return None
 
-        while True:
-            try:
-                return cls._fetch_cached(issue_key, jira_url)
-            except JiraAuthenticationError:
-                handle_jira_auth_failure(jira_url)
-                cls._fetch_cached.cache_clear()
+        try:
+            return cls._fetch_cached(issue_key, jira_url)
+        except JiraAuthenticationError:
+            handle_jira_auth_failure(jira_url)
+            return None
 
     @classmethod
     @functools.lru_cache(maxsize=100)
