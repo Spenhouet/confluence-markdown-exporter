@@ -140,6 +140,18 @@ class ApiDetails(BaseModel):
             "See your Atlassian instance documentation for how to create a PAT."
         ),
     )
+    cloud_id: str = Field(
+        default="",
+        title="Cloud ID",
+        description=(
+            "Atlassian Cloud ID for this instance. When set, API calls are routed through "
+            "the Atlassian API gateway (https://api.atlassian.com/ex/confluence/{cloud_id}), "
+            "which enables the use of scoped API tokens. "
+            "For Atlassian Cloud instances this is fetched and stored automatically. "
+            "To find your Cloud ID manually, see "
+            "https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/."
+        ),
+    )
 
     @field_serializer("username", "api_token", "pat", when_used="json")
     def dump_secret(self, v: SecretStr) -> str:
@@ -174,8 +186,12 @@ class AuthConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _migrate(cls, data: object) -> object:  # noqa: C901
-        """Migrate legacy config formats to the current URL-keyed dict format."""
+    def _migrate(cls, data: object) -> object:  # noqa: C901, PLR0912
+        """Migrate legacy config formats to the current URL-keyed dict format.
+
+        Also normalises all instance URL keys (strips trailing slashes) so that
+        entries written with and without a trailing slash are treated as identical.
+        """
         if not isinstance(data, dict):
             return data
         for service in ("confluence", "jira"):
@@ -189,7 +205,7 @@ class AuthConfig(BaseModel):
                 # Remove stale active_* fields that were in the same dict
                 val.pop("active_confluence", None)
                 val.pop("active_jira", None)
-                data[service] = {url: val} if url else {}
+                data[service] = {url.rstrip("/"): val} if url else {}
             # Legacy v2: named-key dict from the previous multi-instance refactor.
             # e.g. {"default": {"url": "https://...", ...}, "active_confluence": "default"}
             elif not _looks_like_url_keyed(val):
@@ -200,11 +216,17 @@ class AuthConfig(BaseModel):
                     if isinstance(v, dict):
                         inner_url = v.pop("url", "") or ""
                         if inner_url:
-                            migrated[inner_url] = v
+                            migrated[inner_url.rstrip("/")] = v
                         elif v:
                             migrated[k] = v  # keep as-is if no URL
                 if migrated:
                     data[service] = migrated
+            else:
+                # Current URL-keyed format: normalise any trailing slashes on existing keys
+                normalised: dict = {}
+                for k, v in val.items():
+                    normalised[k.rstrip("/")] = v
+                data[service] = normalised
         # Drop top-level active_* fields that were stored in auth
         data.pop("active_confluence", None)
         data.pop("active_jira", None)
@@ -212,10 +234,12 @@ class AuthConfig(BaseModel):
 
     def get_instance(self, url: str) -> ApiDetails | None:
         """Return the Confluence ApiDetails whose key matches *url* (exact or host match)."""
+        url = normalize_instance_url(url)
         return self.confluence.get(url) or self._match_by_host(self.confluence, url)
 
     def get_jira_instance(self, url: str) -> ApiDetails | None:
         """Return the Jira ApiDetails whose key matches *url* (exact or host match)."""
+        url = normalize_instance_url(url)
         return self.jira.get(url) or self._match_by_host(self.jira, url)
 
     def default_confluence_url(self) -> str | None:
@@ -230,9 +254,18 @@ class AuthConfig(BaseModel):
     def _match_by_host(instances: dict[str, ApiDetails], url: str) -> ApiDetails | None:
         import urllib.parse
 
-        host = urllib.parse.urlparse(url).hostname or url
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or url
+        # Gateway URLs (with a meaningful path) must match exactly — hostname alone is ambiguous
+        # because multiple tenants share api.atlassian.com.
+        if parsed.path and parsed.path.strip("/"):
+            return None
         for key, details in instances.items():
-            if urllib.parse.urlparse(key).hostname == host:
+            key_parsed = urllib.parse.urlparse(key)
+            # Skip gateway-style keys when doing hostname-only matching
+            if key_parsed.path and key_parsed.path.strip("/"):
+                continue
+            if key_parsed.hostname == host:
                 return details
         return None
 
@@ -240,6 +273,11 @@ class AuthConfig(BaseModel):
 def _looks_like_url_keyed(d: dict) -> bool:
     """Return True if the dict looks like it's already keyed by URLs (not by field names)."""
     return any(k.startswith(("http://", "https://")) for k in d)
+
+
+def normalize_instance_url(url: str) -> str:
+    """Strip trailing slashes from an instance URL for consistent key storage."""
+    return url.rstrip("/")
 
 
 class ExportConfig(BaseModel):

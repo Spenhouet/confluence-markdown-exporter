@@ -72,6 +72,7 @@ cme page <page-url>
 
 Supported page URL formats:
 - Confluence Cloud: <https://company.atlassian.net/wiki/spaces/SPACEKEY/pages/123456789/Page+Title>
+- Confluence Cloud (API gateway): <https://api.atlassian.com/ex/confluence/CLOUDID/wiki/spaces/SPACEKEY/pages/123456789/Page+Title>
 - Confluence Server (long): <https://company.atlassian.net/display/SPACEKEY/Page+Title>
 - Confluence Server (short): <https://company.atlassian.net/SPACEKEY/Page+Title>
 
@@ -101,6 +102,7 @@ cme space <space-url>
 
 Supported space URL formats:
 - Confluence Cloud: <https://company.atlassian.net/wiki/spaces/SPACEKEY>
+- Confluence Cloud (API gateway): <https://api.atlassian.com/ex/confluence/CLOUDID/wiki/spaces/SPACEKEY>
 - Confluence Server (long): <https://company.atlassian.net/display/SPACEKEY>
 - Confluence Server (short): <https://company.atlassian.net/SPACEKEY>
 
@@ -429,6 +431,14 @@ Confluence Personal Access Token.
 
 - Default: `""`
 
+##### auth.confluence.cloud_id
+
+Atlassian Cloud ID for the Confluence instance. When set, API calls are routed through the Atlassian API gateway (`https://api.atlassian.com/ex/confluence/{cloud_id}`), which enables the use of [scoped API tokens](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/).
+
+For Atlassian Cloud instances (`.atlassian.net`) this is fetched and stored **automatically** on first connection. You can also set it manually — see [How to retrieve your Atlassian Cloud ID](https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/).
+
+- Default: `""`
+
 ##### auth.jira.url
 
 Jira instance URL.
@@ -450,6 +460,14 @@ Jira API token.
 ##### auth.jira.pat
 
 Jira Personal Access Token.
+
+- Default: `""`
+
+##### auth.jira.cloud_id
+
+Atlassian Cloud ID for the Jira instance. Works identically to `auth.confluence.cloud_id` above, routing API calls through `https://api.atlassian.com/ex/jira/{cloud_id}`.
+
+For Atlassian Cloud instances this is fetched and stored **automatically** on first connection.
 
 - Default: `""`
 
@@ -539,7 +557,6 @@ It generally was tested on:
 
 1. **Missing Attachment File ID on Server**: For some Confluence Server version/configuration the attachment file ID might not be provided (https://github.com/Spenhouet/confluence-markdown-exporter/issues/39). In the default configuration, this is used for the export path. Solution: Adjust the attachment path in the export config and use the `{attachment_id}` or `{attachment_title}` instead.
 2. **Connection Issues when behind Proxy or VPN**: There might be connection issues if your Confluence Server is behind a proxy or VPN (https://github.com/Spenhouet/confluence-markdown-exporter/issues/38). If you experience issues, help to fix this is appreciated.
-3. **Scoped API-Tokens are Incompatible**: The python Atlassian SDK mainly uses v1 API routes, which do not fully support scoped API-tokens (see https://github.com/atlassian-api/atlassian-python-api/issues/1546). This is waiting for https://github.com/atlassian-api/atlassian-python-api/pull/1523 to be implemented.
 
 ## Contributing
 

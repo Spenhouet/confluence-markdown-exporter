@@ -1,4 +1,5 @@
 import logging
+import sys
 from typing import Annotated
 
 import typer
@@ -20,6 +21,31 @@ from confluence_markdown_exporter.utils.rich_console import setup_logging
 typer.rich_utils._get_rich_console = get_rich_console
 
 logger = logging.getLogger(__name__)
+
+
+class _CmeTyper(typer.Typer):
+    """Typer subclass that intercepts AuthNotConfiguredError at the app boundary.
+
+    When an export command raises AuthNotConfiguredError, the exception propagates
+    through any active console.status() context managers (stopping spinners cleanly
+    via their __exit__) before reaching here.  We then open the config menu at the
+    exact failing URL and exit — no traceback, no per-command boilerplate.
+    """
+
+    def __call__(self, *args: object, **kwargs: object) -> None:
+        from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
+
+        try:
+            super().__call__(*args, **kwargs)
+        except AuthNotConfiguredError as e:
+            from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
+
+            console.print(
+                f"[red bold]Authentication failed for {e.service} at {e.url}[/red bold]\n"
+                "Please configure credentials and re-run the export."
+            )
+            main_config_menu_loop(f"auth.{e.service.lower()}", new_instance_url=e.url)
+            sys.exit(1)
 
 
 # Each list item must be its own \n\n-separated block so typer's epilog renderer
@@ -49,7 +75,7 @@ _SPACE_URL_FORMATS = (
     "- **Server (short)**: `https://confluence.company.com/SPACEKEY`\n\n"
 )
 
-app = typer.Typer(
+app = _CmeTyper(
     rich_markup_mode="markdown",
     no_args_is_help=True,
     help=(
@@ -69,6 +95,7 @@ app.add_typer(config_module.app, name="config")
 def _init_logging() -> None:
     """Initialize logging from config (CME_EXPORT__LOG_LEVEL env var takes precedence)."""
     setup_logging(get_settings().export.log_level)
+
 
 
 def _print_summary() -> None:
@@ -162,14 +189,14 @@ def pages(
                 stats.inc_skipped()
                 exported_urls.add(page.base_url)
                 continue
-            with console.status(f"[dim]Exporting [highlight]{page.title}[/highlight]…[/dim]"):
-                try:
+            try:
+                with console.status(f"[dim]Exporting [highlight]{page.title}[/highlight]…[/dim]"):
                     attachment_entries = page.export()
-                    LockfileManager.record_page(page, attachment_entries)
-                    stats.inc_exported()
-                except Exception:
-                    logger.exception("Failed to export page %s", page.title)
-                    stats.inc_failed()
+                LockfileManager.record_page(page, attachment_entries)
+                stats.inc_exported()
+            except Exception:
+                logger.exception("Failed to export page %s", page.title)
+                stats.inc_failed()
             exported_urls.add(page.base_url)
 
         for base_url in exported_urls:

@@ -47,6 +47,7 @@ from confluence_markdown_exporter.api_clients import get_jira_instance
 from confluence_markdown_exporter.api_clients import get_thread_confluence
 from confluence_markdown_exporter.api_clients import handle_jira_auth_failure
 from confluence_markdown_exporter.utils.app_data_store import get_settings
+from confluence_markdown_exporter.utils.app_data_store import normalize_instance_url
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
@@ -66,6 +67,29 @@ StrPath: TypeAlias = str | PathLike[str]
 DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
 logger = logging.getLogger(__name__)
+
+_API_GATEWAY_HOST = "api.atlassian.com"
+
+
+def _extract_base_url(url: str) -> str:
+    """Extract the base URL from a Confluence or Jira URL.
+
+    For standard instance URLs returns ``{scheme}://{hostname}``.
+    For Atlassian API gateway URLs of the form
+    ``https://api.atlassian.com/ex/{service}/{cloudId}/...``
+    returns ``https://api.atlassian.com/ex/{service}/{cloudId}`` so that
+    the Cloud ID is preserved as part of the base URL used for auth lookup
+    and SDK initialisation.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.hostname == _API_GATEWAY_HOST:
+        # Path starts with /ex/confluence/{cloudId} or /ex/jira/{cloudId}
+        match = re.match(r"(/ex/(?:confluence|jira)/[^/]+)", parsed.path)
+        if match:
+            return normalize_instance_url(
+                f"{parsed.scheme}://{parsed.hostname}{match.group(1)}"
+            )
+    return normalize_instance_url(f"{parsed.scheme}://{parsed.hostname}")
 
 settings = get_settings()
 
@@ -88,17 +112,16 @@ class JiraIssue(BaseModel):
 
     @classmethod
     def from_key(cls, issue_key: str, jira_url: str) -> "JiraIssue | None":
-        """Fetch a Jira issue by key, reopening the auth dialog on authentication failure."""
+        """Fetch a Jira issue by key."""
         settings = get_settings()
         if not settings.export.enable_jira_enrichment:
             return None
 
-        while True:
-            try:
-                return cls._fetch_cached(issue_key, jira_url)
-            except JiraAuthenticationError:
-                handle_jira_auth_failure(jira_url)
-                cls._fetch_cached.cache_clear()
+        try:
+            return cls._fetch_cached(issue_key, jira_url)
+        except JiraAuthenticationError:
+            handle_jira_auth_failure(jira_url)
+            return None
 
     @classmethod
     @functools.lru_cache(maxsize=100)
@@ -279,13 +302,17 @@ class Space(BaseModel):
         hostname against configured instances.  If no match is found, a new
         entry is registered in the auth config so the user can fill in
         credentials via the interactive config menu.
+
+        Supports standard instance URLs (``https://company.atlassian.net/wiki/spaces/KEY``)
+        and Atlassian API gateway URLs
+        (``https://api.atlassian.com/ex/confluence/{cloudId}/wiki/spaces/KEY``).
         """
-        parsed = urllib.parse.urlparse(space_url)
-        base_url = f"{parsed.scheme}://{parsed.hostname}"
+        base_url = _extract_base_url(space_url)
 
         # Ensure a client exists (creates/prompts if first time for this host)
         get_confluence_instance(base_url)
 
+        parsed = urllib.parse.urlparse(space_url)
         path = parsed.path.rstrip("/")
         if match := re.search(r"(?:/wiki/spaces/|/display/|/)([A-Za-z0-9_-]+)/", path):
             space_key = match.group(1)
@@ -785,13 +812,16 @@ class Page(Document):
         hostname against configured instances.  If no match is found, a new
         entry is registered in the auth config so the user can fill in
         credentials via the interactive config menu.
+
+        Supports standard instance URLs and Atlassian API gateway URLs of the form
+        ``https://api.atlassian.com/ex/confluence/{cloudId}/wiki/spaces/KEY/pages/123``.
         """
-        parsed = urllib.parse.urlparse(page_url)
-        base_url = f"{parsed.scheme}://{parsed.hostname}"
+        base_url = _extract_base_url(page_url)
 
         # Ensure a client exists (creates/prompts if first time for this host)
         get_confluence_instance(base_url)
 
+        parsed = urllib.parse.urlparse(page_url)
         path = parsed.path.rstrip("/")
 
         # Match Confluence Cloud Page URL
