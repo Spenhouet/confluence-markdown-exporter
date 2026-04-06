@@ -180,14 +180,16 @@ def pages(
                 stats.inc_skipped()
                 exported_urls.add(page.base_url)
                 continue
-            with console.status(f"[dim]Exporting [highlight]{page.title}[/highlight]…[/dim]"):
-                try:
+            try:
+                with console.status(f"[dim]Exporting [highlight]{page.title}[/highlight]…[/dim]"):
                     attachment_entries = page.export()
-                    LockfileManager.record_page(page, attachment_entries)
-                    stats.inc_exported()
-                except Exception:
-                    logger.exception("Failed to export page %s", page.title)
-                    stats.inc_failed()
+                LockfileManager.record_page(page, attachment_entries)
+                stats.inc_exported()
+            except AuthNotConfiguredError as e:
+                _handle_auth_error(e)
+            except Exception:
+                logger.exception("Failed to export page %s", page.title)
+                stats.inc_failed()
             exported_urls.add(page.base_url)
 
         for base_url in exported_urls:
