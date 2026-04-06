@@ -47,6 +47,7 @@ from confluence_markdown_exporter.api_clients import get_jira_instance
 from confluence_markdown_exporter.api_clients import get_thread_confluence
 from confluence_markdown_exporter.api_clients import handle_jira_auth_failure
 from confluence_markdown_exporter.utils.app_data_store import get_settings
+from confluence_markdown_exporter.utils.app_data_store import normalize_instance_url
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
@@ -85,8 +86,10 @@ def _extract_base_url(url: str) -> str:
         # Path starts with /ex/confluence/{cloudId} or /ex/jira/{cloudId}
         match = re.match(r"(/ex/(?:confluence|jira)/[^/]+)", parsed.path)
         if match:
-            return f"{parsed.scheme}://{parsed.hostname}{match.group(1)}"
-    return f"{parsed.scheme}://{parsed.hostname}"
+            return normalize_instance_url(
+                f"{parsed.scheme}://{parsed.hostname}{match.group(1)}"
+            )
+    return normalize_instance_url(f"{parsed.scheme}://{parsed.hostname}")
 
 settings = get_settings()
 

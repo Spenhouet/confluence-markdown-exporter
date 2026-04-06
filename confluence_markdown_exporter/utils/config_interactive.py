@@ -238,11 +238,14 @@ def _edit_instance_fields(  # noqa: C901
     instance_data: dict,
     item_model: type[BaseModel],
     parent_path_parts: list[str],
-) -> None:
+    can_remove: bool = True,
+) -> str | None:
     """Edit the fields of a single named instance using set_setting_with_keys.
 
     This avoids the dot-split path system so URL keys (which contain dots)
     work correctly.
+
+    Returns ``"__remove__"`` if the user chose to remove this instance, else ``None``.
     """
     selected_field: str | None = None
     while True:
@@ -265,6 +268,8 @@ def _edit_instance_fields(  # noqa: C901
                     value=k,
                 )
             )
+        if can_remove:
+            choices.append(Choice(title="[Remove this instance]", value="__remove__"))
         choices.append(Choice(title="[Back]", value="__back__"))
         field_key = questionary.select(
             f"Edit credentials for '{instance_key}':",
@@ -273,7 +278,14 @@ def _edit_instance_fields(  # noqa: C901
             default=selected_field,
         ).ask()
         if field_key == "__back__" or field_key is None:
-            return
+            return None
+        if field_key == "__remove__":
+            confirm = questionary.confirm(
+                f"Remove instance '{instance_key}'?", default=False, style=custom_style
+            ).ask()
+            if confirm:
+                return "__remove__"
+            continue
         selected_field = field_key
         current_val = instance_data.get(field_key)
         while True:
