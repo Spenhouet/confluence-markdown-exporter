@@ -113,7 +113,7 @@ class TestTableConverter:
         el = BeautifulSoup("<p>text.</p>", "html.parser").p
 
         assert el is not None
-        result = converter.convert_p(el, "text.", False)  # type: ignore[arg-type]
+        result = converter.convert_p(el, "text.", convert_as_inline=False)  # type: ignore[arg-type]
 
         assert "text." in result
 
