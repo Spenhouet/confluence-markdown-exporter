@@ -557,7 +557,6 @@ It generally was tested on:
 
 1. **Missing Attachment File ID on Server**: For some Confluence Server version/configuration the attachment file ID might not be provided (https://github.com/Spenhouet/confluence-markdown-exporter/issues/39). In the default configuration, this is used for the export path. Solution: Adjust the attachment path in the export config and use the `{attachment_id}` or `{attachment_title}` instead.
 2. **Connection Issues when behind Proxy or VPN**: There might be connection issues if your Confluence Server is behind a proxy or VPN (https://github.com/Spenhouet/confluence-markdown-exporter/issues/38). If you experience issues, help to fix this is appreciated.
-3. **Scoped API Tokens**: The python Atlassian SDK uses v1 API routes that do not fully support scoped API tokens when connecting directly to an Atlassian Cloud instance (see https://github.com/atlassian-api/atlassian-python-api/issues/1546). To use a scoped API token, ensure a Cloud ID is configured (it is fetched automatically for `.atlassian.net` instances on first connection). With a Cloud ID, API calls are routed through the Atlassian API gateway (`https://api.atlassian.com/ex/confluence/{cloud_id}`), which fully supports scoped tokens.
 
 ## Contributing
 

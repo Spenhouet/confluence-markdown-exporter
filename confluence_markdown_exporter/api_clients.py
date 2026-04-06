@@ -29,15 +29,15 @@ _clients_lock = Lock()
 # Thread-local storage for per-URL Confluence clients (one per worker thread per URL)
 _thread_local = local()
 
-_CONFLUENCE_GATEWAY_PREFIX = "https://api.atlassian.com/ex/confluence"
-_JIRA_GATEWAY_PREFIX = "https://api.atlassian.com/ex/jira"
+_CLOUD_DOMAIN = ".atlassian.net"
+_GATEWAY_PREFIX = "https://api.atlassian.com/ex"
 
 
 def _is_standard_atlassian_cloud_url(url: str) -> bool:
     """Return True if *url* looks like a standard Atlassian Cloud instance URL."""
     try:
         hostname = urllib.parse.urlparse(url).hostname or ""
-        return hostname.endswith(".atlassian.net")
+        return hostname.endswith(_CLOUD_DOMAIN)
     except Exception:  # noqa: BLE001
         return False
 
@@ -59,14 +59,14 @@ def _try_fetch_cloud_id(base_url: str) -> str | None:
 def _get_confluence_sdk_url(base_url: str, auth: ApiDetails) -> str:
     """Return the SDK URL for Confluence, using the API gateway when a Cloud ID is configured."""
     if auth.cloud_id:
-        return f"{_CONFLUENCE_GATEWAY_PREFIX}/{auth.cloud_id}"
+        return f"{_GATEWAY_PREFIX}/confluence/{auth.cloud_id}"
     return base_url
 
 
 def _get_jira_sdk_url(base_url: str, auth: ApiDetails) -> str:
     """Return the SDK URL for Jira, using the API gateway when a Cloud ID is configured."""
     if auth.cloud_id:
-        return f"{_JIRA_GATEWAY_PREFIX}/{auth.cloud_id}"
+        return f"{_GATEWAY_PREFIX}/jira/{auth.cloud_id}"
     return base_url
 
 
