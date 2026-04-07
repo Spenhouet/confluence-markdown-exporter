@@ -127,6 +127,7 @@ class TestSanitizeFilename:
         """Test sanitizing filename with no encoding specified."""
         mock_export_options.filename_encoding = ""
         mock_export_options.filename_length = 255
+        mock_export_options.filename_lowercase = False
 
         result = sanitize_filename("Test File.txt")
         assert result == "Test File.txt"
@@ -136,15 +137,27 @@ class TestSanitizeFilename:
         """Test sanitizing filename with encoding mapping."""
         mock_export_options.filename_encoding = '" ":"_",":":"_"'
         mock_export_options.filename_length = 255
+        mock_export_options.filename_lowercase = False
 
         result = sanitize_filename("Test File: Name.txt")
         assert result == "Test_File__Name.txt"
+
+    @patch("confluence_markdown_exporter.utils.export.export_options")
+    def test_with_encoding_mapping_lowercase(self, mock_export_options: MagicMock) -> None:
+        """Test sanitizing filename with encoding mapping."""
+        mock_export_options.filename_encoding = '" ":"_",":":"_"'
+        mock_export_options.filename_length = 255
+        mock_export_options.filename_lowercase = True
+
+        result = sanitize_filename("Test File: Name.txt")
+        assert result == "test_file__name.txt"
 
     @patch("confluence_markdown_exporter.utils.export.export_options")
     def test_trim_trailing_spaces_and_dots(self, mock_export_options: MagicMock) -> None:
         """Test that trailing spaces and dots are trimmed."""
         mock_export_options.filename_encoding = ""
         mock_export_options.filename_length = 255
+        mock_export_options.filename_lowercase = False
 
         result = sanitize_filename("filename . . ")
         assert result == "filename"
@@ -154,6 +167,7 @@ class TestSanitizeFilename:
         """Test that reserved Windows names are handled."""
         mock_export_options.filename_encoding = ""
         mock_export_options.filename_length = 255
+        mock_export_options.filename_lowercase = False
 
         reserved_names = ["CON", "PRN", "AUX", "NUL", "COM1", "LPT1"]
         for name in reserved_names:
@@ -180,6 +194,7 @@ class TestSanitizeFilename:
         """Test complex filename sanitization with multiple rules."""
         mock_export_options.filename_encoding = '" ":"_","?":"_",":":"_"'
         mock_export_options.filename_length = 50
+        mock_export_options.filename_lowercase = False
 
         filename = "My Document: What? How?  . ."
         result = sanitize_filename(filename)
