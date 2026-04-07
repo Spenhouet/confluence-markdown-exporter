@@ -22,7 +22,12 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["pages", "<page-id> or <page-url>", "--output-path", "scratch"],
+      "args": [
+        "pages",
+        "<page-url>",
+        "--output-path",
+        "scratch"
+      ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -36,7 +41,12 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["pages-with-descendants", "<page-id> or <page-url>", "--output-path", "scratch"],
+      "args": [
+        "pages-with-descendants",
+        "<page-url>",
+        "--output-path",
+        "scratch"
+      ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -50,7 +60,12 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["spaces", "<space-key>", "--output-path", "scratch"],
+      "args": [
+        "spaces",
+        "<space-url>",
+        "--output-path",
+        "scratch"
+      ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -64,7 +79,12 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["all-spaces", "--output-path", "scratch"],
+      "args": [
+        "all-spaces",
+        "<instance-url>",
+        "--output-path",
+        "scratch"
+      ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
@@ -78,7 +98,9 @@
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
-      "args": ["config"],
+      "args": [
+        "config"
+      ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {

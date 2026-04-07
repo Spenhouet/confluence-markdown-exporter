@@ -1,6 +1,5 @@
 """Basic tests for confluence-markdown-exporter package."""
 
-import json
 import subprocess
 import sys
 
@@ -21,7 +20,7 @@ def test_version_command() -> None:
     """Test that the version command works correctly."""
     try:
         # Test the version command
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [sys.executable, "-m", "confluence_markdown_exporter.main", "version"],
             capture_output=True,
             text=True,
@@ -45,17 +44,18 @@ def test_version_command() -> None:
         pytest.fail(f"Unexpected error testing version command: {e}")
 
 
-def test_config_show_command() -> None:
-    """Test that the config --show command works correctly."""
+def test_config_list_command() -> None:
+    """Test that the config list command works correctly."""
+    import yaml
+
     try:
-        # Test the config --show command
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             [
                 sys.executable,
                 "-m",
                 "confluence_markdown_exporter.main",
                 "config",
-                "--show",
+                "list",
             ],
             capture_output=True,
             text=True,
@@ -63,32 +63,24 @@ def test_config_show_command() -> None:
             timeout=10,
         )
 
-        # Check that output contains JSON configuration
         assert result.returncode == 0
-        assert '"auth":' in result.stdout
-        assert '"export":' in result.stdout
-        assert '"connection_config":' in result.stdout
+        assert "auth:" in result.stdout
+        assert "export:" in result.stdout
+        assert "connection_config:" in result.stdout
 
-        # Extract JSON from code block (remove ```json and ``` wrapper)
-        stdout_lines = result.stdout.strip().split("\n")
-        if stdout_lines[0] == "```json" and stdout_lines[-1] == "```":
-            json_content = "\n".join(stdout_lines[1:-1])
-        else:
-            json_content = result.stdout
-
-        # Verify it's valid JSON by trying to parse it
-        config_data = json.loads(json_content)
+        # Verify it's valid YAML
+        config_data = yaml.safe_load(result.stdout)
         assert isinstance(config_data, dict)
         assert "auth" in config_data
         assert "export" in config_data
         assert "connection_config" in config_data
 
     except subprocess.TimeoutExpired:
-        pytest.fail("Config show command timed out")
+        pytest.fail("Config list command timed out")
     except subprocess.CalledProcessError as e:
-        pytest.fail(f"Config show command failed: {e}")
+        pytest.fail(f"Config list command failed: {e}")
     except Exception as e:  # noqa: BLE001
-        pytest.fail(f"Unexpected error testing config show command: {e}")
+        pytest.fail(f"Unexpected error testing config list command: {e}")
 
 
 def test_cli_entry_points() -> None:
