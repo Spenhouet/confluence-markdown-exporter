@@ -9,7 +9,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import AnyHttpUrl
 from pydantic import SecretStr
 
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
@@ -40,8 +39,8 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     mock_jira = MagicMock()
 
     # Replace with wrapper functions that return mocks
-    confluence_markdown_exporter.api_clients.get_confluence_instance = lambda: mock_confluence
-    confluence_markdown_exporter.api_clients.get_jira_instance = lambda: mock_jira
+    confluence_markdown_exporter.api_clients.get_confluence_instance = lambda _url: mock_confluence
+    confluence_markdown_exporter.api_clients.get_jira_instance = lambda _url: mock_jira
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:  # noqa: ARG001
@@ -93,8 +92,10 @@ def restore_api_functions_for_specific_tests(
         mock_confluence.get_all_spaces.return_value = []
         mock_jira = MagicMock()
 
-        confluence_markdown_exporter.api_clients.get_confluence_instance = lambda: mock_confluence
-        confluence_markdown_exporter.api_clients.get_jira_instance = lambda: mock_jira
+        confluence_markdown_exporter.api_clients.get_confluence_instance = (
+            lambda _url: mock_confluence
+        )
+        confluence_markdown_exporter.api_clients.get_jira_instance = lambda _url: mock_jira
 
 
 @pytest.fixture
@@ -139,11 +140,13 @@ def mock_jira_client() -> MagicMock:
     return mock_client
 
 
+SAMPLE_CONFLUENCE_URL = "https://test.atlassian.net"
+
+
 @pytest.fixture
 def sample_api_details() -> ApiDetails:
     """Create sample API details for testing."""
     return ApiDetails(
-        url=AnyHttpUrl("https://test.atlassian.net/"),
         username=SecretStr("test@example.com"),
         api_token=SecretStr("test-token"),
         pat=SecretStr("test-pat"),
@@ -171,8 +174,8 @@ def sample_config_model(
 ) -> ConfigModel:
     """Create sample configuration for testing."""
     auth_config = AuthConfig(
-        confluence=sample_api_details,
-        jira=sample_api_details,
+        confluence={SAMPLE_CONFLUENCE_URL: sample_api_details},
+        jira={SAMPLE_CONFLUENCE_URL: sample_api_details},
     )
 
     export_config = ExportConfig(

@@ -8,11 +8,34 @@ from typing import ParamSpec
 from typing import TypeVar
 
 from dateutil.relativedelta import relativedelta
+from rich.rule import Rule
+
+from confluence_markdown_exporter.utils.rich_console import console
 
 T = TypeVar("T")
 P = ParamSpec("P")
 
 logger = logging.getLogger(__name__)
+
+
+def _format_duration(delta: relativedelta) -> str:
+    """Return a human-readable duration string from a relativedelta.
+
+    Args:
+        delta: The duration as a relativedelta.
+
+    Returns:
+        A formatted string like "2m 3s" or "45s".
+    """
+    parts = []
+    if delta.hours:
+        parts.append(f"{delta.hours}h")
+    if delta.minutes:
+        parts.append(f"{delta.minutes}m")
+    seconds = delta.seconds + round(delta.microseconds / 1_000_000)
+    if seconds or not parts:
+        parts.append(f"{seconds}s")
+    return " ".join(parts)
 
 
 def measure_time(func: Callable[P, T]) -> Callable[P, T]:
@@ -29,44 +52,21 @@ def measure_time(func: Callable[P, T]) -> Callable[P, T]:
     return wrapper
 
 
-def format_log_message(step: str, time: datetime, state: str) -> str:
-    """Format the timestamp log message.
-
-    Args:
-        step: The step name
-        time: A timestamp
-        state: The execution state
-    """
-    return f"{step} {state} at {time.strftime('%Y-%m-%d %H:%M:%S')}"
-
-
 @contextmanager
 def measure(step: str) -> Generator[None, None, None]:
-    """Measure and log the execution time of the encapsulated methods.
+    """Measure and display the execution time of the encapsulated block.
 
-    This can be used via python environments:
-
-    .. code-block:: python
-
-        with measure("My Step"):
-            time.sleep(2)
-
-    The log output for the above will be something like:
-
-    .. code-block::
-
-        My Step started at 2020-07-09 13:49:00
-        My Step ended at 2020-07-09 13:49:00
-        Duration of My Step was relativedelta(seconds=+2, microseconds=+1405)
+    Prints a rich rule banner at start and a summary line at end.
 
     Args:
-        step: The step name.
+        step: The step name shown in the banner.
 
     Raises:
-        e: Reraised exception from execution
+        e: Reraised exception from execution.
     """
     start_time = datetime.now()
-    logger.info(format_log_message(step, time=start_time, state="started"))
+    console.print(Rule(f"[highlight]{step}[/highlight]", style="dim"))
+    logger.debug("Started at %s", start_time.strftime("%Y-%m-%d %H:%M:%S"))
     state = "stopped"
     try:
         yield
@@ -76,6 +76,20 @@ def measure(step: str) -> Generator[None, None, None]:
         raise
     finally:
         end_time = datetime.now()
-        logger.info(format_log_message(step, time=end_time, state=state))
         duration = relativedelta(end_time, start_time)
-        logger.info(f"{step} took {duration}")
+        duration_str = _format_duration(duration)
+        if state == "ended":
+            console.print(
+                f"[success]✓[/success] [dim]{step}[/dim] "
+                f"completed in [highlight]{duration_str}[/highlight]"
+            )
+        elif state == "failed":
+            console.print(
+                f"[error]✗[/error] [dim]{step}[/dim] "
+                f"failed after [highlight]{duration_str}[/highlight]"
+            )
+        else:
+            console.print(
+                f"[warning]![/warning] [dim]{step}[/dim] "
+                f"stopped after [highlight]{duration_str}[/highlight]"
+            )
