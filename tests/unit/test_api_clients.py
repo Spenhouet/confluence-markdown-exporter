@@ -8,11 +8,13 @@ import requests
 from atlassian.errors import ApiError
 
 from confluence_markdown_exporter.api_clients import ApiClientFactory
+from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
 from confluence_markdown_exporter.api_clients import get_confluence_instance
-from confluence_markdown_exporter.api_clients import get_jira_instance
 from confluence_markdown_exporter.api_clients import response_hook
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
+from confluence_markdown_exporter.utils.app_data_store import AtlassianSdkConnectionConfig
 from confluence_markdown_exporter.utils.app_data_store import ConfigModel
+from tests.conftest import SAMPLE_CONFLUENCE_URL
 
 
 class TestResponseHook:
@@ -51,10 +53,11 @@ class TestApiClientFactory:
     """Test cases for ApiClientFactory class."""
 
     def test_init(self) -> None:
-        """Test ApiClientFactory initialization."""
-        config = {"timeout": 30, "verify": True}
+        """Test ApiClientFactory initialization stores an AtlassianSdkConnectionConfig."""
+        config = AtlassianSdkConnectionConfig()
         factory = ApiClientFactory(config)
         assert factory.connection_config == config
+        assert isinstance(factory.connection_config, AtlassianSdkConnectionConfig)
 
     @patch("confluence_markdown_exporter.api_clients.ConfluenceApiSdk")
     def test_create_confluence_success(
@@ -65,18 +68,18 @@ class TestApiClientFactory:
         mock_instance.get_all_spaces.return_value = [{"key": "TEST"}]
         mock_confluence_sdk.return_value = mock_instance
 
-        config = {"timeout": 30}
-        factory = ApiClientFactory(config)
+        sdk_config = AtlassianSdkConnectionConfig()
+        factory = ApiClientFactory(sdk_config)
 
-        result = factory.create_confluence(sample_api_details)
+        result = factory.create_confluence(SAMPLE_CONFLUENCE_URL, sample_api_details)
 
         assert result == mock_instance
         mock_confluence_sdk.assert_called_once_with(
-            url=str(sample_api_details.url),
+            url=SAMPLE_CONFLUENCE_URL,
             username=sample_api_details.username.get_secret_value(),
             password=sample_api_details.api_token.get_secret_value(),
             token=sample_api_details.pat.get_secret_value(),
-            timeout=30,
+            **sdk_config.model_dump(),
         )
         mock_instance.get_all_spaces.assert_called_once_with(limit=1)
 
@@ -89,11 +92,10 @@ class TestApiClientFactory:
         mock_instance.get_all_spaces.side_effect = ApiError("Connection failed")
         mock_confluence_sdk.return_value = mock_instance
 
-        config = {"timeout": 30}
-        factory = ApiClientFactory(config)
+        factory = ApiClientFactory(AtlassianSdkConnectionConfig())
 
         with pytest.raises(ConnectionError, match="Confluence connection failed"):
-            factory.create_confluence(sample_api_details)
+            factory.create_confluence(SAMPLE_CONFLUENCE_URL, sample_api_details)
 
     @patch("confluence_markdown_exporter.api_clients.JiraApiSdk")
     def test_create_jira_success(
@@ -104,18 +106,18 @@ class TestApiClientFactory:
         mock_instance.get_all_projects.return_value = [{"key": "TEST"}]
         mock_jira_sdk.return_value = mock_instance
 
-        config = {"timeout": 30}
-        factory = ApiClientFactory(config)
+        sdk_config = AtlassianSdkConnectionConfig()
+        factory = ApiClientFactory(sdk_config)
 
-        result = factory.create_jira(sample_api_details)
+        result = factory.create_jira(SAMPLE_CONFLUENCE_URL, sample_api_details)
 
         assert result == mock_instance
         mock_jira_sdk.assert_called_once_with(
-            url=str(sample_api_details.url),
+            url=SAMPLE_CONFLUENCE_URL,
             username=sample_api_details.username.get_secret_value(),
             password=sample_api_details.api_token.get_secret_value(),
             token=sample_api_details.pat.get_secret_value(),
-            timeout=30,
+            **sdk_config.model_dump(),
         )
         mock_instance.get_all_projects.assert_called_once()
 
@@ -128,16 +130,16 @@ class TestApiClientFactory:
         mock_instance.get_all_projects.side_effect = ApiError("Connection failed")
         mock_jira_sdk.return_value = mock_instance
 
-        config = {"timeout": 30}
-        factory = ApiClientFactory(config)
+        factory = ApiClientFactory(AtlassianSdkConnectionConfig())
 
         with pytest.raises(ConnectionError, match="Jira connection failed"):
-            factory.create_jira(sample_api_details)
+            factory.create_jira(SAMPLE_CONFLUENCE_URL, sample_api_details)
 
 
 class TestGetConfluenceInstance:
     """Test cases for get_confluence_instance function."""
 
+    @patch("confluence_markdown_exporter.api_clients._confluence_clients", {})
     @patch("confluence_markdown_exporter.api_clients.get_settings")
     @patch("confluence_markdown_exporter.api_clients.ApiClientFactory")
     def test_successful_connection(
@@ -153,100 +155,34 @@ class TestGetConfluenceInstance:
         mock_factory.create_confluence.return_value = mock_confluence
         mock_factory_class.return_value = mock_factory
 
-        result = get_confluence_instance()
+        result = get_confluence_instance(SAMPLE_CONFLUENCE_URL)
 
         assert result == mock_confluence
-        mock_factory_class.assert_called_once_with(
-            sample_config_model.connection_config.model_dump()
+        mock_factory_class.assert_called_once_with(sample_config_model.connection_config)
+        mock_factory.create_confluence.assert_called_once_with(
+            SAMPLE_CONFLUENCE_URL,
+            sample_config_model.auth.get_instance(SAMPLE_CONFLUENCE_URL),
         )
-        mock_factory.create_confluence.assert_called_once_with(sample_config_model.auth.confluence)
 
+    @patch("confluence_markdown_exporter.api_clients._confluence_clients", {})
     @patch("confluence_markdown_exporter.api_clients.get_settings")
     @patch("confluence_markdown_exporter.api_clients.ApiClientFactory")
-    @patch("confluence_markdown_exporter.api_clients.main_config_menu_loop")
-    @patch("confluence_markdown_exporter.api_clients.questionary.print")
-    def test_connection_failure_retry(
-        self,
-        mock_questionary_print: MagicMock,
-        mock_config_menu: MagicMock,
-        mock_factory_class: MagicMock,
-        mock_get_settings: MagicMock,
-        sample_config_model: ConfigModel,
-    ) -> None:
-        """Test Confluence connection failure and retry."""
-        # First call returns original config, second call returns updated config
-        mock_get_settings.side_effect = [sample_config_model, sample_config_model]
-
-        mock_factory = MagicMock()
-        mock_confluence = MagicMock()
-        # First attempt fails, second attempt succeeds
-        mock_factory.create_confluence.side_effect = [
-            ConnectionError("Connection failed"),
-            mock_confluence,
-        ]
-        mock_factory_class.return_value = mock_factory
-
-        result = get_confluence_instance()
-
-        assert result == mock_confluence
-        assert mock_factory.create_confluence.call_count == 2
-        mock_questionary_print.assert_called_once()
-        mock_config_menu.assert_called_once_with("auth.confluence")
-
-
-class TestGetJiraInstance:
-    """Test cases for get_jira_instance function."""
-
-    @patch("confluence_markdown_exporter.api_clients.get_settings")
-    @patch("confluence_markdown_exporter.api_clients.ApiClientFactory")
-    def test_successful_connection(
+    def test_connection_failure_raises(
         self,
         mock_factory_class: MagicMock,
         mock_get_settings: MagicMock,
         sample_config_model: ConfigModel,
     ) -> None:
-        """Test successful Jira instance creation."""
+        """Test that a Confluence connection failure raises AuthNotConfiguredError."""
         mock_get_settings.return_value = sample_config_model
+
         mock_factory = MagicMock()
-        mock_jira = MagicMock()
-        mock_factory.create_jira.return_value = mock_jira
+        mock_factory.create_confluence.side_effect = ConnectionError("Connection failed")
         mock_factory_class.return_value = mock_factory
 
-        # Clear cache to ensure fresh call
-        get_jira_instance.cache_clear()
+        with pytest.raises(AuthNotConfiguredError) as exc_info:
+            get_confluence_instance(SAMPLE_CONFLUENCE_URL)
 
-        result = get_jira_instance()
-
-        assert result == mock_jira
-        mock_factory_class.assert_called_once_with(
-            sample_config_model.connection_config.model_dump()
-        )
-        mock_factory.create_jira.assert_called_once_with(sample_config_model.auth.jira)
-
-    @patch("confluence_markdown_exporter.api_clients.get_settings")
-    @patch("confluence_markdown_exporter.api_clients.ApiClientFactory")
-    def test_caching_behavior(
-        self,
-        mock_factory_class: MagicMock,
-        mock_get_settings: MagicMock,
-        sample_config_model: ConfigModel,
-    ) -> None:
-        """Test that Jira instance is cached."""
-        mock_get_settings.return_value = sample_config_model
-        mock_factory = MagicMock()
-        mock_jira = MagicMock()
-        mock_factory.create_jira.return_value = mock_jira
-        mock_factory_class.return_value = mock_factory
-
-        # Clear cache to ensure fresh start
-        get_jira_instance.cache_clear()
-
-        # First call
-        result1 = get_jira_instance()
-        # Second call
-        result2 = get_jira_instance()
-
-        assert result1 == result2 == mock_jira
-        # Factory should only be called once due to caching
-        assert mock_factory_class.call_count == 1
-        assert mock_factory.create_jira.call_count == 1
+        assert exc_info.value.url == SAMPLE_CONFLUENCE_URL
+        assert exc_info.value.service == "Confluence"
+        assert mock_factory.create_confluence.call_count == 1
