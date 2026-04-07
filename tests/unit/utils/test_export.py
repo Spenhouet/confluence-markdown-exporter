@@ -188,7 +188,7 @@ class TestSanitizeFilename:
 
     @patch("confluence_markdown_exporter.utils.export.export_options")
     def test_control_characters_removed(self, mock_export_options: MagicMock) -> None:
-        """Control characters (e.g. backspace \\x08) should be stripped."""
+        """Control characters (e.g. backspace) should be stripped."""
         mock_export_options.filename_encoding = ""
         mock_export_options.filename_length = 255
 
