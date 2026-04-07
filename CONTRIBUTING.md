@@ -65,7 +65,7 @@ echo 'eval "$(uv generate-shell-completion bash)"' >> ~/.bashrc
 
    ```bash
    uv run confluence-markdown-exporter --help
-   uv run cf-export --help
+   uv run cme --help
    ```
 
 ## Development Workflow
@@ -75,7 +75,7 @@ echo 'eval "$(uv generate-shell-completion bash)"' >> ~/.bashrc
 ```bash
 # Run with uv (recommended)
 uv run confluence-markdown-exporter [commands]
-uv run cf-export [commands]
+uv run cme [commands]
 
 # Or activate the virtual environment
 source .venv/bin/activate

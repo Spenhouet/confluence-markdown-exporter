@@ -1,8 +1,11 @@
 import json
+import logging
 import re
 from pathlib import Path
 
 from confluence_markdown_exporter.utils.app_data_store import get_settings
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 export_options = settings.export
@@ -58,6 +61,7 @@ def save_file(file_path: Path, content: str | bytes) -> None:
     else:
         msg = "Content must be either a string or bytes."
         raise TypeError(msg)
+    logger.debug("Saved file %s (%d bytes)", file_path, len(content))
 
 
 def sanitize_filename(filename: str) -> str:
