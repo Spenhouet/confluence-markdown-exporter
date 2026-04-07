@@ -281,14 +281,6 @@ class ExportConfig(BaseModel):
             "For self-hosted Confluence (CQL), this is internally capped at 25."
         ),
     )
-    skip_jira_embeds: bool = Field(
-        default=False,
-        title="Skip Jira Embeds",
-        description=(
-            "When enabled, embedded Jira content (issue macros, Jira tables) is skipped "
-            "and replaced with a short placeholder. No Jira API calls are made."
-        ),
-    )
 
 
 class ConfigModel(BaseModel):

@@ -449,9 +449,7 @@ class Page(Document):
 
     @property
     def markdown(self) -> str:
-        return self.Converter(
-            self, skip_jira_embeds=settings.export.skip_jira_embeds
-        ).markdown
+        return self.Converter(self).markdown
 
     def export(self) -> None:
         if self.title == "Page not accessible":
@@ -461,11 +459,8 @@ class Page(Document):
         if DEBUG:
             self.export_body()
         # Export attachments first so the files can be utilized during markdown conversion
-        logger.info("Exporting attachments for page id=%s", self.id)
         self.export_attachments()
-        logger.info("Converting to Markdown and writing file for page id=%s", self.id)
         self.export_markdown()
-        logger.info("Exported to %s", settings.export.output_path / self.export_path)
 
     def export_with_descendants(self) -> None:
         export_pages([self, *self.descendants])
@@ -605,14 +600,7 @@ class Page(Document):
 
     @classmethod
     def from_url(cls, page_url: str) -> "Page":
-        """Retrieve a Page object given a Confluence page URL.
-
-        Supported URL formats:
-        - Confluence Cloud: .../wiki/.../pages/<page_id>  (numeric ID in path)
-        - Confluence Server/Data Center: .../display/<space_key>/<page_title>
-        - Short form: .../<space_key>/<page_title>  (two path segments, no /display/)
-        - Page ID: pass a numeric string and use Page.from_id() instead
-        """
+        """Retrieve a Page object given a Confluence page URL."""
         url = urllib.parse.urlparse(page_url)
         hostname = url.hostname
         if hostname and hostname not in str(settings.auth.confluence.url):
@@ -625,17 +613,6 @@ class Page(Document):
             page_id = match.group(1)
             return Page.from_id(int(page_id))
 
-        # Confluence Server/Data Center: /display/{spaceKey}/{pageTitle}
-        if match := re.match(r"^/display/([^/]+)/(.+)$", path):
-            space_key = urllib.parse.unquote_plus(match.group(1))
-            page_title = urllib.parse.unquote_plus(match.group(2))
-            page_data = cast(
-                "JsonResponse",
-                confluence.get_page_by_title(space=space_key, title=page_title, expand="version"),
-            )
-            return Page.from_id(page_data["id"])
-
-        # Short form: /{spaceKey}/{pageTitle} (no /display/ prefix)
         if match := re.search(r"^/([^/]+?)/([^/]+)$", path):
             space_key = urllib.parse.unquote_plus(match.group(1))
             page_title = urllib.parse.unquote_plus(match.group(2))
@@ -759,8 +736,6 @@ class Page(Document):
                 macro_name = str(el["data-macro-name"])
                 if macro_name in self.options["macros_to_ignore"]:
                     return ""
-                if macro_name == "jira" and self.options.get("skip_jira_embeds"):
-                    return "\n<!-- Jira content skipped -->\n\n"
 
                 macro_handlers = {
                     "panel": self.convert_alert,
@@ -814,8 +789,6 @@ class Page(Document):
         def convert_span(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("data-macro-name"):
                 if el["data-macro-name"] == "jira":
-                    if self.options.get("skip_jira_embeds"):
-                        return "<!-- Jira issue skipped -->"
                     return self.convert_jira_issue(el, text, parent_tags)
 
             return text
@@ -861,8 +834,6 @@ class Page(Document):
             return self.convert_table(BeautifulSoup(html, "html.parser"), text, parent_tags)
 
         def convert_jira_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            if self.options.get("skip_jira_embeds"):
-                return "\n<!-- Jira table skipped -->\n\n"
             jira_tables = BeautifulSoup(self.page.body_export, "html.parser").find_all(
                 "div", {"class": "jira-table"}
             )
