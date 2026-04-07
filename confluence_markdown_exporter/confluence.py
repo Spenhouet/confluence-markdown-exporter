@@ -74,22 +74,49 @@ _API_GATEWAY_HOST = "api.atlassian.com"
 def _extract_base_url(url: str) -> str:
     """Extract the base URL from a Confluence or Jira URL.
 
-    For standard instance URLs returns ``{scheme}://{hostname}``.
+    For Atlassian Cloud URLs (``*.atlassian.net``) returns ``{scheme}://{hostname}``.
     For Atlassian API gateway URLs of the form
     ``https://api.atlassian.com/ex/{service}/{cloudId}/...``
     returns ``https://api.atlassian.com/ex/{service}/{cloudId}`` so that
     the Cloud ID is preserved as part of the base URL used for auth lookup
     and SDK initialisation.
+    For Server/Data Center instances with a context path (e.g.
+    ``https://host/confluence/spaces/KEY``), the context path is preserved
+    so the SDK client hits the correct REST endpoints.
     """
     parsed = urllib.parse.urlparse(url)
     if parsed.hostname == _API_GATEWAY_HOST:
         # Path starts with /ex/confluence/{cloudId} or /ex/jira/{cloudId}
         match = re.match(r"(/ex/(?:confluence|jira)/[^/]+)", parsed.path)
         if match:
-            return normalize_instance_url(
-                f"{parsed.scheme}://{parsed.hostname}{match.group(1)}"
-            )
-    return normalize_instance_url(f"{parsed.scheme}://{parsed.hostname}")
+            return normalize_instance_url(f"{parsed.scheme}://{parsed.hostname}{match.group(1)}")
+
+    # For Server/DC instances the Confluence webapp may be deployed under a
+    # context path (e.g. ``/confluence``).  Preserve everything before the
+    # first path segment that belongs to Confluence's own routing.
+    _confluence_route_segments = {
+        "wiki",
+        "display",
+        "spaces",
+        "rest",
+        "pages",
+        "plugins",
+        "dosearchsite.action",
+    }
+    segments = [s for s in parsed.path.split("/") if s]
+    context_parts: list[str] = []
+    for segment in segments:
+        if segment.lower() in _confluence_route_segments:
+            break
+        context_parts.append(segment)
+
+    base = f"{parsed.scheme}://{parsed.hostname}"
+    if parsed.port and parsed.port not in (80, 443):
+        base = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+    if context_parts:
+        base = f"{base}/{'/'.join(context_parts)}"
+    return normalize_instance_url(base)
+
 
 settings = get_settings()
 
@@ -665,9 +692,7 @@ class Page(Document):
         return [
             a
             for a in self.attachments
-            if (
-                a.filename.endswith(".drawio") and f"diagramName={a.title}" in self.body
-            )
+            if (a.filename.endswith(".drawio") and f"diagramName={a.title}" in self.body)
             or (
                 a.filename.endswith((".drawio.png", ".drawio"))
                 and a.title.replace(" ", "%20") in self.body_export
@@ -836,7 +861,9 @@ class Page(Document):
             page_title = urllib.parse.unquote_plus(match.group(2))
             logger.debug(
                 "Resolving page '%s' in space '%s' from Server URL %s",
-                page_title, space_key, page_url,
+                page_title,
+                space_key,
+                page_url,
             )
             page_data = cast(
                 "JsonResponse",
@@ -1437,9 +1464,7 @@ class Page(Document):
                 # Return as a Markdown code block with plantuml syntax
                 return f"\n```plantuml\n{uml_definition}\n```\n\n"
 
-        def _find_element_with_namespace(
-            self, parent: BeautifulSoup, tag_name: str
-        ) -> Tag | None:
+        def _find_element_with_namespace(self, parent: BeautifulSoup, tag_name: str) -> Tag | None:
             """Find an element with or without namespace prefix."""
             result = parent.find(f"ac:{tag_name}") or parent.find(tag_name)
             return result if isinstance(result, Tag) else None
@@ -1667,9 +1692,7 @@ def sync_removed_pages(base_url: str) -> None:
         logger.debug("No unseen pages in lockfile — nothing to clean up.")
         return
 
-    with console.status(
-        f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"
-    ):
+    with console.status(f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"):
         deleted = fetch_deleted_page_ids(sorted(unseen), base_url)
 
     if deleted:
