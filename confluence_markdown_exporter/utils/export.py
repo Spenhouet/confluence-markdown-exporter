@@ -1,8 +1,11 @@
 import json
+import logging
 import re
 from pathlib import Path
 
 from confluence_markdown_exporter.utils.app_data_store import get_settings
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 export_options = settings.export
@@ -58,6 +61,7 @@ def save_file(file_path: Path, content: str | bytes) -> None:
     else:
         msg = "Content must be either a string or bytes."
         raise TypeError(msg)
+    logger.debug("Saved file %s (%d bytes)", file_path, len(content))
 
 
 def sanitize_filename(filename: str) -> str:
@@ -73,6 +77,9 @@ def sanitize_filename(filename: str) -> str:
         A sanitized filename string.
     """
     sanitized = filename
+
+    # Strip control characters (ASCII 0x00-0x1F, 0x7F) invalid on Windows/Linux
+    sanitized = re.sub(r'[\x00-\x1f\x7f]', '', sanitized)
 
     if export_options.filename_encoding:
         encode_map = parse_encode_setting(export_options.filename_encoding)
@@ -105,6 +112,9 @@ def sanitize_filename(filename: str) -> str:
     name = Path(sanitized).stem.upper()
     if name in reserved:
         sanitized = f"{sanitized}_"
+
+    if export_options.filename_lowercase:
+        sanitized = sanitized.lower()
 
     # Limit length to specificed number of characters
     return sanitized[: export_options.filename_length]

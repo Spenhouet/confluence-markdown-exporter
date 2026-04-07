@@ -3,14 +3,18 @@
 import json
 import os
 from pathlib import Path
+from typing import Any
 from typing import Literal
 
-from pydantic import AnyHttpUrl
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import SecretStr
 from pydantic import ValidationError
 from pydantic import field_serializer
+from pydantic import model_validator
+from pydantic_settings import BaseSettings
+from pydantic_settings import PydanticBaseSettingsSource
+from pydantic_settings import SettingsConfigDict
 from typer import get_app_dir
 
 
@@ -30,8 +34,13 @@ def get_app_config_path() -> Path:
 APP_CONFIG_PATH = get_app_config_path()
 
 
-class ConnectionConfig(BaseModel):
-    """Configuration for the connection like retry options."""
+class AtlassianSdkConnectionConfig(BaseModel):
+    """Connection parameters forwarded directly to the Atlassian SDK client constructors.
+
+    Only fields that are valid constructor keyword arguments for
+    atlassian.Confluence (ConfluenceApiSdk) and atlassian.Jira (JiraApiSdk)
+    may be added here.
+    """
 
     backoff_and_retry: bool = Field(
         default=True,
@@ -76,6 +85,11 @@ class ConnectionConfig(BaseModel):
             "Timeout in seconds for API requests. Prevents hanging on slow/unresponsive servers."
         ),
     )
+
+
+class ConnectionConfig(AtlassianSdkConnectionConfig):
+    """Full connection configuration, extending the Atlassian SDK config with app-level settings."""
+
     use_v2_api: bool = Field(
         default=False,
         title="Use Confluence v2 REST API",
@@ -85,23 +99,30 @@ class ConnectionConfig(BaseModel):
             "Must be disabled for older self-hosted Confluence Server instances."
         ),
     )
+    max_workers: int = Field(
+        default=20,
+        title="Max Workers",
+        description=(
+            "Maximum number of parallel workers for page export. "
+            "Set to 1 for serial mode (useful for debugging). "
+            "Higher values improve performance but may hit API rate limits."
+        ),
+    )
 
 
 class ApiDetails(BaseModel):
-    """API authentication details."""
+    """API authentication credentials for a single instance.
 
-    url: AnyHttpUrl | Literal[""] = Field(
-        "",
-        title="Instance URL",
-        description="Base URL of the Confluence or Jira instance.",
-    )
+    The instance URL is used as the dict key in AuthConfig, not stored here.
+    """
+
     username: SecretStr = Field(
-        SecretStr(""),
+        default=SecretStr(""),
         title="Username (email)",
         description="Username or email for API authentication.",
     )
     api_token: SecretStr = Field(
-        SecretStr(""),
+        default=SecretStr(""),
         title="API Token",
         description=(
             "API token for authentication (if required). "
@@ -111,12 +132,24 @@ class ApiDetails(BaseModel):
         ),
     )
     pat: SecretStr = Field(
-        SecretStr(""),
+        default=SecretStr(""),
         title="Personal Access Token (PAT)",
         description=(
             "Personal Access Token for authentication. "
             "Set this if you use a PAT instead of username+API token. "
             "See your Atlassian instance documentation for how to create a PAT."
+        ),
+    )
+    cloud_id: str = Field(
+        default="",
+        title="Cloud ID",
+        description=(
+            "Atlassian Cloud ID for this instance. When set, API calls are routed through "
+            "the Atlassian API gateway (https://api.atlassian.com/ex/confluence/{cloud_id}), "
+            "which enables the use of scoped API tokens. "
+            "For Atlassian Cloud instances this is fetched and stored automatically. "
+            "To find your Cloud ID manually, see "
+            "https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/."
         ),
     )
 
@@ -126,27 +159,141 @@ class ApiDetails(BaseModel):
 
 
 class AuthConfig(BaseModel):
-    """Authentication configuration for Confluence and Jira."""
+    """Authentication configuration for Confluence and Jira.
 
-    confluence: ApiDetails = Field(
-        default_factory=lambda: ApiDetails(
-            url="", username=SecretStr(""), api_token=SecretStr(""), pat=SecretStr("")
+    Credentials are stored in dicts keyed by the instance base URL
+    (e.g. ``"https://company.atlassian.net"``).  No "active" pointer is kept —
+    the right instance is selected by matching the URL of the page or space
+    being exported.
+    """
+
+    confluence: dict[str, ApiDetails] = Field(
+        default_factory=dict,
+        title="Confluence Accounts",
+        description=(
+            "Confluence authentication credentials keyed by instance base URL. "
+            "Example key: 'https://company.atlassian.net'"
         ),
-        title="Confluence Account",
-        description="Authentication for Confluence.",
     )
-    jira: ApiDetails = Field(
-        default_factory=lambda: ApiDetails(
-            url="", username=SecretStr(""), api_token=SecretStr(""), pat=SecretStr("")
+    jira: dict[str, ApiDetails] = Field(
+        default_factory=dict,
+        title="Jira Accounts",
+        description=(
+            "Jira authentication credentials keyed by instance base URL. "
+            "Example key: 'https://company.atlassian.net'"
         ),
-        title="Jira Account",
-        description="Authentication for Jira.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate(cls, data: object) -> object:  # noqa: C901, PLR0912
+        """Migrate legacy config formats to the current URL-keyed dict format.
+
+        Also normalises all instance URL keys (strips trailing slashes) so that
+        entries written with and without a trailing slash are treated as identical.
+        """
+        if not isinstance(data, dict):
+            return data
+        for service in ("confluence", "jira"):
+            val = data.get(service)
+            if not isinstance(val, dict):
+                continue
+            # Legacy v1: single ApiDetails with a 'url' field at the top level
+            # e.g. {"url": "https://...", "username": "...", ...}
+            if "url" in val and not _looks_like_url_keyed(val):
+                url = val.pop("url", "") or ""
+                # Remove stale active_* fields that were in the same dict
+                val.pop("active_confluence", None)
+                val.pop("active_jira", None)
+                data[service] = {url.rstrip("/"): val} if url else {}
+            # Legacy v2: named-key dict from the previous multi-instance refactor.
+            # e.g. {"default": {"url": "https://...", ...}, "active_confluence": "default"}
+            elif not _looks_like_url_keyed(val):
+                migrated: dict = {}
+                for k, v in val.items():
+                    if k in ("active_confluence", "active_jira"):
+                        continue
+                    if isinstance(v, dict):
+                        inner_url = v.pop("url", "") or ""
+                        if inner_url:
+                            migrated[inner_url.rstrip("/")] = v
+                        elif v:
+                            migrated[k] = v  # keep as-is if no URL
+                if migrated:
+                    data[service] = migrated
+            else:
+                # Current URL-keyed format: normalise any trailing slashes on existing keys
+                normalised: dict = {}
+                for k, v in val.items():
+                    normalised[k.rstrip("/")] = v
+                data[service] = normalised
+        # Drop top-level active_* fields that were stored in auth
+        data.pop("active_confluence", None)
+        data.pop("active_jira", None)
+        return data
+
+    def get_instance(self, url: str) -> ApiDetails | None:
+        """Return the Confluence ApiDetails whose key matches *url* (exact or host match)."""
+        url = normalize_instance_url(url)
+        return self.confluence.get(url) or self._match_by_host(self.confluence, url)
+
+    def get_jira_instance(self, url: str) -> ApiDetails | None:
+        """Return the Jira ApiDetails whose key matches *url* (exact or host match)."""
+        url = normalize_instance_url(url)
+        return self.jira.get(url) or self._match_by_host(self.jira, url)
+
+    def default_confluence_url(self) -> str | None:
+        """Return the URL of the only configured Confluence instance, or None if 0 or 2+."""
+        return next(iter(self.confluence)) if len(self.confluence) == 1 else None
+
+    def default_jira_url(self) -> str | None:
+        """Return the URL of the only configured Jira instance, or None if 0 or 2+."""
+        return next(iter(self.jira)) if len(self.jira) == 1 else None
+
+    @staticmethod
+    def _match_by_host(instances: dict[str, ApiDetails], url: str) -> ApiDetails | None:
+        import urllib.parse
+
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or url
+        # Gateway URLs (with a meaningful path) must match exactly — hostname alone is ambiguous
+        # because multiple tenants share api.atlassian.com.
+        if parsed.path and parsed.path.strip("/"):
+            return None
+        for key, details in instances.items():
+            key_parsed = urllib.parse.urlparse(key)
+            # Skip gateway-style keys when doing hostname-only matching
+            if key_parsed.path and key_parsed.path.strip("/"):
+                continue
+            if key_parsed.hostname == host:
+                return details
+        return None
+
+
+def _looks_like_url_keyed(d: dict) -> bool:
+    """Return True if the dict looks like it's already keyed by URLs (not by field names)."""
+    return any(k.startswith(("http://", "https://")) for k in d)
+
+
+def normalize_instance_url(url: str) -> str:
+    """Strip trailing slashes from an instance URL for consistent key storage."""
+    return url.rstrip("/")
 
 
 class ExportConfig(BaseModel):
     """Export settings for markdown and attachments."""
 
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(
+        default="INFO",
+        title="Log Level",
+        description=(
+            "Controls how much output the exporter prints. "
+            "DEBUG shows every step, INFO shows key milestones, "
+            "WARNING shows only warnings and errors, ERROR shows only errors. "
+            "In CI environments (CI=true / NO_COLOR set) rich formatting is suppressed "
+            "automatically."
+        ),
+    )
     output_path: Path = Field(
         default=Path(),
         title="Output Path",
@@ -230,7 +377,8 @@ class ExportConfig(BaseModel):
         description="Whether to include breadcrumb links at the top of the page.",
     )
     filename_encoding: str = Field(
-        default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_"',
+        default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_","\'":"_","’":"_","´":"_","`":"_"', # noqa: RUF001
+
         title="Filename Encoding",
         description=(
             "List character-to-replacement pairs, separated by commas. "
@@ -247,12 +395,29 @@ class ExportConfig(BaseModel):
         title="Filename Length",
         description="Maximum length of the filename.",
     )
+    filename_lowercase: bool = Field(
+        default=False,
+        title="Enforce lowercase paths",
+        description=(
+            "Make all paths/files lowercase.\n"
+            "By default the original casing will be retained.\n"
+        ),
+    )
     include_document_title: bool = Field(
         default=True,
         title="Include Document Title",
         description=(
             "Whether to include the document title in the exported markdown file. "
             "If enabled, the title will be added as a top-level heading."
+        ),
+    )
+    enable_jira_enrichment: bool = Field(
+        default=True,
+        title="Enable Jira Enrichment",
+        description=(
+            "Whether to fetch Jira issue data to enrich Confluence pages. "
+            "When enabled, Jira issue links will include the issue summary. "
+            "When disabled, only the issue key and link will be included."
         ),
     )
     skip_unchanged: bool = Field(
@@ -284,13 +449,70 @@ class ExportConfig(BaseModel):
 
 
 class ConfigModel(BaseModel):
-    """Top-level application configuration model."""
+    """Top-level application configuration model (used for persistence only)."""
 
     export: ExportConfig = Field(default_factory=ExportConfig, title="Export Settings")
     connection_config: ConnectionConfig = Field(
         default_factory=ConnectionConfig, title="Connection Configuration"
     )
     auth: AuthConfig = Field(default_factory=AuthConfig, title="Authentication")
+
+
+class _JsonConfigSource(PydanticBaseSettingsSource):
+    """Settings source that reads from the JSON config file (lower priority than ENV vars)."""
+
+    def get_field_value(self, field: Any, field_name: str) -> Any:  # noqa: ANN401
+        return None, field_name, False
+
+    def field_is_complex(self, field: Any) -> bool:  # noqa: ANN401
+        return True
+
+    def __call__(self) -> dict[str, Any]:
+        if APP_CONFIG_PATH.exists():
+            try:
+                raw = json.loads(APP_CONFIG_PATH.read_text())
+                return ConfigModel(**raw).model_dump()
+            except Exception:  # noqa: BLE001
+                return ConfigModel().model_dump()
+        return ConfigModel().model_dump()
+
+
+class AppSettings(BaseSettings):
+    """Effective application settings: ENV vars take precedence over the config file.
+
+    ENV vars use the prefix ``CME_`` and double-underscore (``__``) as the nested field
+    delimiter, matching the dot-notation config keys but uppercased.  For example::
+
+        CME_EXPORT__LOG_LEVEL=DEBUG
+        CME_EXPORT__OUTPUT_PATH=/tmp/export
+        CME_CONNECTION_CONFIG__MAX_WORKERS=5
+        CME_CONNECTION_CONFIG__VERIFY_SSL=false
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="CME_",
+        env_nested_delimiter="__",
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    export: ExportConfig = Field(default_factory=ExportConfig, title="Export Settings")
+    connection_config: ConnectionConfig = Field(
+        default_factory=ConnectionConfig, title="Connection Configuration"
+    )
+    auth: AuthConfig = Field(default_factory=AuthConfig, title="Authentication")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,  # noqa: ARG003
+        file_secret_settings: PydanticBaseSettingsSource,  # noqa: ARG003
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """ENV vars override JSON file config; init values override both."""
+        return (init_settings, env_settings, _JsonConfigSource(settings_cls))
 
 
 def load_app_data() -> dict[str, dict]:
@@ -309,14 +531,9 @@ def save_app_data(config_model: ConfigModel) -> None:
     APP_CONFIG_PATH.write_text(json_str)
 
 
-def get_settings() -> ConfigModel:
-    """Get the current application settings as a ConfigModel instance."""
-    data = load_app_data()
-    return ConfigModel(
-        export=ExportConfig(**data.get("export", {})),
-        connection_config=ConnectionConfig(**data.get("connection_config", {})),
-        auth=AuthConfig(**data.get("auth", {})),
-    )
+def get_settings() -> AppSettings:
+    """Get the effective application settings (ENV vars override stored config)."""
+    return AppSettings()
 
 
 def _set_by_path(obj: dict, path: str, value: object) -> None:
@@ -330,10 +547,35 @@ def _set_by_path(obj: dict, path: str, value: object) -> None:
     current[keys[-1]] = value
 
 
+def _set_by_keys(obj: dict, keys: list[str], value: object) -> None:
+    """Set a value in a nested dict using an explicit list of key components."""
+    current = obj
+    for k in keys[:-1]:
+        if k not in current or not isinstance(current[k], dict):
+            current[k] = {}
+        current = current[k]
+    current[keys[-1]] = value
+
+
 def set_setting(path: str, value: object) -> None:
     """Set a setting by dot-path and save to config file."""
     data = load_app_data()
     _set_by_path(data, path, value)
+    try:
+        settings = ConfigModel.model_validate(data)
+    except ValidationError as e:
+        raise ValueError(str(e)) from e
+    save_app_data(settings)
+
+
+def set_setting_with_keys(keys: list[str], value: object) -> None:
+    """Set a setting by an explicit list of path components and save to config file.
+
+    Use this instead of ``set_setting`` when any path component contains dots
+    (e.g. a URL used as a dict key: ``["auth", "confluence", "https://x.y", "username"]``).
+    """
+    data = load_app_data()
+    _set_by_keys(data, keys, value)
     try:
         settings = ConfigModel.model_validate(data)
     except ValidationError as e:
