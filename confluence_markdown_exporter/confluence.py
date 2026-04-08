@@ -345,7 +345,7 @@ class Space(BaseModel):
 
         parsed = urllib.parse.urlparse(space_url)
         path = parsed.path.rstrip("/")
-        if match := re.search(r"(?:/wiki/spaces/|/display/|/)([A-Za-z0-9_-]+)/", path):
+        if match := re.search(r"(?:/wiki/spaces/|/display/)([A-Za-z0-9_-]+)", path):
             space_key = match.group(1)
             logger.debug("Resolved space key '%s' from URL %s", space_key, space_url)
             return cls.from_key(space_key, base_url)
