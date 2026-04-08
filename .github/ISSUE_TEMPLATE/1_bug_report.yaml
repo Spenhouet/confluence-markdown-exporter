@@ -9,22 +9,56 @@ body:
 
         **Before reporting, please make sure to search through [existing issues](https://github.com/Spenhouet/confluence-markdown-exporter/issues?q=is:issue+is:open+label:bug) (including [closed](https://github.com/Spenhouet/confluence-markdown-exporter/issues?q=is:issue%20state:closed%20label:bug)).**
 
+  - type: markdown
+    attributes:
+      value: |
+        ### Diagnostic info
+        Run `cme bugreport` and paste the full output in the **Diagnostic info** field below.
+        This command prints your version, system details, and configuration — with all secrets automatically redacted.
+
   - type: textarea
     attributes:
       label: Description
       description: |
         A clear and concise description of the bug, including a minimal reproducible example.
 
-        Be sure to include the command you invoked (e.g., `confluence-markdown-exporter pages 645208921`).
-        Idealy, also include your configuration (see `confluence-markdown-exporter config --show`).
+        Be sure to include the command you invoked (e.g., `cme pages https://company.atlassian.net/wiki/spaces/KEY/pages/123/Title`).
     validations:
       required: true
+
+  - type: textarea
+    attributes:
+      label: Diagnostic info
+      description: |
+        Paste the output of `cme bugreport` here.
+        This includes your version, Python/OS info, and configuration with secrets redacted.
+      placeholder: |
+        ## Bug Report Diagnostic Info
+
+        ### Version
+        confluence-markdown-exporter x.y.z
+
+        ### System
+        Python: ...
+        Platform: ...
+        Architecture: ...
+
+        ### Config
+        Config file: ...
+        ```yaml
+        ...
+        ```
+      render: markdown
+    validations:
+      required: false
 
   - type: input
     attributes:
       label: Version
-      description: What version of confluence-markdown-exporter are you using? (see `confluence-markdown-exporter version`)
-      placeholder: e.g., confluence-markdown-exporter 3.0.3
+      description: |
+        What version of confluence-markdown-exporter are you using?
+        (Already included in `cme bugreport` output — fill in here only if you didn't run that command.)
+      placeholder: e.g., confluence-markdown-exporter 4.0.3
     validations:
       required: false
 
