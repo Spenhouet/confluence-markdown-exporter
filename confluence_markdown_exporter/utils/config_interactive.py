@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from questionary import Choice
 from questionary import Style
 
+from confluence_markdown_exporter.api_clients import ensure_service_gateway_url
 from confluence_markdown_exporter.utils.app_data_store import ConfigModel
 from confluence_markdown_exporter.utils.app_data_store import get_app_config_path
 from confluence_markdown_exporter.utils.app_data_store import get_settings
@@ -296,7 +297,7 @@ def _edit_instance_fields(  # noqa: C901, PLR0912
                     # Offer cross-service sync for auth credential fields
                     if len(parent_path_parts) >= 2 and parent_path_parts[0] == "auth":  # noqa: PLR2004
                         _maybe_sync_auth_change(
-                            instance_key, parent_path_parts[1], field_key, new_val, current_val
+                            parent_path_parts[1], instance_key, field_key, new_val, current_val
                         )
                     break
                 except (ValueError, TypeError) as e:
@@ -323,9 +324,9 @@ def _maybe_sync_new_instance(instance_url: str, parent_path_parts: list[str]) ->
     if not other_service:
         return
 
-    from confluence_markdown_exporter.api_clients import _to_jira_gateway_url
+    from confluence_markdown_exporter.api_clients import ensure_service_gateway_url
 
-    target_url = _to_jira_gateway_url(instance_url) if other_service == "jira" else instance_url
+    target_url = ensure_service_gateway_url(instance_url, other_service)
     should_sync = questionary.confirm(
         f"Also save the same credentials for {other_service.capitalize()} at '{target_url}'?",
         default=True,
@@ -512,12 +513,9 @@ def _prompt_for_new_value(  # noqa: PLR0911
     return _prompt_str(prompt_message, current_value, model, key_name)
 
 
-_AUTH_CREDENTIAL_FIELDS = {"username", "api_token", "pat"}
-
-
 def _maybe_sync_auth_change(
-    instance_url: str,
     service: str,
+    instance_url: str,
     key: str,
     value_cast: object,
     previous_value: object,
@@ -531,9 +529,6 @@ def _maybe_sync_auth_change(
         value_cast: The new value.
         previous_value: The old value (used to skip the prompt when was empty before).
     """
-    if key not in _AUTH_CREDENTIAL_FIELDS:
-        return
-
     if service == "confluence":
         other_service = "Jira"
         other_service_key = "jira"
@@ -550,6 +545,7 @@ def _maybe_sync_auth_change(
     elif not previous_value:
         return
 
+    instance_url = ensure_service_gateway_url(instance_url, other_service_key)
     should_sync = questionary.confirm(
         f"Also apply this {key} change to the {other_service} instance '{instance_url}'?",
         default=True,
@@ -672,6 +668,20 @@ def _edit_dict_config_loop(  # noqa: C901, PLR0912, PLR0915
                 f"{parent_key}.{key}" if parent_key else key,
             )
             selected_key = key
+            # Might have updated other service auth config
+            # Reload the updated config_dict for this section from disk
+            updated = get_settings().model_dump()
+            if parent_key:
+                # Traverse to the correct nested dict for jmespath/dot-paths
+                keys = parent_key.split(".")
+                sub = updated
+                for k in keys:
+                    sub = sub[k]
+                config_dict.clear()
+                config_dict.update(sub)
+            else:
+                config_dict.clear()
+                config_dict.update(updated)
             continue
         submodel = _get_submodel(model, key)
         if isinstance(current_value, dict) and submodel is not None:

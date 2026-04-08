@@ -31,7 +31,7 @@ _CME_THEME = Theme(
         "bright": Style(dim=False),
         "bold": Style(bold=True),
         "strong": Style(bold=True),
-        "code": Style(reverse=True, bold=True),
+        "code": Style(color="cyan"),
         "italic": Style(italic=True),
         "emphasize": Style(italic=True),
         "underline": Style(underline=True),
