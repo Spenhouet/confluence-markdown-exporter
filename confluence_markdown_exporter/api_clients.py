@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 import urllib.parse
 from threading import Lock
@@ -17,9 +16,6 @@ from confluence_markdown_exporter.utils.app_data_store import AtlassianSdkConnec
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import normalize_instance_url
 from confluence_markdown_exporter.utils.app_data_store import set_setting_with_keys
-from confluence_markdown_exporter.utils.type_converter import str_to_bool
-
-DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +261,7 @@ def get_confluence_instance(url: str) -> ConfluenceApiSdk:
         logger.exception("[red bold]Confluence authentication failed for %s.[/red bold]", url)
         raise AuthNotConfiguredError(url, "Confluence") from e
 
-    if DEBUG:
+    if settings.export.log_level == "DEBUG":
         client.session.hooks["response"] = [response_hook]
 
     with _clients_lock:
@@ -341,7 +337,7 @@ def get_jira_instance(url: str) -> JiraApiSdk:
 
     client.session.hooks["response"].append(_jira_auth_failure_hook)
 
-    if DEBUG:
+    if settings.export.log_level == "DEBUG":
         client.session.hooks["response"].append(response_hook)
 
     with _clients_lock:
