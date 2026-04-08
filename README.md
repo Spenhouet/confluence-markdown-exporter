@@ -73,8 +73,8 @@ cme page <page-url>
 Supported page URL formats:
 - Confluence Cloud: <https://company.atlassian.net/wiki/spaces/SPACEKEY/pages/123456789/Page+Title>
 - Confluence Cloud (API gateway): <https://api.atlassian.com/ex/confluence/CLOUDID/wiki/spaces/SPACEKEY/pages/123456789/Page+Title>
-- Confluence Server (long): <https://company.atlassian.net/display/SPACEKEY/Page+Title>
-- Confluence Server (short): <https://company.atlassian.net/SPACEKEY/Page+Title>
+- Confluence Server (long): <https://wiki.company.com/display/SPACEKEY/Page+Title>
+- Confluence Server (short): <https://wiki.company.com/SPACEKEY/Page+Title>
 
 #### 2.2. Export Page(s) with Descendants
 
@@ -103,8 +103,8 @@ cme space <space-url>
 Supported space URL formats:
 - Confluence Cloud: <https://company.atlassian.net/wiki/spaces/SPACEKEY>
 - Confluence Cloud (API gateway): <https://api.atlassian.com/ex/confluence/CLOUDID/wiki/spaces/SPACEKEY>
-- Confluence Server (long): <https://company.atlassian.net/display/SPACEKEY>
-- Confluence Server (short): <https://company.atlassian.net/SPACEKEY>
+- Confluence Server (long): <https://wiki.company.com/display/SPACEKEY>
+- Confluence Server (short): <https://wiki.company.com/SPACEKEY>
 
 #### 2.4. Export all Spaces of Organization(s)
 

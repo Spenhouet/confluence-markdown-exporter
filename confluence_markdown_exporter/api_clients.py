@@ -4,10 +4,13 @@ import re
 import urllib.parse
 from threading import Lock
 from threading import local
+from typing import Annotated
 
 import requests
 from atlassian import Confluence as ConfluenceApiSdk
 from atlassian import Jira as JiraApiSdk
+from pydantic import AfterValidator
+from pydantic import BaseModel
 
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
 from confluence_markdown_exporter.utils.app_data_store import AtlassianSdkConnectionConfig
@@ -89,6 +92,53 @@ def _get_jira_sdk_url(base_url: str, auth: ApiDetails) -> str:
     if auth.cloud_id:
         return f"{_GATEWAY_PREFIX}/jira/{auth.cloud_id}"
     return base_url
+
+
+def _decode_url_part(v: str | None) -> None | str:
+    if v is None or v == "":
+        return None
+    return urllib.parse.unquote_plus(v)
+
+
+class ConfluenceRef(BaseModel):
+    space_key: Annotated[str, AfterValidator(_decode_url_part)]
+    page_id: int | None = None
+    page_title: Annotated[str | None, AfterValidator(_decode_url_part)] = None
+
+
+# 1) Cloud [/wiki]/spaces/{space_key}[/pages/{page_id}[/{page_title}]]
+_CLOUD_URL_RE = re.compile(
+    r"^(?:/ex/confluence/[^/]+)?(?:/wiki)?/spaces/"
+    r"(?P<space_key>[A-Za-z0-9_-]+)"
+    r"(?:/pages/(?P<page_id>\d+)(?:/(?P<page_title>[^/?#]+))?)?"
+    r"(?:/(?!pages/)[^/?#]+)?/?$"
+)
+
+# 2) Server [/display]/{space_key}[/{page_title}]
+_SERVER_URL_RE = re.compile(
+    r"^(?:/display)?"
+    r"/(?P<space_key>[A-Za-z0-9._-]+)"
+    r"(?:/(?P<page_title>[^/?#]+))?/?$"
+)
+
+
+def parse_confluence_path(path: str) -> ConfluenceRef | None:
+    """Parse only the path portion of a Confluence URL and return a ConfluenceRef dict.
+
+    Matching order:
+      1) Cloud [/wiki]/spaces/{space_key}[/pages/{page_id}[/{page_title}]]
+      2) Server [/display]/{space_key}[/{page_title}]
+    """
+    if not path:
+        return None
+    if not path.startswith("/"):
+        path = "/" + path
+    path = path.rstrip("/")
+
+    if m := _CLOUD_URL_RE.match(path) or _SERVER_URL_RE.match(path):
+        return ConfluenceRef.model_validate(m.groupdict())
+
+    return None
 
 
 class AuthNotConfiguredError(BaseException):
