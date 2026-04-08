@@ -24,15 +24,14 @@
       "justMyCode": false,
       "args": [
         "pages",
-        "<page-url>",
-        "--output-path",
-        "scratch"
+        "<page-url>"
       ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
-        "DEBUG": "true"
+        "CME_EXPORT__LOG_LEVEL": "DEBUG",
+        "CME_EXPORT__OUTPUT_PATH": "scratch"
       }
     },
     {
@@ -43,15 +42,14 @@
       "justMyCode": false,
       "args": [
         "pages-with-descendants",
-        "<page-url>",
-        "--output-path",
-        "scratch"
+        "<page-url>"
       ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
-        "DEBUG": "true"
+        "CME_EXPORT__LOG_LEVEL": "DEBUG",
+        "CME_EXPORT__OUTPUT_PATH": "scratch"
       }
     },
     {
@@ -62,34 +60,32 @@
       "justMyCode": false,
       "args": [
         "spaces",
-        "<space-url>",
-        "--output-path",
-        "scratch"
+        "<space-url>"
       ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
-        "DEBUG": "true"
+        "CME_EXPORT__LOG_LEVEL": "DEBUG",
+        "CME_EXPORT__OUTPUT_PATH": "scratch"
       }
     },
     {
-      "name": "Python: Export All Spaces",
+      "name": "Python: Export Org(s)",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
       "justMyCode": false,
       "args": [
-        "all-spaces",
-        "<instance-url>",
-        "--output-path",
-        "scratch"
+        "orgs",
+        "<base-url>"
       ],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
-        "DEBUG": "true"
+        "CME_EXPORT__LOG_LEVEL": "DEBUG",
+        "CME_EXPORT__OUTPUT_PATH": "scratch"
       }
     },
     {
@@ -105,7 +101,7 @@
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
-        "DEBUG": "true"
+        "CME_EXPORT__LOG_LEVEL": "DEBUG"
       }
     }
   ]

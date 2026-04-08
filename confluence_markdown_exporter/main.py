@@ -41,10 +41,15 @@ class _CmeTyper(typer.Typer):
             from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 
             console.print(
-                f"[red bold]Authentication failed for {e.service} at {e.url}[/red bold]\n"
-                "Please configure credentials and re-run the export."
+                f"Please configure {e.service} credentials for {e.url} and re-run the export."
             )
             main_config_menu_loop(f"auth.{e.service.lower()}", new_instance_url=e.url)
+            sys.exit(1)
+        except ValueError as e:
+            console.print(
+                f"[red bold]{e}[/red bold]\n"
+                "See [code]--help[/code] or [code]README.md[/code] for more information."
+            )
             sys.exit(1)
 
 
@@ -95,7 +100,6 @@ app.add_typer(config_module.app, name="config")
 def _init_logging() -> None:
     """Initialize logging from config (CME_EXPORT__LOG_LEVEL env var takes precedence)."""
     setup_logging(get_settings().export.log_level)
-
 
 
 def _print_summary() -> None:

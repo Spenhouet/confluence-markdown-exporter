@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import urllib.parse
 from threading import Lock
 from threading import local
@@ -29,20 +30,27 @@ _thread_local = local()
 
 _CLOUD_DOMAIN = ".atlassian.net"
 _GATEWAY_PREFIX = "https://api.atlassian.com/ex"
-_GATEWAY_CONFLUENCE_INFIX = f"{_GATEWAY_PREFIX}/confluence/"
-_GATEWAY_JIRA_INFIX = f"{_GATEWAY_PREFIX}/jira/"
 
 
-def _to_jira_gateway_url(url: str) -> str:
-    """Convert an Atlassian Confluence gateway URL to the Jira equivalent, else return unchanged.
+def parse_gateway_url(url: str) -> tuple[str, str] | None:
+    m = re.search(r"https://api\.atlassian\.com/ex/(confluence|jira)/([^/?#]+)", url)
+    return (m.group(1).lower(), m.group(2)) if m else None
+
+
+def build_gateway_url(service: str, cloud_id: str) -> str:
+    return f"{_GATEWAY_PREFIX}/{service.lower()}/{cloud_id}"
+
+
+def ensure_service_gateway_url(url: str, service: str | None = None) -> str:
+    """Ensure the gateway URL uses the specified service.
 
     ``https://api.atlassian.com/ex/confluence/{cloudId}``
     becomes ``https://api.atlassian.com/ex/jira/{cloudId}``.
     Non-gateway URLs are returned as-is.
     """
-    if url.startswith(_GATEWAY_CONFLUENCE_INFIX):
-        cloud_id = url[len(_GATEWAY_CONFLUENCE_INFIX):].rstrip("/")
-        return f"{_GATEWAY_JIRA_INFIX}{cloud_id}"
+    if parsed := parse_gateway_url(url):
+        return build_gateway_url(service or parsed[0], parsed[1])
+
     return url
 
 
@@ -176,17 +184,21 @@ def get_confluence_instance(url: str) -> ConfluenceApiSdk:
     which enables the use of scoped API tokens.  For standard Atlassian Cloud instances
     (``.atlassian.net``) the Cloud ID is fetched and stored automatically on first connection.
     """
-    url = normalize_instance_url(url)
+    url = normalize_instance_url(ensure_service_gateway_url(url, "confluence"))
     with _clients_lock:
         if url in _confluence_clients:
             logger.debug("Confluence client cache hit for %s", url)
             return _confluence_clients[url]
 
-    logger.debug("Creating new Confluence client for %s", url)
     settings = get_settings()
 
+    auth = settings.auth.get_instance(url)
+    if auth is None:
+        raise AuthNotConfiguredError(url, "Confluence")
+
+    logger.debug("Creating new Confluence client for %s", url)
+
     # Auto-fetch and store the Cloud ID for standard Atlassian Cloud instances
-    auth = settings.auth.get_instance(url) or ApiDetails()
     if not auth.cloud_id and _is_standard_atlassian_cloud_url(url):
         cloud_id = _try_fetch_cloud_id(url)
         if cloud_id:
@@ -200,6 +212,7 @@ def get_confluence_instance(url: str) -> ConfluenceApiSdk:
         client = ApiClientFactory(settings.connection_config).create_confluence(sdk_url, auth)
         logger.info("Connected to Confluence at %s", sdk_url)
     except ConnectionError as e:
+        logger.exception("[red bold]Confluence authentication failed for %s.[/red bold]", url)
         raise AuthNotConfiguredError(url, "Confluence") from e
 
     if DEBUG:
@@ -241,7 +254,7 @@ def get_jira_instance(url: str) -> JiraApiSdk:
     For standard Atlassian Cloud instances the Cloud ID is fetched and stored automatically.
     """
     # Always work with the Jira gateway URL, even if the caller passed the Confluence one.
-    url = normalize_instance_url(_to_jira_gateway_url(url))
+    url = normalize_instance_url(ensure_service_gateway_url(url, "jira"))
     settings = get_settings()
 
     if not settings.export.enable_jira_enrichment:
@@ -253,17 +266,11 @@ def get_jira_instance(url: str) -> JiraApiSdk:
             logger.debug("Jira client cache hit for %s", url)
             return _jira_clients[url]
 
-    logger.debug("Creating new Jira client for %s", url)
-
-    # Auth lookup: try the canonical Jira URL first, then fall back to the Confluence
-    # gateway equivalent so that entries stored under the old (wrong) key still work.
     auth = settings.auth.get_jira_instance(url)
-    if auth is None and url.startswith(_GATEWAY_JIRA_INFIX):
-        confluence_fallback = _GATEWAY_CONFLUENCE_INFIX + url[len(_GATEWAY_JIRA_INFIX):]
-        auth = settings.auth.get_jira_instance(confluence_fallback)
-        if auth is not None:
-            logger.debug("Jira auth found under Confluence gateway key %s", confluence_fallback)
-    auth = auth or ApiDetails()
+    if auth is None:
+        raise AuthNotConfiguredError(url, "Jira")
+
+    logger.debug("Creating new Jira client for %s", url)
 
     # Auto-fetch and store the Cloud ID for standard Atlassian Cloud instances
     if not auth.cloud_id and _is_standard_atlassian_cloud_url(url):
@@ -279,6 +286,7 @@ def get_jira_instance(url: str) -> JiraApiSdk:
         client = ApiClientFactory(settings.connection_config).create_jira(sdk_url, auth)
         logger.info("Connected to Jira at %s", sdk_url)
     except ConnectionError as e:
+        logger.exception("[red bold]Jira authentication failed for %s.[/red bold]", url)
         raise AuthNotConfiguredError(url, "Jira") from e
 
     client.session.hooks["response"].append(_jira_auth_failure_hook)

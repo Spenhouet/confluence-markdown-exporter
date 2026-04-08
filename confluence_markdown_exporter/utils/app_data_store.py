@@ -377,8 +377,7 @@ class ExportConfig(BaseModel):
         description="Whether to include breadcrumb links at the top of the page.",
     )
     filename_encoding: str = Field(
-        default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_","\'":"_","’":"_","´":"_","`":"_"', # noqa: RUF001
-
+        default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_","\'":"_","’":"_","´":"_","`":"_"',  # noqa: RUF001
         title="Filename Encoding",
         description=(
             "List character-to-replacement pairs, separated by commas. "
@@ -399,8 +398,7 @@ class ExportConfig(BaseModel):
         default=False,
         title="Enforce lowercase paths",
         description=(
-            "Make all paths/files lowercase.\n"
-            "By default the original casing will be retained.\n"
+            "Make all paths/files lowercase.\nBy default the original casing will be retained.\n"
         ),
     )
     include_document_title: bool = Field(

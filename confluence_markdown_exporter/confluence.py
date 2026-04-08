@@ -42,10 +42,12 @@ from rich.progress import TimeElapsedColumn
 from rich.progress import TimeRemainingColumn
 
 from confluence_markdown_exporter.api_clients import JiraAuthenticationError
+from confluence_markdown_exporter.api_clients import build_gateway_url
 from confluence_markdown_exporter.api_clients import get_confluence_instance
 from confluence_markdown_exporter.api_clients import get_jira_instance
 from confluence_markdown_exporter.api_clients import get_thread_confluence
 from confluence_markdown_exporter.api_clients import handle_jira_auth_failure
+from confluence_markdown_exporter.api_clients import parse_gateway_url
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import normalize_instance_url
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
@@ -68,8 +70,6 @@ DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
 logger = logging.getLogger(__name__)
 
-_API_GATEWAY_HOST = "api.atlassian.com"
-
 
 def _extract_base_url(url: str) -> str:
     """Extract the base URL from a Confluence or Jira URL.
@@ -85,11 +85,15 @@ def _extract_base_url(url: str) -> str:
     so the SDK client hits the correct REST endpoints.
     """
     parsed = urllib.parse.urlparse(url)
-    if parsed.hostname == _API_GATEWAY_HOST:
-        # Path starts with /ex/confluence/{cloudId} or /ex/jira/{cloudId}
-        match = re.match(r"(/ex/(?:confluence|jira)/[^/]+)", parsed.path)
-        if match:
-            return normalize_instance_url(f"{parsed.scheme}://{parsed.hostname}{match.group(1)}")
+    if parsed.scheme is None or parsed.hostname is None:
+        msg = (
+            "Invalid URL: a scheme (http:// or https://) and hostname are required. "
+            "Expected format: 'https://<hostname>[:port]/...'."
+        )
+        raise ValueError(msg)
+
+    if gateway := parse_gateway_url(url):
+        return normalize_instance_url(build_gateway_url(*gateway))
 
     # For Server/DC instances the Confluence webapp may be deployed under a
     # context path (e.g. ``/confluence``).  Preserve everything before the
