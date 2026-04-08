@@ -1,5 +1,6 @@
 """Unit tests for api_clients module."""
 
+import urllib.parse
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -9,12 +10,131 @@ from atlassian.errors import ApiError
 
 from confluence_markdown_exporter.api_clients import ApiClientFactory
 from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
+from confluence_markdown_exporter.api_clients import ConfluenceRef
 from confluence_markdown_exporter.api_clients import get_confluence_instance
+from confluence_markdown_exporter.api_clients import parse_confluence_path
 from confluence_markdown_exporter.api_clients import response_hook
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
 from confluence_markdown_exporter.utils.app_data_store import AtlassianSdkConnectionConfig
 from confluence_markdown_exporter.utils.app_data_store import ConfigModel
 from tests.conftest import SAMPLE_CONFLUENCE_URL
+
+_PARSE_CONFLUENCE_PATH_CASES = [
+    (
+        "https://company.atlassian.net/wiki/spaces/SPACEKEY",
+        ConfluenceRef(space_key="SPACEKEY"),
+    ),
+    (
+        "https://company.atlassian.net/wiki/spaces/SPACEKEY/pages/123456789/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_id=123456789, page_title="Page Title"),
+    ),
+    (
+        "https://company.atlassian.net/wiki/spaces/SPACEKEY/pages/sddssd/Page+Title",
+        None,
+    ),
+    (
+        "https://company.atlassian.net/wiki/spaces/SPACEKEY/overview",
+        ConfluenceRef(space_key="SPACEKEY"),
+    ),
+    (
+        "https://api.atlassian.com/ex/confluence/CLOUDID/wiki/spaces/SPACEKEY/pages/123456789/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_id=123456789, page_title="Page Title"),
+    ),
+    (
+        "https://api.atlassian.com/ex/confluence/1232132-12312312-21321332/wiki/spaces/SPACEKEY",
+        ConfluenceRef(space_key="SPACEKEY"),
+    ),
+    (
+        "https://api.atlassian.com/ex/confluence/1232132-12312312-21321332/wiki/spaces/SPACEKEY/pages/123456789",
+        ConfluenceRef(space_key="SPACEKEY", page_id=123456789),
+    ),
+    (
+        "/wiki/spaces/SPACEKEY/",
+        ConfluenceRef(space_key="SPACEKEY"),
+    ),
+    (
+        "/wiki/spaces/SPACEKEY/overview",
+        ConfluenceRef(space_key="SPACEKEY"),
+    ),
+    (
+        "/wiki/spaces/SPACEKEY/pages/123456789/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_id=123456789, page_title="Page Title"),
+    ),
+    (
+        "/ex/confluence/CLOUDID/wiki/spaces/SPACEKEY/pages/123456789/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_id=123456789, page_title="Page Title"),
+    ),
+    (
+        "/ex/confluence/1232132-12312312-21321332/wiki/spaces/SPACEKEY",
+        ConfluenceRef(space_key="SPACEKEY"),
+    ),
+    (
+        "/ex/confluence/1232132-12312312-21321332/wiki/spaces/SPACEKEY/pages/123456789",
+        ConfluenceRef(space_key="SPACEKEY", page_id=123456789),
+    ),
+    (
+        "https://confluence.company.com/display/SPACEKEY",
+        ConfluenceRef(space_key="SPACEKEY"),
+    ),
+    (
+        "https://confluence.company.com/display/SPACEKEY/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_title="Page Title"),
+    ),
+    (
+        "https://confluence.company.com/SPACEKEY",
+        ConfluenceRef(space_key="SPACEKEY"),
+    ),
+    (
+        "https://confluence.company.com/SPACEKEY/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_title="Page Title"),
+    ),
+    (
+        "https://company.atlassian.net/display/SPACEKEY/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_title="Page Title"),
+    ),
+    (
+        "https://company.atlassian.net/SPACEKEY/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_title="Page Title"),
+    ),
+    (
+        "/display/SPACEKEY",
+        ConfluenceRef(space_key="SPACEKEY"),
+    ),
+    (
+        "/display/SPACEKEY/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_title="Page Title"),
+    ),
+    (
+        "/SPACEKEY",
+        ConfluenceRef(space_key="SPACEKEY"),
+    ),
+    (
+        "/SPACEKEY/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_title="Page Title"),
+    ),
+    (
+        "https://wiki.aaa.aaa/spaces/SPACEKEY/pages/123456789/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_id=123456789, page_title="Page Title"),
+    ),
+    (
+        "/spaces/SPACEKEY/pages/123456789/Page+Title",
+        ConfluenceRef(space_key="SPACEKEY", page_id=123456789, page_title="Page Title"),
+    ),
+]
+
+
+class TestParseConfluencePath:
+    """Test cases for parse_confluence_path function."""
+
+    @pytest.mark.parametrize(("url", "expected"), _PARSE_CONFLUENCE_PATH_CASES)
+    def test_parse_confluence_path(self, url: str, expected: ConfluenceRef | None) -> None:
+        path = urllib.parse.urlparse(url).path if "://" in url else url
+        result = parse_confluence_path(path)
+        if expected is None:
+            assert result is None
+        else:
+            assert result is not None
+            assert result.model_dump() == expected.model_dump()
 
 
 class TestResponseHook:
