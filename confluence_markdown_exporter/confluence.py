@@ -47,6 +47,7 @@ from confluence_markdown_exporter.api_clients import get_confluence_instance
 from confluence_markdown_exporter.api_clients import get_jira_instance
 from confluence_markdown_exporter.api_clients import get_thread_confluence
 from confluence_markdown_exporter.api_clients import handle_jira_auth_failure
+from confluence_markdown_exporter.api_clients import parse_confluence_path
 from confluence_markdown_exporter.api_clients import parse_gateway_url
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import normalize_instance_url
@@ -344,11 +345,10 @@ class Space(BaseModel):
         get_confluence_instance(base_url)
 
         parsed = urllib.parse.urlparse(space_url)
-        path = parsed.path.rstrip("/")
-        if match := re.search(r"(?:/wiki/spaces/|/display/|/)([A-Za-z0-9_-]+)/", path):
-            space_key = match.group(1)
-            logger.debug("Resolved space key '%s' from URL %s", space_key, space_url)
-            return cls.from_key(space_key, base_url)
+        if match := parse_confluence_path(parsed.path):
+            if match.space_key:
+                logger.debug("Resolved space key '%s' from URL %s", match.space_key, space_url)
+                return cls.from_key(match.space_key, base_url)
 
         msg = f"Could not parse space URL {space_url}."
         raise ValueError(msg)
@@ -851,31 +851,25 @@ class Page(Document):
         get_confluence_instance(base_url)
 
         parsed = urllib.parse.urlparse(page_url)
-        path = parsed.path.rstrip("/")
+        if match := parse_confluence_path(parsed.path):
+            if match.page_id:
+                logger.debug("Resolved page id=%s from Confluence URL %s", match.page_id, page_url)
+                return Page.from_id(match.page_id, base_url)
 
-        # Match Confluence Cloud Page URL
-        if match := re.search(r"/wiki/.+?/pages/(\d+)", path):
-            page_id = int(match.group(1))
-            logger.debug("Resolved page id=%s from Cloud URL %s", page_id, page_url)
-            return Page.from_id(page_id, base_url)
-
-        # Match Confluence Server Page URL
-        if match := re.search(r"^(?:/display)?/([^/]+)/([^/]+)$", path):
-            space_key = urllib.parse.unquote_plus(match.group(1))
-            page_title = urllib.parse.unquote_plus(match.group(2))
-            logger.debug(
-                "Resolving page '%s' in space '%s' from Server URL %s",
-                page_title,
-                space_key,
-                page_url,
-            )
-            page_data = cast(
-                "JsonResponse",
-                get_thread_confluence(base_url).get_page_by_title(
-                    space=space_key, title=page_title, expand="version"
-                ),
-            )
-            return Page.from_id(page_data["id"], base_url)
+            if match.space_key and match.page_title:
+                logger.debug(
+                    "Resolving page '%s' in space '%s' from Confluence URL %s",
+                    match.page_title,
+                    match.space_key,
+                    page_url,
+                )
+                page_data = cast(
+                    "JsonResponse",
+                    get_thread_confluence(base_url).get_page_by_title(
+                        space=match.space_key, title=match.page_title, expand="version"
+                    ),
+                )
+                return Page.from_id(page_data["id"], base_url)
 
         msg = f"Could not parse page URL {page_url}."
         raise ValueError(msg)
@@ -1186,9 +1180,9 @@ class Page(Document):
                 link = self.convert_attachment_link(el, text, parent_tags)
                 # convert_attachment_link may return None if the attachment meta is incomplete
                 return link or f"[{text}]({el.get('href')})"
-            if match := re.search(r"/wiki/.+?/pages/(\d+)", str(el.get("href", ""))):
-                page_id = match.group(1)
-                return self.convert_page_link(int(page_id))
+            if match := parse_confluence_path(str(el.get("href", ""))):
+                if match.page_id:
+                    return self.convert_page_link(match.page_id)
             if str(el.get("href", "")).startswith("#"):
                 # Handle heading links
                 return f"[{text}](#{sanitize_key(text, '-')})"
