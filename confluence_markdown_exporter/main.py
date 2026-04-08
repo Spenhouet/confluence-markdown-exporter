@@ -1,9 +1,13 @@
+import json
 import logging
+import platform
 import sys
+import urllib.parse
 from typing import Annotated
 
 import typer
 import typer.rich_utils
+import yaml
 from rich.panel import Panel
 from rich.table import Table
 
@@ -402,6 +406,83 @@ app.command(
 def version() -> None:
     """Display the current version."""
     typer.echo(f"confluence-markdown-exporter {__version__}")
+
+
+_ATLASSIAN_NET = "atlassian.net"
+_REDACTED = "[redacted]"
+
+
+def _redact_url(url: str) -> str:
+    """Redact the instance URL.
+
+    Atlassian Cloud URLs (``*.atlassian.net``) are kept as
+    ``******.atlassian.net`` so the instance type is still visible.
+    All other URLs are fully replaced with ``[redacted]``.
+    """
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname or ""
+    if host == _ATLASSIAN_NET or host.endswith(f".{_ATLASSIAN_NET}"):
+        return f"https://******.{_ATLASSIAN_NET}"
+    return _REDACTED
+
+
+def _redact_config(data: dict) -> dict:
+    """Return a deep copy of the config dict with sensitive values redacted.
+
+    Redacted fields: ``api_token``, ``pat``, ``username``, ``cloud_id`` (when non-empty),
+    ``export.output_path``, and instance URL keys in ``auth.confluence`` / ``auth.jira``.
+    """
+    import copy
+
+    data = copy.deepcopy(data)
+    for service in ("confluence", "jira"):
+        auth_section: dict = data.get("auth", {}).get(service, {})
+        redacted_section: dict = {}
+        for url, details in auth_section.items():
+            if isinstance(details, dict):
+                for field in ("api_token", "pat", "username", "cloud_id"):
+                    if details.get(field):
+                        details[field] = _REDACTED
+            redacted_section[_redact_url(url)] = details
+        data.setdefault("auth", {})[service] = redacted_section
+    if data.get("export", {}).get("output_path"):
+        data["export"]["output_path"] = _REDACTED
+    return data
+
+
+@app.command(
+    help=(
+        "Print diagnostic information for filing a bug report.\n\n"
+        "Outputs the app version, Python and OS details, and the current configuration "
+        "with all secrets redacted (API tokens and PATs are masked; "
+        "instance URL hostnames are partially hidden).\n\n"
+        "Paste the full output into your GitHub issue when reporting a bug."
+    ),
+)
+def bugreport() -> None:
+    """Print version, system info, and redacted config for bug reports."""
+    settings = get_settings()
+    config_data = json.loads(settings.model_dump_json())
+    redacted = _redact_config(config_data)
+
+    lines: list[str] = [
+        "## Bug Report Diagnostic Info",
+        "",
+        "### Version",
+        f"confluence-markdown-exporter {__version__}",
+        "",
+        "### System",
+        f"Python: {sys.version}",
+        f"Platform: {platform.platform()}",
+        f"Architecture: {platform.machine()}",
+        "",
+        "### Config",
+        f"Config file: {_REDACTED}",
+        "```yaml",
+        yaml.dump(redacted, default_flow_style=False, allow_unicode=True).rstrip(),
+        "```",
+    ]
+    typer.echo("\n".join(lines))
 
 
 if __name__ == "__main__":
