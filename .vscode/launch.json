@@ -17,7 +17,7 @@
       }
     },
     {
-      "name": "Python: Export Page(s) by ID or URL",
+      "name": "Python: Export Page(s)",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/confluence_markdown_exporter/main.py",
@@ -30,6 +30,7 @@
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
+        "CME_CONFIG_PATH": "scratch/cme_config.json",
         "CME_EXPORT__LOG_LEVEL": "DEBUG",
         "CME_EXPORT__OUTPUT_PATH": "scratch"
       }
@@ -48,6 +49,7 @@
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
+        "CME_CONFIG_PATH": "scratch/cme_config.json",
         "CME_EXPORT__LOG_LEVEL": "DEBUG",
         "CME_EXPORT__OUTPUT_PATH": "scratch"
       }
@@ -66,6 +68,7 @@
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
+        "CME_CONFIG_PATH": "scratch/cme_config.json",
         "CME_EXPORT__LOG_LEVEL": "DEBUG",
         "CME_EXPORT__OUTPUT_PATH": "scratch"
       }
@@ -84,6 +87,7 @@
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
+        "CME_CONFIG_PATH": "scratch/cme_config.json",
         "CME_EXPORT__LOG_LEVEL": "DEBUG",
         "CME_EXPORT__OUTPUT_PATH": "scratch"
       }
@@ -101,6 +105,7 @@
       "cwd": "${workspaceFolder}",
       "env": {
         "PYTHONPATH": "${workspaceRoot}",
+        "CME_CONFIG_PATH": "scratch/cme_config.json",
         "CME_EXPORT__LOG_LEVEL": "DEBUG"
       }
     }
