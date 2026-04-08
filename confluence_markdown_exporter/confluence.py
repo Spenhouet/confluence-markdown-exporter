@@ -62,12 +62,9 @@ from confluence_markdown_exporter.utils.rich_console import console
 from confluence_markdown_exporter.utils.rich_console import get_stats
 from confluence_markdown_exporter.utils.rich_console import reset_stats
 from confluence_markdown_exporter.utils.table_converter import TableConverter
-from confluence_markdown_exporter.utils.type_converter import str_to_bool
 
 JsonResponse: TypeAlias = dict
 StrPath: TypeAlias = str | PathLike[str]
-
-DEBUG: bool = str_to_bool(os.getenv("DEBUG", "False"))
 
 logger = logging.getLogger(__name__)
 
@@ -642,7 +639,7 @@ class Page(Document):
             return {}
 
         logger.debug("Exporting page id=%s '%s'", self.id, self.title)
-        if DEBUG:
+        if settings.export.log_level == "DEBUG":
             self.export_body()
         # Export attachments first so the files can be utilized during markdown conversion
         logger.debug("Exporting attachments for page id=%s", self.id)
@@ -1758,7 +1755,7 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
 
     # Get worker count from config
     max_workers = settings.connection_config.max_workers
-    serial = DEBUG or max_workers <= 1
+    serial = settings.export.log_level == "DEBUG" or max_workers <= 1
 
     mode_label = "serial" if serial else f"parallel ({max_workers} workers)"
     logger.debug("Export mode: %s, pages to export: %d", mode_label, len(pages_to_export))
