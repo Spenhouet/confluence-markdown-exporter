@@ -473,6 +473,25 @@ For Atlassian Cloud instances this is fetched and stored **automatically** on fi
 
 You can always view and change the current config with the interactive menu above.
 
+#### Generating API tokens
+
+API tokens that are associated with Atlassian Cloud accounts can be generated [in your 'Account Settings'](https://id.atlassian.com/manage-profile/security/api-tokens) (in Jira/Confluence: profile picture in upper-right corner > _Account Settings_ > _Security_ > _Create and Manage API tokens_).
+Scoped API tokens **require 'classic' scopes**; these scopes have been tested (giving full read-only access):
+
+```text
+read:confluence-content.all
+read:account
+read:confluence-content.permission
+read:confluence-content.summary
+read:confluence-groups
+read:confluence-props
+read:confluence-space.summary
+read:confluence-user
+read:me
+readonly:content.attachment:confluence
+search:confluence
+```
+
 ### Configuration for Target Systems
 
 Some platforms have specific requirements for Markdown formatting, file structure, or metadata. You can adjust the export configuration to optimize output for your target system. Below are some common examples:
