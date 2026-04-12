@@ -256,16 +256,23 @@ class AuthConfig(BaseModel):
 
         parsed = urllib.parse.urlparse(url)
         host = parsed.hostname or url
-        # Gateway URLs (with a meaningful path) must match exactly — hostname alone is ambiguous
-        # because multiple tenants share api.atlassian.com.
-        if parsed.path and parsed.path.strip("/"):
+        # Gateway URLs must match exactly — multiple tenants share api.atlassian.com.
+        if host == "api.atlassian.com":
             return None
         for key, details in instances.items():
             key_parsed = urllib.parse.urlparse(key)
             # Skip gateway-style keys when doing hostname-only matching
-            if key_parsed.path and key_parsed.path.strip("/"):
+            if key_parsed.hostname == "api.atlassian.com":
                 continue
-            if key_parsed.hostname == host:
+            if key_parsed.hostname != host or key_parsed.port != parsed.port:
+                continue
+            # Key stored without a context path matches any context path on the same host
+            # (e.g. stored as "https://host", URL is "https://host/confluence/spaces/...")
+            if not key_parsed.path.strip("/"):
+                return details
+            # Key stored with a context path must be a prefix of the lookup URL's path
+            # (e.g. stored as "https://host/confluence", URL is "https://host/confluence/spaces/...")
+            if parsed.path.startswith(key_parsed.path):
                 return details
         return None
 

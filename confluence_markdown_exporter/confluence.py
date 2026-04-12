@@ -342,7 +342,9 @@ class Space(BaseModel):
         get_confluence_instance(base_url)
 
         parsed = urllib.parse.urlparse(space_url)
-        if match := parse_confluence_path(parsed.path):
+        base_path = urllib.parse.urlparse(base_url).path.rstrip("/")
+        relative_path = parsed.path[len(base_path) :]
+        if match := parse_confluence_path(relative_path):
             if match.space_key:
                 logger.debug("Resolved space key '%s' from URL %s", match.space_key, space_url)
                 return cls.from_key(match.space_key, base_url)
@@ -848,7 +850,9 @@ class Page(Document):
         get_confluence_instance(base_url)
 
         parsed = urllib.parse.urlparse(page_url)
-        if match := parse_confluence_path(parsed.path):
+        base_path = urllib.parse.urlparse(base_url).path.rstrip("/")
+        relative_path = parsed.path[len(base_path) :]
+        if match := parse_confluence_path(relative_path):
             if match.page_id:
                 logger.debug("Resolved page id=%s from Confluence URL %s", match.page_id, page_url)
                 return Page.from_id(match.page_id, base_url)

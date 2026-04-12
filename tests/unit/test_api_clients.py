@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 import requests
 from atlassian.errors import ApiError
+from pydantic import SecretStr
 
 from confluence_markdown_exporter.api_clients import ApiClientFactory
 from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
@@ -16,6 +17,7 @@ from confluence_markdown_exporter.api_clients import parse_confluence_path
 from confluence_markdown_exporter.api_clients import response_hook
 from confluence_markdown_exporter.utils.app_data_store import ApiDetails
 from confluence_markdown_exporter.utils.app_data_store import AtlassianSdkConnectionConfig
+from confluence_markdown_exporter.utils.app_data_store import AuthConfig
 from confluence_markdown_exporter.utils.app_data_store import ConfigModel
 from tests.conftest import SAMPLE_CONFLUENCE_URL
 
@@ -306,3 +308,52 @@ class TestGetConfluenceInstance:
         assert exc_info.value.url == SAMPLE_CONFLUENCE_URL
         assert exc_info.value.service == "Confluence"
         assert mock_factory.create_confluence.call_count == 1
+
+
+class TestAuthConfigContextPath:
+    """Test auth lookup for instances deployed under a context path (e.g. /confluence)."""
+
+    def _make_config(self, key: str) -> AuthConfig:
+        details = ApiDetails(username=SecretStr("user"), api_token=SecretStr("token"))
+        return AuthConfig(confluence={key: details})
+
+    @pytest.mark.parametrize(
+        ("stored_key", "lookup_url"),
+        [
+            # Auth stored without context path, URL includes context path
+            ("https://host.example.com", "https://host.example.com/confluence"),
+            ("https://host.example.com", "https://host.example.com/confluence/spaces/KEY"),
+            ("https://host.example.com", "https://host.example.com/confluence/display/KEY/Title"),
+            # Auth stored with context path, URL includes context path
+            ("https://host.example.com/confluence", "https://host.example.com/confluence"),
+            (
+                "https://host.example.com/confluence",
+                "https://host.example.com/confluence/spaces/KEY/pages/123",
+            ),
+            # Non-standard port
+            ("https://host.example.com:8443", "https://host.example.com:8443/confluence"),
+        ],
+    )
+    def test_get_instance_matches_context_path_url(
+        self, stored_key: str, lookup_url: str
+    ) -> None:
+        config = self._make_config(stored_key)
+        assert config.get_instance(lookup_url) is not None
+
+    @pytest.mark.parametrize(
+        ("stored_key", "lookup_url"),
+        [
+            # Different host — must not match
+            ("https://other.example.com", "https://host.example.com/confluence"),
+            # Different port — must not match
+            ("https://host.example.com:8080", "https://host.example.com:9090/confluence"),
+            # Gateway URL — must not match by host fallback
+            (
+                "https://api.atlassian.com/ex/confluence/CLOUD1",
+                "https://api.atlassian.com/ex/confluence/CLOUD2/wiki/spaces/KEY",
+            ),
+        ],
+    )
+    def test_get_instance_no_false_match(self, stored_key: str, lookup_url: str) -> None:
+        config = self._make_config(stored_key)
+        assert config.get_instance(lookup_url) is None
