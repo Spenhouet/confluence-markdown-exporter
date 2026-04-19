@@ -44,12 +44,23 @@
 
 To use the confluence-markdown-exporter, follow these steps:
 
-### 1. Installation
+### 1. Installation or Update
 
-Install python package via pip.
+Install or update confluence-markdown-exporter with a single command.
 
-```sh
-pip install confluence-markdown-exporter
+**macOS and Linux**
+```bash
+curl -LsSf uvx.sh/confluence-markdown-exporter/install.sh | sh
+```
+
+**Windows**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://uvx.sh/confluence-markdown-exporter/install.ps1 | iex"
+```
+
+Installing a specific version
+```bash
+curl -LsSf uvx.sh/confluence-markdown-exporter/4.0.5/install.sh | sh
 ```
 
 ### 2. Exporting
@@ -556,13 +567,6 @@ CME_EXPORT__LOG_LEVEL=WARNING cme pages <page-url>
 
 This is useful for using different log levels for different environments or for scripting.
 
-## Update
-
-Update python package via pip.
-
-```sh
-pip install confluence-markdown-exporter --upgrade
-```
 
 ## Compatibility
 
