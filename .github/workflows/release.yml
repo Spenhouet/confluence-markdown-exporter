@@ -61,11 +61,15 @@ jobs:
           uv build --no-sources
           uv run --with dist/*.whl --no-project -- python -c "import confluence_markdown_exporter; print('Package imports successfully')"
 
+      - name: Update README version
+        run: |
+          sed -i "s|uvx.sh/confluence-markdown-exporter/[^/]*/install.sh|uvx.sh/confluence-markdown-exporter/${{ env.NEW_VERSION }}/install.sh|g" README.md
+
       - name: Commit version update
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add pyproject.toml uv.lock
+          git add pyproject.toml uv.lock README.md
           git commit -m "Bump version to ${{ env.NEW_VERSION }}"
           git push
 
