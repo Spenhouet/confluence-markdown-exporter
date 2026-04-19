@@ -120,6 +120,51 @@ def _extract_base_url(url: str) -> str:
     return normalize_instance_url(base)
 
 
+_JIRA_ROUTE_SEGMENTS = {
+    "agile",
+    "backlog",
+    "board",
+    "browse",
+    "issues",
+    "plugins",
+    "projects",
+    "rest",
+    "secure",
+    "servicedesk",
+    "software",
+}
+
+
+def _extract_jira_base_url(url: str) -> str | None:
+    """Extract the Jira instance base URL from a Jira issue URL.
+
+    Strips Jira-specific routing segments (e.g. ``browse``) so that the context
+    path is preserved for Server/DC deployments (e.g. ``https://host/jira``),
+    matching the key format used in ``auth.jira`` configuration.
+    Returns ``None`` when *url* is not an absolute URL.
+    """
+    parsed = urllib.parse.urlparse(url)
+    if not parsed.scheme or not parsed.hostname:
+        return None
+
+    if gateway := parse_gateway_url(url):
+        return normalize_instance_url(build_gateway_url(*gateway))
+
+    segments = [s for s in parsed.path.split("/") if s]
+    context_parts: list[str] = []
+    for segment in segments:
+        if segment.lower() in _JIRA_ROUTE_SEGMENTS:
+            break
+        context_parts.append(segment)
+
+    base = f"{parsed.scheme}://{parsed.hostname}"
+    if parsed.port and parsed.port not in (80, 443):
+        base = f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+    if context_parts:
+        base = f"{base}/{'/'.join(context_parts)}"
+    return normalize_instance_url(base)
+
+
 settings = get_settings()
 
 
@@ -1114,7 +1159,8 @@ class Page(Document):
                 return self.process_tag(link, parent_tags)
 
             try:
-                issue = JiraIssue.from_key(str(issue_key), self.page.base_url)
+                jira_url = _extract_jira_base_url(str(link.get("href", ""))) or self.page.base_url
+                issue = JiraIssue.from_key(str(issue_key), jira_url)
             except HTTPError:
                 return f"[[{issue_key}]]({link.get('href')})"
 
