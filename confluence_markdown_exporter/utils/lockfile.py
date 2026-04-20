@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import tempfile
+import threading
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -198,6 +199,7 @@ class LockfileManager:
     _output_path: ClassVar[Path | None] = None
     _all_entries_snapshot: ClassVar[dict[str, PageEntry]] = {}
     _seen_page_ids: ClassVar[set[str]] = set()
+    _thread_lock: ClassVar[threading.Lock] = threading.Lock()
 
     @classmethod
     def init(cls) -> None:
@@ -237,9 +239,10 @@ class LockfileManager:
         if cls._lock is None or cls._lockfile_path is None:
             return
 
-        cls._lock.add_page(page, attachment_entries)
-        cls._lock.save(cls._lockfile_path)
-        cls._seen_page_ids.add(str(page.id))
+        with cls._thread_lock:
+            cls._lock.add_page(page, attachment_entries)
+            cls._lock.save(cls._lockfile_path)
+            cls._seen_page_ids.add(str(page.id))
 
     @classmethod
     def mark_seen(cls, page_ids: list[int]) -> None:
@@ -324,7 +327,8 @@ class LockfileManager:
                 result_delete_ids.add(page_id)
 
         if result_delete_ids:
-            cls._lock.save(cls._lockfile_path, delete_ids=result_delete_ids)
+            with cls._thread_lock:
+                cls._lock.save(cls._lockfile_path, delete_ids=result_delete_ids)
 
         stats = get_stats()
         for _ in result_delete_ids:
