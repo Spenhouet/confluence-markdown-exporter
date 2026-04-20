@@ -172,7 +172,14 @@ class ConfluenceLock(BaseModel):
             ) as fd:
                 tmp_path = Path(fd.name)
                 fd.write(json_str)
-            tmp_path.replace(lockfile_path)
+            try:
+                tmp_path.replace(lockfile_path)
+            except PermissionError:
+                # Windows: MoveFileExW(MOVEFILE_REPLACE_EXISTING) can fail when
+                # security software holds the destination. Fall back to non-atomic
+                # unlink + rename.
+                lockfile_path.unlink(missing_ok=True)
+                tmp_path.rename(lockfile_path)
         except BaseException:
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
