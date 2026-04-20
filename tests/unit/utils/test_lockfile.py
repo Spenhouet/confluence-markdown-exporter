@@ -573,6 +573,27 @@ class TestConfluenceLockSave:
             tmp_files = list(Path(tmp).glob("*.tmp"))
             assert tmp_files == []
 
+    def test_save_windows_permission_error_fallback(self) -> None:
+        """On Windows, PermissionError from replace falls back to unlink + rename."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / "confluence-lock.json"
+            lock = _lock_with_pages({
+                "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
+            })
+
+            with patch(
+                "confluence_markdown_exporter.utils.lockfile.Path.replace",
+                side_effect=PermissionError("WinError 5"),
+            ):
+                lock.save(lockfile_path)
+
+            content = lockfile_path.read_text(encoding="utf-8")
+            data = json.loads(content)
+            pages = data["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            assert "100" in pages
+            tmp_files = list(Path(tmp).glob("*.tmp"))
+            assert tmp_files == []
+
     def test_save_cleans_up_tmp_on_error(self) -> None:
         """When writing fails, no .tmp files are left behind."""
         with tempfile.TemporaryDirectory() as tmp:
