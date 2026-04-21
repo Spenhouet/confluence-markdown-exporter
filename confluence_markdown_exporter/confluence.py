@@ -1089,9 +1089,14 @@ class Page(Document):
                 attachment_path = self._get_path_for_href(p, settings.export.attachment_href)
                 return attachment_path.replace(" ", "%20")
 
+            def _attachment_link(att: Attachment) -> str:
+                if settings.export.attachment_href == "wiki":
+                    return f"[[{att.export_path.name}|{att.title}]]"
+                return f"[{att.title}]({_get_path(att.export_path)})"
+
             rows = [
                 {
-                    "file": f"[{att.title}]({_get_path(att.export_path)})",
+                    "file": _attachment_link(att),
                     "modified": f"{att.version.friendly_when} by {self.convert_user(att.version.by)}",  # noqa: E501
                 }
                 for att in self.page.attachments
@@ -1254,8 +1259,10 @@ class Page(Document):
                 )
                 return f"[Page not accessible (ID: {page_id})]"
 
-            page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
+            if settings.export.page_href == "wiki":
+                return f"[[{page.title}]]"
 
+            page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
         def convert_attachment_link(
@@ -1277,6 +1284,9 @@ class Page(Document):
             if attachment is None:
                 href = el.get("href") or text
                 return f"[{text}]({href})"
+
+            if settings.export.attachment_href == "wiki":
+                return f"[[{attachment.export_path.name}|{attachment.title}]]"
 
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
@@ -1342,6 +1352,11 @@ class Page(Document):
                 if url_src:
                     return f"![{text}]({url_src})"
                 return text
+
+            if settings.export.attachment_href == "wiki":
+                alt = str(el.get("alt", "") or text).strip()
+                suffix = f"|{alt}" if alt else ""
+                return f"![[{attachment.export_path.name}{suffix}]]"
 
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             el["src"] = path.replace(" ", "%20")
@@ -1438,15 +1453,22 @@ class Page(Document):
                 if not drawio_attachments or not preview_attachments:
                     return f"\n<!-- Drawio diagram `{drawio_name}` not found -->\n\n"
 
-                drawio_path = self._get_path_for_href(
-                    drawio_attachments[0].export_path, settings.export.attachment_href
-                )
-                preview_path = self._get_path_for_href(
-                    preview_attachments[0].export_path, settings.export.attachment_href
-                )
-
-                drawio_image_embedding = f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
-                drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
+                if settings.export.attachment_href == "wiki":
+                    preview_filename = preview_attachments[0].export_path.name
+                    drawio_filename = drawio_attachments[0].export_path.name
+                    drawio_image_embedding = f"![[{preview_filename}|{drawio_name}]]"
+                    drawio_link = f"[[{drawio_filename}|{drawio_image_embedding}]]"
+                else:
+                    drawio_path = self._get_path_for_href(
+                        drawio_attachments[0].export_path, settings.export.attachment_href
+                    )
+                    preview_path = self._get_path_for_href(
+                        preview_attachments[0].export_path, settings.export.attachment_href
+                    )
+                    drawio_image_embedding = (
+                        f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
+                    )
+                    drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
                 return f"\n{drawio_link}\n\n"
 
             return ""
@@ -1638,7 +1660,9 @@ class Page(Document):
                 return ""
             return super().convert_table(table, "", parent_tags)  # type: ignore -
 
-        def _get_path_for_href(self, path: Path, style: Literal["absolute", "relative"]) -> str:
+        def _get_path_for_href(
+            self, path: Path, style: Literal["absolute", "relative", "wiki"]
+        ) -> str:
             """Get the path to use in href attributes based on settings."""
             if style == "absolute":
                 # Note that usually absolute would be
@@ -1646,6 +1670,8 @@ class Page(Document):
                 # In this case the URL will be "absolute" to the export path.
                 # This is useful for local file links.
                 result = "/" + str(path).lstrip("/")
+            elif style == "wiki":
+                result = path.name
             else:
                 result = os.path.relpath(path, self.page.export_path.parent)
             return result

@@ -314,13 +314,14 @@ class ExportConfig(BaseModel):
             "`/path/to/export`: Output will be saved in the specified absolute path.",
         ],
     )
-    page_href: Literal["absolute", "relative"] = Field(
+    page_href: Literal["absolute", "relative", "wiki"] = Field(
         default="relative",
         title="Page Href Style",
         description=(
-            "How to generate page href paths. Options: absolute, relative.\n"
-            "  - `relative` links are relative to the page"
-            "  - `absolute` links start from the configured output path"
+            "How to generate page href paths. Options: absolute, relative, wiki.\n"
+            "  - `relative` links are relative to the page\n"
+            "  - `absolute` links start from the configured output path\n"
+            "  - `wiki` generates Obsidian-style [[Page Title]] wiki links"
         ),
     )
     page_path: str = Field(
@@ -340,13 +341,14 @@ class ExportConfig(BaseModel):
         ),
         examples=["{space_name}/{page_title}.md"],
     )
-    attachment_href: Literal["absolute", "relative"] = Field(
+    attachment_href: Literal["absolute", "relative", "wiki"] = Field(
         default="relative",
         title="Attachment Href Style",
         description=(
-            "How to generate attachment href paths. Options: absolute, relative.\n"
-            "  - `relative` links are relative to the page"
-            "  - `absolute` links start from the configured output path"
+            "How to generate attachment href paths. Options: absolute, relative, wiki.\n"
+            "  - `relative` links are relative to the page\n"
+            "  - `absolute` links start from the configured output path\n"
+            "  - `wiki` generates Obsidian-style ![[Attachment Name]] wiki links"
         ),
     )
     attachment_path: str = Field(
