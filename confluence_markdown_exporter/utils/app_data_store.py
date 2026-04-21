@@ -383,6 +383,17 @@ class ExportConfig(BaseModel):
         title="Page Breadcrumbs",
         description="Whether to include breadcrumb links at the top of the page.",
     )
+    page_properties_as_front_matter: bool = Field(
+        default=True,
+        title="Page Properties as Front Matter",
+        description=(
+            "Whether to convert Confluence page property tables (Page Properties macro) "
+            "into YAML front matter. "
+            "When enabled (default), the macro's key-value table is extracted and written "
+            "as YAML front matter at the top of the exported file. "
+            "When disabled, the macro is converted to a regular markdown table."
+        ),
+    )
     filename_encoding: str = Field(
         default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_","\'":"_","’":"_","´":"_","`":"_"',  # noqa: RUF001
         title="Filename Encoding",
