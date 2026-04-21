@@ -252,10 +252,16 @@ The directory where all exported files and folders will be written. Used as the 
 
 ##### export.page_href
 
-How to generate links to pages in Markdown. Options: `relative` (default) or `absolute`.
+How to generate links to pages in Markdown. Options: `relative` (default), `absolute`, or `wiki`.
 
 - Default: `relative`
 - ENV Var: `CME_EXPORT__PAGE_HREF`
+
+| Value | Output |
+|-------|--------|
+| `relative` | `[Page Title](../path/to/page.md)` |
+| `absolute` | `[Page Title](/space/path/to/page.md)` |
+| `wiki` | `[[Page Title]]` |
 
 ##### export.page_path
 
@@ -266,10 +272,16 @@ Path template for exported pages.
 
 ##### export.attachment_href
 
-How to generate links to attachments in Markdown. Options: `relative` (default) or `absolute`.
+How to generate links to attachments in Markdown. Options: `relative` (default), `absolute`, or `wiki`.
 
 - Default: `relative`
 - ENV Var: `CME_EXPORT__ATTACHMENT_HREF`
+
+| Value | Output |
+|-------|--------|
+| `relative` | `[file.pdf](../path/to/file.pdf)` / `![alt](../path/to/image.png)` |
+| `absolute` | `[file.pdf](/space/attachments/file.pdf)` / `![alt](/space/attachments/image.png)` |
+| `wiki` | `[[file.pdf\|File Title]]` / `![[image.png\|alt text]]` |
 
 ##### export.attachment_path
 
@@ -291,6 +303,13 @@ Whether to include breadcrumb links at the top of the page.
 
 - Default: `True`
 - ENV Var: `CME_EXPORT__PAGE_BREADCRUMBS`
+
+##### export.page_properties_as_front_matter
+
+Whether to convert Confluence Page Properties macro tables into YAML front matter. When enabled, key-value pairs in the macro are extracted and written as YAML front matter at the top of the exported file. When disabled, the macro is converted to a regular markdown table.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__PAGE_PROPERTIES_AS_FRONT_MATTER`
 
 ##### export.filename_encoding
 
@@ -512,10 +531,16 @@ Some platforms have specific requirements for Markdown formatting, file structur
 Run the following command to configure the exporter for Obsidian:
 
 ```sh
-cme config set export.include_document_title=false export.page_breadcrumbs=false
+cme config set \
+  export.include_document_title=false \
+  export.page_breadcrumbs=false \
+  export.page_href=wiki \
+  export.attachment_href=wiki
 ```
 
-Obsidian natively renders the document title and page breadcrumbs, so both are disabled to avoid redundant output.
+Obsidian natively renders the document title and page breadcrumbs, so both are disabled to avoid redundant output. Wiki-style links (`[[Page Title]]` and `![[attachment.png]]`) are used so Obsidian can resolve links by title across the vault without depending on the file system path.
+
+> **Note:** Wiki links resolve by page title. If multiple pages share the same title across spaces, Obsidian may link to the wrong file. In that case, omit `export.page_href=wiki` and use `relative` or `absolute` links instead.
 
 #### Azure DevOps (ADO) Wikis
 
