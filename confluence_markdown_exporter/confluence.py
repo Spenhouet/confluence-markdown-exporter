@@ -976,14 +976,17 @@ class Page(Document):
 
         def convert_page_properties(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
-        ) -> None:
+        ) -> str | None:
+            if not settings.export.page_properties_as_front_matter:
+                return text
+
             rows = [
                 cast("list[Tag]", tr.find_all(["th", "td"]))
                 for tr in cast("list[Tag]", el.find_all("tr"))
                 if tr
             ]
             if not rows:
-                return
+                return None
 
             props = {
                 row[0].get_text(strip=True): self.convert(str(row[1])).strip()
@@ -992,6 +995,7 @@ class Page(Document):
             }
 
             self.set_page_properties(**props)
+            return None
 
         def convert_alert(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert Confluence info macros to Markdown GitHub style alerts.
