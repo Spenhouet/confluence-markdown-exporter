@@ -16,6 +16,7 @@ from concurrent.futures import as_completed
 from os import PathLike
 from pathlib import Path
 from string import Template
+from typing import ClassVar
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
@@ -1326,7 +1327,52 @@ class Page(Document):
 
             return md
 
-        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901
+        _ATLASSIAN_EMOTICONS: ClassVar[dict[str, str]] = {
+            "atlassian-check_mark": "✅",
+            "atlassian-cross_mark": "❌",
+            "atlassian-yes": "👍",
+            "atlassian-no": "👎",
+            "atlassian-information": "\u2139\ufe0f",
+            "atlassian-warning": "⚠️",
+            "atlassian-forbidden": "🚫",
+            "atlassian-plus": "\u2795",
+            "atlassian-minus": "\u2796",
+            "atlassian-question": "❓",
+            "atlassian-exclamation": "❗",
+            "atlassian-light_on": "💡",
+            "atlassian-light_off": "💡",
+            "atlassian-star_yellow": "⭐",
+            "atlassian-blue_star": "🔵",
+            "atlassian-smile": "😊",
+            "atlassian-sad": "😞",
+            "atlassian-tongue": "😛",
+            "atlassian-biggrin": "😁",
+            "atlassian-wink": "😉",
+        }
+
+        def _convert_emoticon(self, el: BeautifulSoup) -> str | None:
+            classes = el.get("class") or []
+            if "emoticon" not in classes:
+                return None
+            emoji_id = str(el.get("data-emoji-id", ""))
+            fallback = str(el.get("data-emoji-fallback", ""))
+            if fallback and not fallback.startswith(":"):
+                return fallback
+            if emoji_id:
+                try:
+                    codepoints = [int(cp, 16) for cp in emoji_id.split("-")]
+                    return "".join(chr(cp) for cp in codepoints)
+                except ValueError:
+                    pass
+                if emoji_id in self._ATLASSIAN_EMOTICONS:
+                    return self._ATLASSIAN_EMOTICONS[emoji_id]
+            shortname = str(el.get("data-emoji-shortname", ""))
+            return shortname or str(el.get("alt", "")) or None
+
+        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901, PLR0911, PLR0912
+            if emoticon := self._convert_emoticon(el):
+                return emoticon
+
             attachment = None
             if fid := el.get("data-media-id"):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
