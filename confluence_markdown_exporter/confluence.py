@@ -16,6 +16,7 @@ from concurrent.futures import as_completed
 from os import PathLike
 from pathlib import Path
 from string import Template
+from typing import ClassVar
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
@@ -464,10 +465,13 @@ class Attachment(Document):
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        ext = self.extension
+        title = self.title
+        title_without_ext = title[: -len(ext)] if ext and title.endswith(ext) else Path(title).stem
         return {
             **super()._template_vars,
             "attachment_id": str(self.id),
-            "attachment_title": sanitize_filename(self.title),
+            "attachment_title": sanitize_filename(title_without_ext),
             # file_id is a GUID and does not need sanitized.
             "attachment_file_id": self.file_id,
             "attachment_extension": self.extension,
@@ -1105,9 +1109,14 @@ class Page(Document):
                 attachment_path = self._get_path_for_href(p, settings.export.attachment_href)
                 return attachment_path.replace(" ", "%20")
 
+            def _attachment_link(att: Attachment) -> str:
+                if settings.export.attachment_href == "wiki":
+                    return f"[[{att.export_path.name}|{att.title}]]"
+                return f"[{att.title}]({_get_path(att.export_path)})"
+
             rows = [
                 {
-                    "file": f"[{att.title}]({_get_path(att.export_path)})",
+                    "file": _attachment_link(att),
                     "modified": f"{att.version.friendly_when} by {self.convert_user(att.version.by)}",  # noqa: E501
                 }
                 for att in self.page.attachments
@@ -1270,8 +1279,10 @@ class Page(Document):
                 )
                 return f"[Page not accessible (ID: {page_id})]"
 
-            page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
+            if settings.export.page_href == "wiki":
+                return f"[[{page.title}]]"
 
+            page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
         def convert_attachment_link(
@@ -1293,6 +1304,9 @@ class Page(Document):
             if attachment is None:
                 href = el.get("href") or text
                 return f"[{text}]({href})"
+
+            if settings.export.attachment_href == "wiki":
+                return f"[[{attachment.export_path.name}|{attachment.title}]]"
 
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
@@ -1329,7 +1343,52 @@ class Page(Document):
 
             return md
 
-        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901
+        _ATLASSIAN_EMOTICONS: ClassVar[dict[str, str]] = {
+            "atlassian-check_mark": "✅",
+            "atlassian-cross_mark": "❌",
+            "atlassian-yes": "👍",
+            "atlassian-no": "👎",
+            "atlassian-information": "\u2139\ufe0f",
+            "atlassian-warning": "⚠️",
+            "atlassian-forbidden": "🚫",
+            "atlassian-plus": "\u2795",
+            "atlassian-minus": "\u2796",
+            "atlassian-question": "❓",
+            "atlassian-exclamation": "❗",
+            "atlassian-light_on": "💡",
+            "atlassian-light_off": "💡",
+            "atlassian-star_yellow": "⭐",
+            "atlassian-blue_star": "🔵",
+            "atlassian-smile": "😊",
+            "atlassian-sad": "😞",
+            "atlassian-tongue": "😛",
+            "atlassian-biggrin": "😁",
+            "atlassian-wink": "😉",
+        }
+
+        def _convert_emoticon(self, el: BeautifulSoup) -> str | None:
+            classes = el.get("class") or []
+            if "emoticon" not in classes:
+                return None
+            emoji_id = str(el.get("data-emoji-id", ""))
+            fallback = str(el.get("data-emoji-fallback", ""))
+            if fallback and not fallback.startswith(":"):
+                return fallback
+            if emoji_id:
+                try:
+                    codepoints = [int(cp, 16) for cp in emoji_id.split("-")]
+                    return "".join(chr(cp) for cp in codepoints)
+                except ValueError:
+                    pass
+                if emoji_id in self._ATLASSIAN_EMOTICONS:
+                    return self._ATLASSIAN_EMOTICONS[emoji_id]
+            shortname = str(el.get("data-emoji-shortname", ""))
+            return shortname or str(el.get("alt", "")) or None
+
+        def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901, PLR0911, PLR0912
+            if emoticon := self._convert_emoticon(el):
+                return emoticon
+
             attachment = None
             if fid := el.get("data-media-id"):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
@@ -1358,6 +1417,11 @@ class Page(Document):
                 if url_src:
                     return f"![{text}]({url_src})"
                 return text
+
+            if settings.export.attachment_href == "wiki":
+                alt = str(el.get("alt", "") or text).strip()
+                suffix = f"|{alt}" if alt else ""
+                return f"![[{attachment.export_path.name}{suffix}]]"
 
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             el["src"] = path.replace(" ", "%20")
@@ -1454,15 +1518,22 @@ class Page(Document):
                 if not drawio_attachments or not preview_attachments:
                     return f"\n<!-- Drawio diagram `{drawio_name}` not found -->\n\n"
 
-                drawio_path = self._get_path_for_href(
-                    drawio_attachments[0].export_path, settings.export.attachment_href
-                )
-                preview_path = self._get_path_for_href(
-                    preview_attachments[0].export_path, settings.export.attachment_href
-                )
-
-                drawio_image_embedding = f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
-                drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
+                if settings.export.attachment_href == "wiki":
+                    preview_filename = preview_attachments[0].export_path.name
+                    drawio_filename = drawio_attachments[0].export_path.name
+                    drawio_image_embedding = f"![[{preview_filename}|{drawio_name}]]"
+                    drawio_link = f"[[{drawio_filename}|{drawio_image_embedding}]]"
+                else:
+                    drawio_path = self._get_path_for_href(
+                        drawio_attachments[0].export_path, settings.export.attachment_href
+                    )
+                    preview_path = self._get_path_for_href(
+                        preview_attachments[0].export_path, settings.export.attachment_href
+                    )
+                    drawio_image_embedding = (
+                        f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
+                    )
+                    drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
                 return f"\n{drawio_link}\n\n"
 
             return ""
@@ -1654,7 +1725,9 @@ class Page(Document):
                 return ""
             return super().convert_table(table, "", parent_tags)  # type: ignore -
 
-        def _get_path_for_href(self, path: Path, style: Literal["absolute", "relative"]) -> str:
+        def _get_path_for_href(
+            self, path: Path, style: Literal["absolute", "relative", "wiki"]
+        ) -> str:
             """Get the path to use in href attributes based on settings."""
             if style == "absolute":
                 # Note that usually absolute would be
@@ -1662,6 +1735,8 @@ class Page(Document):
                 # In this case the URL will be "absolute" to the export path.
                 # This is useful for local file links.
                 result = "/" + str(path).lstrip("/")
+            elif style == "wiki":
+                result = path.name
             else:
                 result = os.path.relpath(path, self.page.export_path.parent)
             return result
