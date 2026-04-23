@@ -70,6 +70,27 @@ StrPath: TypeAlias = str | PathLike[str]
 logger = logging.getLogger(__name__)
 
 
+def _require_dict(response: object, context: str) -> JsonResponse:
+    """Validate that an API response is a dict, not an HTML redirect or error string.
+
+    SAML SSO redirects and session-expiry responses are returned as raw HTML strings
+    by the atlassian-python-api client instead of raising an exception.  Calling
+    .get() on such a string produces a confusing AttributeError; this helper surfaces
+    a clear message instead.
+    """
+    if isinstance(response, dict):
+        return response
+    preview = str(response)[:120].replace("\n", " ")
+    if "SAMLRequest" in str(response) or "SAMLResponse" in str(response):
+        msg = (
+            f"Authentication failed for {context}: received a SAML SSO redirect instead of JSON. "
+            "Check that your Confluence token/credentials are correct and not expired."
+        )
+    else:
+        msg = f"Unexpected non-dict response for {context}: {preview!r}"
+    raise ValueError(msg)
+
+
 def _extract_base_url(url: str) -> str:
     """Extract the base URL from a Confluence or Jira URL.
 
@@ -855,13 +876,13 @@ class Page(Document):
         logger.debug("Fetching page id=%s from %s", page_id, base_url)
         try:
             return cls.from_json(
-                cast(
-                    "JsonResponse",
+                _require_dict(
                     get_thread_confluence(base_url).get_page_by_id(
                         page_id,
                         expand="body.view,body.export_view,body.editor2,metadata.labels,"
                         "metadata.properties,ancestors,version",
                     ),
+                    f"page id={page_id} at {base_url}",
                 ),
                 base_url,
             )
@@ -929,11 +950,11 @@ class Page(Document):
                     match.space_key,
                     page_url,
                 )
-                page_data = cast(
-                    "JsonResponse",
+                page_data = _require_dict(
                     get_thread_confluence(base_url).get_page_by_title(
                         space=match.space_key, title=match.page_title, expand="version"
                     ),
+                    f"page title={match.page_title!r} space={match.space_key!r} at {base_url}",
                 )
                 return Page.from_id(page_data["id"], base_url)
 
