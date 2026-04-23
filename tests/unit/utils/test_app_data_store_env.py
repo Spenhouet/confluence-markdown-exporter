@@ -9,6 +9,7 @@ import pytest
 
 from confluence_markdown_exporter.utils.app_data_store import AppSettings
 from confluence_markdown_exporter.utils.app_data_store import ConfigModel
+from confluence_markdown_exporter.utils.app_data_store import ExportConfig
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 
 
@@ -180,3 +181,40 @@ class TestEnvVarOverrides:
             ValidationError
         ):
             get_settings()
+
+
+class TestAttachmentPathMigration:
+    """Test migration of attachment_path templates that omit {attachment_extension}."""
+
+    def test_title_without_extension_gets_migrated(self) -> None:
+        """{attachment_title} alone is migrated to include {attachment_extension}."""
+        config = ExportConfig(attachment_path="{space_name}/{attachment_title}")
+        assert config.attachment_path == "{space_name}/{attachment_title}{attachment_extension}"
+
+    def test_title_with_other_path_segments_migrated(self) -> None:
+        """Migration works regardless of surrounding path segments."""
+        config = ExportConfig(attachment_path="{page_title}/{attachment_title}")
+        assert config.attachment_path == "{page_title}/{attachment_title}{attachment_extension}"
+
+    def test_title_already_has_extension_not_changed(self) -> None:
+        """Template already containing {attachment_extension} is left unchanged."""
+        original = "{space_name}/{attachment_title}{attachment_extension}"
+        config = ExportConfig(attachment_path=original)
+        assert config.attachment_path == original
+
+    def test_no_attachment_title_not_changed(self) -> None:
+        """Default template without {attachment_title} is left unchanged."""
+        original = "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
+        config = ExportConfig(attachment_path=original)
+        assert config.attachment_path == original
+
+    def test_migration_via_env_var(self) -> None:
+        """Migration also applies when the template comes from an ENV var."""
+        with patch.dict(
+            os.environ,
+            {"CME_EXPORT__ATTACHMENT_PATH": "{space_name}/attachments/{attachment_title}"},
+        ):
+            settings = get_settings()
+        assert settings.export.attachment_path == (
+            "{space_name}/attachments/{attachment_title}{attachment_extension}"
+        )
