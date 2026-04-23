@@ -464,10 +464,13 @@ class Attachment(Document):
 
     @property
     def _template_vars(self) -> dict[str, str]:
+        ext = self.extension
+        title = self.title
+        title_without_ext = title[: -len(ext)] if ext and title.endswith(ext) else Path(title).stem
         return {
             **super()._template_vars,
             "attachment_id": str(self.id),
-            "attachment_title": sanitize_filename(self.title),
+            "attachment_title": sanitize_filename(title_without_ext),
             # file_id is a GUID and does not need sanitized.
             "attachment_file_id": self.file_id,
             "attachment_extension": self.extension,
