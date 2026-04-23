@@ -11,6 +11,7 @@ from confluence_markdown_exporter.utils.app_data_store import AppSettings
 from confluence_markdown_exporter.utils.app_data_store import ConfigModel
 from confluence_markdown_exporter.utils.app_data_store import ExportConfig
 from confluence_markdown_exporter.utils.app_data_store import get_settings
+from confluence_markdown_exporter.utils.app_data_store import load_app_data
 
 
 class TestEnvVarOverrides:
@@ -181,6 +182,30 @@ class TestEnvVarOverrides:
             ValidationError
         ):
             get_settings()
+
+
+class TestLoadAppData:
+    """Tests for load_app_data robustness."""
+
+    def test_empty_config_file_returns_defaults(self) -> None:
+        """Empty config file must not raise JSONDecodeError."""
+        import confluence_markdown_exporter.utils.app_data_store as ads
+
+        with patch.object(ads, "APP_CONFIG_PATH") as mock_path:
+            mock_path.exists.return_value = True
+            mock_path.read_text.return_value = ""
+            result = load_app_data()
+        assert isinstance(result, dict)
+
+    def test_invalid_json_config_file_returns_defaults(self) -> None:
+        """Corrupt config file must not raise JSONDecodeError."""
+        import confluence_markdown_exporter.utils.app_data_store as ads
+
+        with patch.object(ads, "APP_CONFIG_PATH") as mock_path:
+            mock_path.exists.return_value = True
+            mock_path.read_text.return_value = "not json {"
+            result = load_app_data()
+        assert isinstance(result, dict)
 
 
 class TestAttachmentPathMigration:

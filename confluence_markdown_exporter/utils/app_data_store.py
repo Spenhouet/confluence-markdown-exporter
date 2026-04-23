@@ -1,5 +1,6 @@
 """Handles storage and retrieval of application data (auth and settings) for the exporter."""
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -554,7 +555,10 @@ class AppSettings(BaseSettings):
 
 def load_app_data() -> dict[str, dict]:
     """Load application data from the config file, returning a validated dict."""
-    data = json.loads(APP_CONFIG_PATH.read_text()) if APP_CONFIG_PATH.exists() else {}
+    data: dict = {}
+    if APP_CONFIG_PATH.exists():
+        with contextlib.suppress(json.JSONDecodeError, ValueError):
+            data = json.loads(APP_CONFIG_PATH.read_text())
     try:
         return ConfigModel(**data).model_dump()
     except ValidationError:
