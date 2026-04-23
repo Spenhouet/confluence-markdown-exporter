@@ -60,7 +60,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://uvx.sh/confluence-markdown-ex
 
 Installing a specific version
 ```bash
-curl -LsSf uvx.sh/confluence-markdown-exporter/4.0.8/install.sh | sh
+curl -LsSf uvx.sh/confluence-markdown-exporter/4.1.0/install.sh | sh
 ```
 
 ### 2. Exporting
