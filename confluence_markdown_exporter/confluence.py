@@ -899,6 +899,22 @@ class Page(Document):
         get_confluence_instance(base_url)
 
         parsed = urllib.parse.urlparse(page_url)
+        query_params = urllib.parse.parse_qs(parsed.query)
+        page_id_param = next(
+            (
+                values[0]
+                for key, values in query_params.items()
+                if key.lower() == "pageid" and values and values[0]
+            ),
+            None,
+        )
+        if page_id_param and page_id_param.isdigit():
+            page_id = int(page_id_param)
+            logger.debug(
+                "Resolved page id=%s from Confluence query string in URL %s", page_id, page_url
+            )
+            return Page.from_id(page_id, base_url)
+
         base_path = urllib.parse.urlparse(base_url).path.rstrip("/")
         relative_path = parsed.path[len(base_path) :]
         if match := parse_confluence_path(relative_path):

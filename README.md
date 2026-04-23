@@ -86,6 +86,7 @@ Supported page URL formats:
 - Confluence Cloud (API gateway): <https://api.atlassian.com/ex/confluence/CLOUDID/wiki/spaces/SPACEKEY/pages/123456789/Page+Title>
 - Confluence Server (long): <https://wiki.company.com/display/SPACEKEY/Page+Title>
 - Confluence Server (short): <https://wiki.company.com/SPACEKEY/Page+Title>
+- Confluence Server (param): <https://wiki.company.com/pages/viewpage.action?pageId=123456789>
 
 #### 2.2. Export Page(s) with Descendants
 
