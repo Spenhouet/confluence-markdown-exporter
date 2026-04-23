@@ -11,6 +11,7 @@ from pydantic import Field
 from pydantic import SecretStr
 from pydantic import ValidationError
 from pydantic import field_serializer
+from pydantic import field_validator
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from pydantic_settings import PydanticBaseSettingsSource
@@ -314,13 +315,14 @@ class ExportConfig(BaseModel):
             "`/path/to/export`: Output will be saved in the specified absolute path.",
         ],
     )
-    page_href: Literal["absolute", "relative"] = Field(
+    page_href: Literal["absolute", "relative", "wiki"] = Field(
         default="relative",
         title="Page Href Style",
         description=(
-            "How to generate page href paths. Options: absolute, relative.\n"
-            "  - `relative` links are relative to the page"
-            "  - `absolute` links start from the configured output path"
+            "How to generate page href paths. Options: absolute, relative, wiki.\n"
+            "  - `relative` links are relative to the page\n"
+            "  - `absolute` links start from the configured output path\n"
+            "  - `wiki` generates Obsidian-style [[Page Title]] wiki links"
         ),
     )
     page_path: str = Field(
@@ -340,13 +342,14 @@ class ExportConfig(BaseModel):
         ),
         examples=["{space_name}/{page_title}.md"],
     )
-    attachment_href: Literal["absolute", "relative"] = Field(
+    attachment_href: Literal["absolute", "relative", "wiki"] = Field(
         default="relative",
         title="Attachment Href Style",
         description=(
-            "How to generate attachment href paths. Options: absolute, relative.\n"
-            "  - `relative` links are relative to the page"
-            "  - `absolute` links start from the configured output path"
+            "How to generate attachment href paths. Options: absolute, relative, wiki.\n"
+            "  - `relative` links are relative to the page\n"
+            "  - `absolute` links start from the configured output path\n"
+            "  - `wiki` generates Obsidian-style ![[Attachment Name]] wiki links"
         ),
     )
     attachment_path: str = Field(
@@ -362,13 +365,31 @@ class ExportConfig(BaseModel):
             "  - {ancestor_ids}: A slash-separated list of ancestor page IDs.\n"
             "  - {ancestor_titles}: A slash-separated list of ancestor page titles.\n"
             "  - {attachment_id}: The unique ID of the attachment.\n"
-            "  - {attachment_title}: The title of the attachment.\n"
+            "  - {attachment_title}: The title of the attachment (without file extension).\n"
             "  - {attachment_file_id}: The file ID of the attachment.\n"
             "  - {attachment_extension}: The file extension of the attachment,\n"
             "including the leading dot."
         ),
         examples=["{space_name}/attachments/{attachment_file_id}{attachment_extension}"],
     )
+
+    @field_validator("attachment_path", mode="before")
+    @classmethod
+    def _migrate_attachment_path(cls, v: object) -> object:
+        """Migrate templates that used {attachment_title} as the full filename.
+
+        Before this change, {attachment_title} included the file extension.
+        Templates that relied on that (i.e. no explicit {attachment_extension})
+        are silently updated so file extensions are preserved.
+        """
+        if (
+            isinstance(v, str)
+            and "{attachment_title}" in v
+            and "{attachment_extension}" not in v
+        ):
+            return v.replace("{attachment_title}", "{attachment_title}{attachment_extension}")
+        return v
+
     attachment_export_all: bool = Field(
         default=False,
         title="Attachment Export All",
