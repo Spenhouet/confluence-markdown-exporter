@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from confluence_markdown_exporter.utils.export import escape_character_class
+from confluence_markdown_exporter.utils.export import github_heading_slug
 from confluence_markdown_exporter.utils.export import parse_encode_setting
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
@@ -274,6 +275,32 @@ class TestSanitizeKey:
         """Test string with only special characters."""
         result = sanitize_key("@#$%")
         assert result == "key_"
+
+
+class TestGithubHeadingSlug:
+    """Test cases for github_heading_slug function."""
+
+    def test_leading_hyphen_preserved(self) -> None:
+        """Heading starting with hyphen keeps it — the reported bug."""
+        assert github_heading_slug("- Final State") == "-final-state"
+
+    def test_plain_heading(self) -> None:
+        assert github_heading_slug("Final State") == "final-state"
+
+    def test_uppercase(self) -> None:
+        assert github_heading_slug("Hello World") == "hello-world"
+
+    def test_special_chars_removed(self) -> None:
+        assert github_heading_slug("Hello, World!") == "hello-world"
+
+    def test_multiple_spaces_collapsed(self) -> None:
+        assert github_heading_slug("Hello  World") == "hello-world"
+
+    def test_trailing_hyphen(self) -> None:
+        assert github_heading_slug("Hello -") == "hello-"
+
+    def test_empty_string(self) -> None:
+        assert github_heading_slug("") == ""
 
 
 class TestEscapeCharacterClass:
