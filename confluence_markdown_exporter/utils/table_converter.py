@@ -104,18 +104,36 @@ class TableConverter(MarkdownConverter):
         """This method is empty because we want a No-Op for the <tbody> tag."""
         return text
 
-    def convert_ol(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-        if "td" in parent_tags:
-            return str(el)
-        return super().convert_ol(el, text, parent_tags)
+    ParentTags = list[str] | set[str]
 
-    def convert_ul(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-        if "td" in parent_tags:
-            return str(el)
-        return super().convert_ul(el, text, parent_tags)
+    @staticmethod
+    def _normalize_parent_tags(
+        parent_tags: "TableConverter.ParentTags | bool",
+    ) -> "TableConverter.ParentTags":
+        # markdownify 1.x passes set[str]; older versions passed bool (convert_as_inline)
+        return parent_tags if isinstance(parent_tags, list | set) else set()
 
-    def convert_p(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-        md = super().convert_p(el, text, parent_tags)
-        if "td" in parent_tags:
+    def convert_ol(
+        self, el: BeautifulSoup, text: str, parent_tags: "TableConverter.ParentTags | bool"
+    ) -> str:
+        tags = self._normalize_parent_tags(parent_tags)
+        if "td" in tags:
+            return str(el)
+        return super().convert_ol(el, text, tags)
+
+    def convert_ul(
+        self, el: BeautifulSoup, text: str, parent_tags: "TableConverter.ParentTags | bool"
+    ) -> str:
+        tags = self._normalize_parent_tags(parent_tags)
+        if "td" in tags:
+            return str(el)
+        return super().convert_ul(el, text, tags)
+
+    def convert_p(
+        self, el: BeautifulSoup, text: str, parent_tags: "TableConverter.ParentTags | bool"
+    ) -> str:
+        tags = self._normalize_parent_tags(parent_tags)
+        md = super().convert_p(el, text, tags)
+        if "td" in tags:
             md = md.replace("\n", "") + "<br/>"
         return md
