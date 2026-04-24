@@ -156,6 +156,37 @@ _JIRA_ROUTE_SEGMENTS = {
     "software",
 }
 
+_HTML_ELEMENTS = frozenset(
+    {
+        "a", "abbr", "acronym", "address", "area", "article", "aside", "audio",
+        "b", "base", "bdi", "bdo", "blockquote", "body", "br", "button",
+        "canvas", "caption", "cite", "code", "col", "colgroup",
+        "data", "datalist", "dd", "del", "details", "dfn", "dialog", "div", "dl", "dt",
+        "em", "embed",
+        "fieldset", "figcaption", "figure", "footer", "form",
+        "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html",
+        "i", "iframe", "img", "input", "ins",
+        "kbd", "keygen",
+        "label", "legend", "li", "link",
+        "main", "map", "mark", "menu", "menuitem", "meta", "meter",
+        "nav", "noscript",
+        "object", "ol", "optgroup", "option", "output",
+        "p", "picture", "pre", "progress",
+        "q", "rp", "rt", "ruby",
+        "s", "samp", "script", "section", "select", "small", "source", "span",
+        "strong", "style", "sub", "summary", "sup",
+        "table", "tbody", "td", "template", "textarea", "tfoot", "th", "thead",
+        "time", "title", "tr", "track",
+        "u", "ul",
+        "var", "video",
+        "wbr",
+    }
+)
+
+_ANGLE_BRACKET_RE = re.compile(r"<([^<>\n]*)>")
+_CODE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
+_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+
 
 def _extract_jira_base_url(url: str) -> str | None:
     """Extract the Jira instance base URL from a Jira issue URL.
@@ -978,6 +1009,7 @@ class Page(Document):
         @property
         def markdown(self) -> str:
             md_body = self.convert(self.page.html)
+            md_body = self._escape_template_placeholders(md_body)
             markdown = f"{self.front_matter}\n"
             if settings.export.page_breadcrumbs:
                 markdown += f"{self.breadcrumbs}\n"
@@ -1481,6 +1513,49 @@ class Page(Document):
                     # Replace Unicode whitespace with regular space
                     normalized = normalized.replace(char, " ")
             return normalized
+
+        def _escape_template_placeholders(self, text: str) -> str:
+            r"""Escape <placeholder> patterns that Obsidian misparsed as HTML tags.
+
+            Confluence templates use <placeholder text> to mark values that need
+            replacing. Obsidian's renderer treats these as HTML, breaking page
+            formatting. This method escapes them to \<placeholder text\> so they
+            render as literal angle-bracket text.
+
+            Valid HTML tags (e.g. <br/>) are preserved. Content inside fenced code
+            blocks and inline code spans is left untouched.
+            """
+
+            def _escape_if_placeholder(m: re.Match) -> str:
+                inner = m.group(1)
+                # Strip leading slash (closing tag), get first token, strip trailing slash
+                stripped = inner.strip().lstrip("/")
+                tag_name = re.split(r"[\s/]", stripped)[0].lower() if stripped else ""
+                if tag_name in _HTML_ELEMENTS or inner.startswith("!"):
+                    return m.group(0)
+                return f"\\<{inner}\\>"
+
+            lines = text.split("\n")
+            result = []
+            in_fence = False
+            for line in lines:
+                if _CODE_FENCE_RE.match(line):
+                    in_fence = not in_fence
+                    result.append(line)
+                    continue
+                if in_fence:
+                    result.append(line)
+                    continue
+                # Interleave non-code and inline-code parts; only process non-code
+                parts = _INLINE_CODE_RE.split(line)
+                codes = _INLINE_CODE_RE.findall(line)
+                processed = []
+                for i, part in enumerate(parts):
+                    processed.append(_ANGLE_BRACKET_RE.sub(_escape_if_placeholder, part))
+                    if i < len(codes):
+                        processed.append(codes[i])
+                result.append("".join(processed))
+            return "\n".join(result)
 
         def convert_em(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert <em> tags, preserving spaces from Unicode whitespace entities."""
