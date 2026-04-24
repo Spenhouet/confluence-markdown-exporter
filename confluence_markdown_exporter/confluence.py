@@ -1404,10 +1404,10 @@ class Page(Document):
             if match := parse_confluence_path(str(el.get("href", ""))):
                 if match.page_id:
                     return self.convert_page_link(match.page_id)
-            if str(el.get("href", "")).startswith("#"):
+            if (href := str(el.get("href", ""))).startswith("#"):
                 if settings.export.page_href == "wiki":
-                    return f"[[#{github_heading_slug(text)}]]"
-                return f"[{text}](#{github_heading_slug(text)})"
+                    return f"[[#{text}]]"
+                return f"[{text}](#{github_heading_slug(href[1:])})"
 
             return super().convert_a(el, text, parent_tags)
 
