@@ -79,7 +79,7 @@ def sanitize_filename(filename: str) -> str:
     sanitized = filename
 
     # Strip control characters (ASCII 0x00-0x1F, 0x7F) invalid on Windows/Linux
-    sanitized = re.sub(r'[\x00-\x1f\x7f]', '', sanitized)
+    sanitized = re.sub(r"[\x00-\x1f\x7f]", "", sanitized)
 
     if export_options.filename_encoding:
         encode_map = parse_encode_setting(export_options.filename_encoding)
@@ -136,6 +136,18 @@ def sanitize_key(s: str, connector: str = "_") -> str:
     if not re.match(r"^[a-z]", s):
         s = f"key{connector}{s}"
     return s
+
+
+def github_heading_slug(text: str) -> str:
+    """Generate a GitHub-compatible heading anchor slug.
+
+    Matches the github-slugger algorithm used by GitHub to render heading anchors,
+    so that generated TOC links resolve correctly in GitHub-rendered Markdown.
+    """
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)  # drop punctuation; keep letters, digits, spaces, hyphens
+    text = re.sub(r"[\s_]+", "-", text)   # whitespace/underscores → hyphens
+    return re.sub(r"-{2,}", "-", text)    # collapse runs of hyphens (e.g. "- word" → "-word")
 
 
 def escape_character_class(s: str) -> str:

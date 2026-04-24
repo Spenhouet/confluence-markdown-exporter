@@ -53,6 +53,7 @@ from confluence_markdown_exporter.api_clients import parse_gateway_url
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import normalize_instance_url
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
+from confluence_markdown_exporter.utils.export import github_heading_slug
 from confluence_markdown_exporter.utils.export import sanitize_filename
 from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
@@ -158,27 +159,118 @@ _JIRA_ROUTE_SEGMENTS = {
 
 _HTML_ELEMENTS = frozenset(
     {
-        "a", "abbr", "acronym", "address", "area", "article", "aside", "audio",
-        "b", "base", "bdi", "bdo", "blockquote", "body", "br", "button",
-        "canvas", "caption", "cite", "code", "col", "colgroup",
-        "data", "datalist", "dd", "del", "details", "dfn", "dialog", "div", "dl", "dt",
-        "em", "embed",
-        "fieldset", "figcaption", "figure", "footer", "form",
-        "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hgroup", "hr", "html",
-        "i", "iframe", "img", "input", "ins",
-        "kbd", "keygen",
-        "label", "legend", "li", "link",
-        "main", "map", "mark", "menu", "menuitem", "meta", "meter",
-        "nav", "noscript",
-        "object", "ol", "optgroup", "option", "output",
-        "p", "picture", "pre", "progress",
-        "q", "rp", "rt", "ruby",
-        "s", "samp", "script", "section", "select", "small", "source", "span",
-        "strong", "style", "sub", "summary", "sup",
-        "table", "tbody", "td", "template", "textarea", "tfoot", "th", "thead",
-        "time", "title", "tr", "track",
-        "u", "ul",
-        "var", "video",
+        "a",
+        "abbr",
+        "acronym",
+        "address",
+        "area",
+        "article",
+        "aside",
+        "audio",
+        "b",
+        "base",
+        "bdi",
+        "bdo",
+        "blockquote",
+        "body",
+        "br",
+        "button",
+        "canvas",
+        "caption",
+        "cite",
+        "code",
+        "col",
+        "colgroup",
+        "data",
+        "datalist",
+        "dd",
+        "del",
+        "details",
+        "dfn",
+        "dialog",
+        "div",
+        "dl",
+        "dt",
+        "em",
+        "embed",
+        "fieldset",
+        "figcaption",
+        "figure",
+        "footer",
+        "form",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "head",
+        "header",
+        "hgroup",
+        "hr",
+        "html",
+        "i",
+        "iframe",
+        "img",
+        "input",
+        "ins",
+        "kbd",
+        "keygen",
+        "label",
+        "legend",
+        "li",
+        "link",
+        "main",
+        "map",
+        "mark",
+        "menu",
+        "menuitem",
+        "meta",
+        "meter",
+        "nav",
+        "noscript",
+        "object",
+        "ol",
+        "optgroup",
+        "option",
+        "output",
+        "p",
+        "picture",
+        "pre",
+        "progress",
+        "q",
+        "rp",
+        "rt",
+        "ruby",
+        "s",
+        "samp",
+        "script",
+        "section",
+        "select",
+        "small",
+        "source",
+        "span",
+        "strong",
+        "style",
+        "sub",
+        "summary",
+        "sup",
+        "table",
+        "tbody",
+        "td",
+        "template",
+        "textarea",
+        "tfoot",
+        "th",
+        "thead",
+        "time",
+        "title",
+        "tr",
+        "track",
+        "u",
+        "ul",
+        "var",
+        "video",
         "wbr",
     }
 )
@@ -1272,7 +1364,7 @@ class Page(Document):
                 return f"[^{text}]:"  # Footnote definition
             return f"[^{text}]"  # f"<sup>{text}</sup>"
 
-        def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911, C901
+        def convert_a(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911, PLR0912, C901
             if "user-mention" in str(el.get("class")):
                 return self.convert_user_mention(el, text, parent_tags)
             if "createpage.action" in str(el.get("href")) or "createlink" in str(el.get("class")):
@@ -1313,8 +1405,9 @@ class Page(Document):
                 if match.page_id:
                     return self.convert_page_link(match.page_id)
             if str(el.get("href", "")).startswith("#"):
-                # Handle heading links
-                return f"[{text}](#{sanitize_key(text, '-')})"
+                if settings.export.page_href == "wiki":
+                    return f"[[#{github_heading_slug(text)}]]"
+                return f"[{text}](#{github_heading_slug(text)})"
 
             return super().convert_a(el, text, parent_tags)
 
@@ -1626,9 +1719,7 @@ class Page(Document):
                     preview_path = self._get_path_for_href(
                         preview_attachments[0].export_path, settings.export.attachment_href
                     )
-                    drawio_image_embedding = (
-                        f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
-                    )
+                    drawio_image_embedding = f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
                     drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
                 return f"\n{drawio_link}\n\n"
 
