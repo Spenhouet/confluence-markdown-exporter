@@ -107,3 +107,35 @@ class TestTableConverter:
         # Should have no escaped pipes
         assert "\\|" not in result
 
+    def test_convert_p_bool_parent_tags_no_crash(self) -> None:
+        """convert_p must not crash when markdownify passes bool instead of set."""
+        converter = TableConverter()
+        el = BeautifulSoup("<p>text.</p>", "html.parser").p
+        assert el is not None
+        result = converter.convert_p(el, "text.", parent_tags=False)  # type: ignore[arg-type]
+        assert "text." in result
+
+    def test_convert_ol_bool_parent_tags_no_crash(self) -> None:
+        """convert_ol must not crash when markdownify passes bool instead of set."""
+        converter = TableConverter()
+        el = BeautifulSoup("<ol><li>item</li></ol>", "html.parser").ol
+        assert el is not None
+        result = converter.convert_ol(el, "item", parent_tags=False)  # type: ignore[arg-type]
+        assert "item" in result
+
+    def test_convert_ul_bool_parent_tags_no_crash(self) -> None:
+        """convert_ul must not crash when markdownify passes bool instead of set."""
+        converter = TableConverter()
+        el = BeautifulSoup("<ul><li>item</li></ul>", "html.parser").ul
+        assert el is not None
+        result = converter.convert_ul(el, "item", parent_tags=False)  # type: ignore[arg-type]
+        assert "item" in result
+
+    def test_td_detection_still_works_with_set_parent_tags(self) -> None:
+        """set-based parent_tags (markdownify 1.x) must still trigger td-specific behaviour."""
+        converter = TableConverter()
+        el = BeautifulSoup("<p>text.</p>", "html.parser").p
+        assert el is not None
+        result = converter.convert_p(el, "text.", {"td", "_inline"})  # type: ignore[arg-type]
+        assert result.endswith("<br/>")
+

@@ -1571,9 +1571,11 @@ class Page(Document):
 
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             el["src"] = path.replace(" ", "%20")
-            if "_inline" in parent_tags:
-                parent_tags.remove("_inline")  # Always show images.
-            return super().convert_img(el, text, parent_tags)
+            tags = parent_tags if isinstance(parent_tags, list | set) else set()
+            if "_inline" in tags:
+                tags = set(tags)
+                tags.discard("_inline")  # Always show images.
+            return super().convert_img(el, text, tags)
 
         def _normalize_unicode_whitespace(self, text: str) -> str:
             r"""Normalize Unicode whitespace to regular spaces.
