@@ -508,7 +508,7 @@ class _JsonConfigSource(PydanticBaseSettingsSource):
     def __call__(self) -> dict[str, Any]:
         if APP_CONFIG_PATH.exists():
             try:
-                raw = json.loads(APP_CONFIG_PATH.read_text())
+                raw = json.loads(APP_CONFIG_PATH.read_text(encoding="utf-8"))
                 return ConfigModel(**raw).model_dump()
             except Exception:  # noqa: BLE001
                 return ConfigModel().model_dump()
@@ -558,7 +558,7 @@ def load_app_data() -> dict[str, dict]:
     data: dict = {}
     if APP_CONFIG_PATH.exists():
         with contextlib.suppress(json.JSONDecodeError, ValueError):
-            data = json.loads(APP_CONFIG_PATH.read_text())
+            data = json.loads(APP_CONFIG_PATH.read_text(encoding="utf-8"))
     try:
         return ConfigModel(**data).model_dump()
     except ValidationError:
@@ -569,7 +569,7 @@ def save_app_data(config_model: ConfigModel) -> None:
     """Save application data to the config file using Pydantic serialization."""
     # Use Pydantic's model_dump_json which properly handles SecretStr serialization
     json_str = config_model.model_dump_json(indent=2)
-    APP_CONFIG_PATH.write_text(json_str)
+    APP_CONFIG_PATH.write_text(json_str, encoding="utf-8")
 
 
 def get_settings() -> AppSettings:
