@@ -69,6 +69,7 @@ JsonResponse: TypeAlias = dict
 StrPath: TypeAlias = str | PathLike[str]
 
 logger = logging.getLogger(__name__)
+_MAX_UNICODE_CODEPOINT = 0x10FFFF
 
 
 def _require_dict(response: object, context: str) -> JsonResponse:
@@ -1523,13 +1524,14 @@ class Page(Document):
             if emoji_id:
                 try:
                     codepoints = [int(cp, 16) for cp in emoji_id.split("-")]
-                    return "".join(chr(cp) for cp in codepoints)
-                except ValueError:
+                    if all(0 <= cp <= _MAX_UNICODE_CODEPOINT for cp in codepoints):
+                        return "".join(chr(cp) for cp in codepoints)
+                except (OverflowError, ValueError):
                     pass
                 if emoji_id in self._ATLASSIAN_EMOTICONS:
                     return self._ATLASSIAN_EMOTICONS[emoji_id]
             shortname = str(el.get("data-emoji-shortname", ""))
-            return shortname or str(el.get("alt", "")) or None
+            return shortname or fallback or str(el.get("alt", "")) or None
 
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901, PLR0911, PLR0912
             if emoticon := self._convert_emoticon(el):

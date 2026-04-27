@@ -68,6 +68,16 @@ class TestEmoticonConversion:
         )
         assert converter.convert(html).strip() == "\U0001f600"
 
+    def test_custom_emoji_uuid_falls_back_to_shortname(self, converter: Page.Converter) -> None:
+        html = (
+            '<img class="emoticon emoticon-blue-star"'
+            ' data-emoji-id="fb5b359f-23fa-44bd-872b-676e207eaaef"'
+            ' data-emoji-fallback=":alert-1:"'
+            ' data-emoji-shortname=":alert-1:"'
+            ' alt="(blue star)" />'
+        )
+        assert converter.convert(html).strip() == ":alert-1:"
+
     def test_non_emoticon_img_unchanged(self, converter: Page.Converter) -> None:
         html = '<img src="http://example.com/image.png" alt="photo" />'
         result = converter.convert(html).strip()
