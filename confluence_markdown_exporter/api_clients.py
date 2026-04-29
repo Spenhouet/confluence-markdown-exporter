@@ -105,7 +105,7 @@ class ConfluenceRef(BaseModel):
 # 1) Cloud [/wiki]/spaces/{space_key}[/pages/{page_id}[/{page_title}]]
 _CLOUD_URL_RE = re.compile(
     r"^(?:/ex/confluence/[^/]+)?(?:/wiki)?/spaces/"
-    r"(?P<space_key>[A-Za-z0-9_-]+)"
+    r"(?P<space_key>[A-Za-z0-9_~-]+)"
     r"(?:/pages/(?P<page_id>\d+)(?:/(?P<page_title>[^/?#]+))?)?"
     r"(?:/(?!pages/)[^/?#]+)?/?$"
 )
