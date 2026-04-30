@@ -53,6 +53,12 @@ class TestEnvVarOverrides:
             settings = get_settings()
         assert settings.export.attachment_export_all is True
 
+    def test_include_confluence_page_url_env_override(self) -> None:
+        """CME_EXPORT__INCLUDE_CONFLUENCE_PAGE_URL=true includes source page URL."""
+        with patch.dict(os.environ, {"CME_EXPORT__INCLUDE_CONFLUENCE_PAGE_URL": "true"}):
+            settings = get_settings()
+        assert settings.export.include_confluence_page_url is True
+
     def test_env_var_does_not_persist(self) -> None:
         """ENV var override is session-only and does not alter the JSON config file."""
         with tempfile.TemporaryDirectory() as tmpdir:

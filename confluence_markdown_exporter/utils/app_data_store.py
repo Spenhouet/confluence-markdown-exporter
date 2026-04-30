@@ -413,6 +413,14 @@ class ExportConfig(BaseModel):
         title="Page Breadcrumbs",
         description="Whether to include breadcrumb links at the top of the page.",
     )
+    include_confluence_page_url: bool = Field(
+        default=False,
+        title="Include Confluence Page URL",
+        description=(
+            "Whether to include the original Confluence page URL at the top of the "
+            "exported markdown file."
+        ),
+    )
     page_properties_as_front_matter: bool = Field(
         default=True,
         title="Page Properties as Front Matter",

@@ -305,6 +305,13 @@ Whether to include breadcrumb links at the top of the page.
 - Default: `True`
 - ENV Var: `CME_EXPORT__PAGE_BREADCRUMBS`
 
+##### export.include_confluence_page_url
+
+Whether to include the original Confluence page URL at the top of the exported markdown file.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__INCLUDE_CONFLUENCE_PAGE_URL`
+
 ##### export.page_properties_as_front_matter
 
 Whether to convert Confluence Page Properties macro tables into YAML front matter. When enabled, key-value pairs in the macro are extracted and written as YAML front matter at the top of the exported file. When disabled, the macro is converted to a regular markdown table.

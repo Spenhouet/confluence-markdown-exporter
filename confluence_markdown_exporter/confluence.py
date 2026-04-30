@@ -144,6 +144,25 @@ def _extract_base_url(url: str) -> str:
     return normalize_instance_url(base)
 
 
+def _get_web_url(data: JsonResponse) -> str:
+    links = data.get("_links", {})
+    if not isinstance(links, dict):
+        return ""
+
+    base = links.get("base")
+    webui = links.get("webui")
+
+    if not isinstance(base, str) or not isinstance(webui, str):
+        return ""
+
+    base = base.rstrip("/")
+    webui = webui.lstrip("/")
+    if (not base) or (not webui):
+        return ""
+
+    return f"{base}/{webui}"
+
+
 _JIRA_ROUTE_SEGMENTS = {
     "agile",
     "backlog",
@@ -765,6 +784,7 @@ class Descendant(Document):
 
 class Page(Document):
     id: int
+    web_url: str = ""
     body: str
     body_export: str
     editor2: str
@@ -960,6 +980,7 @@ class Page(Document):
     def from_json(cls, data: JsonResponse, base_url: str) -> "Page":
         return cls(
             base_url=base_url,
+            web_url=_get_web_url(data),
             id=data.get("id", 0),
             title=data.get("title", ""),
             space=Space.from_key(
@@ -1104,6 +1125,9 @@ class Page(Document):
             md_body = self.convert(self.page.html)
             md_body = self._escape_template_placeholders(md_body)
             markdown = f"{self.front_matter}\n"
+            include_web_url = getattr(settings.export, "include_confluence_page_url", False)
+            if isinstance(include_web_url, bool) and include_web_url and self.page.web_url:
+                markdown += f"Confluence page: {self.page.web_url}\n\n"
             if settings.export.page_breadcrumbs:
                 markdown += f"{self.breadcrumbs}\n"
             markdown += f"{md_body}\n"

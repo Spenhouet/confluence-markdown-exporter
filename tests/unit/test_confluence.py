@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from confluence_markdown_exporter.confluence import Page
+from confluence_markdown_exporter.confluence import _get_web_url
 
 
 class MockPage:
@@ -16,6 +17,7 @@ class MockPage:
         self.id = "test-page"
         self.title = "Test Page"
         self.html = ""
+        self.web_url = "https://example.atlassian.net/wiki/spaces/TEST/pages/123/Test+Page"
         self.labels = []
         self.ancestors = []
 
@@ -58,6 +60,39 @@ class TestAnchorLinkConversion:
             html = '<a href="#1.-Request-Service">Request Service</a>'
             result = converter.convert(html).strip()
         assert result == "[[#Request Service]]"
+
+
+class TestPageWebUrl:
+    """Original Confluence page URL handling."""
+
+    def test_get_web_url_combines_base_and_webui(self) -> None:
+        data = {
+            "_links": {
+                "base": "https://example.atlassian.net/wiki",
+                "webui": "/spaces/TEST/pages/123/Test+Page",
+            }
+        }
+
+        assert _get_web_url(data) == (
+            "https://example.atlassian.net/wiki/spaces/TEST/pages/123/Test+Page"
+        )
+
+    def test_get_web_url_returns_empty_string_when_links_are_missing(self) -> None:
+        assert _get_web_url({}) == ""
+
+    def test_markdown_includes_web_url_when_enabled(self) -> None:
+        page = MockPage()
+        page.html = "<p>Hello</p>"
+
+        with patch("confluence_markdown_exporter.confluence.settings") as mock_settings:
+            mock_settings.export.include_confluence_page_url = True
+            mock_settings.export.page_breadcrumbs = False
+            result = Page.Converter(page).markdown
+
+        assert (
+            "Confluence page: "
+            "https://example.atlassian.net/wiki/spaces/TEST/pages/123/Test+Page"
+        ) in result
 
 
 class TestPageFromUrl:

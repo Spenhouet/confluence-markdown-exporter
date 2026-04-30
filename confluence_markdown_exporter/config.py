@@ -32,6 +32,8 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.attachment_href` | Link style for attachments: `relative` or `absolute` |\n\n"
     "| `export.include_document_title` | Prepend H1 title to each page |\n\n"
     "| `export.page_breadcrumbs` | Include breadcrumb links at top of page |\n\n"
+    "| `export.include_confluence_page_url` | Include original Confluence page URL "
+    "at top of page |\n\n"
     "| `export.enable_jira_enrichment` | Fetch Jira data for enriched links |\n\n"
     "| `export.attachment_export_all` | Export all attachments, not only referenced ones |\n\n"
     "| `export.filename_length` | Maximum filename length (default: 255) |\n\n"
