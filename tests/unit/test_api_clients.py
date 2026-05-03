@@ -257,6 +257,46 @@ class TestApiClientFactory:
         with pytest.raises(ConnectionError, match="Jira connection failed"):
             factory.create_jira(SAMPLE_CONFLUENCE_URL, sample_api_details)
 
+    @patch("confluence_markdown_exporter.api_clients.ConfluenceApiSdk")
+    def test_create_confluence_skips_v1_validation_when_cloud_id_set(
+        self, mock_confluence_sdk: MagicMock, sample_api_details: ApiDetails
+    ) -> None:
+        """When auth.cloud_id is set, skip the v1 /rest/api/space ping.
+
+        Cloud has removed that endpoint (HTTP 410); scoped tokens reject
+        v1 calls with 401. Real export calls surface auth errors naturally.
+        """
+        mock_instance = MagicMock()
+        mock_confluence_sdk.return_value = mock_instance
+
+        cloud_auth = sample_api_details.model_copy(
+            update={"cloud_id": "00000000-0000-0000-0000-000000000000"}
+        )
+        factory = ApiClientFactory(AtlassianSdkConnectionConfig())
+
+        result = factory.create_confluence(SAMPLE_CONFLUENCE_URL, cloud_auth)
+
+        assert result == mock_instance
+        mock_instance.get_all_spaces.assert_not_called()
+
+    @patch("confluence_markdown_exporter.api_clients.JiraApiSdk")
+    def test_create_jira_skips_v1_validation_when_cloud_id_set(
+        self, mock_jira_sdk: MagicMock, sample_api_details: ApiDetails
+    ) -> None:
+        """When auth.cloud_id is set, skip the v1 /rest/api/project ping."""
+        mock_instance = MagicMock()
+        mock_jira_sdk.return_value = mock_instance
+
+        cloud_auth = sample_api_details.model_copy(
+            update={"cloud_id": "00000000-0000-0000-0000-000000000000"}
+        )
+        factory = ApiClientFactory(AtlassianSdkConnectionConfig())
+
+        result = factory.create_jira(SAMPLE_CONFLUENCE_URL, cloud_auth)
+
+        assert result == mock_instance
+        mock_instance.get_all_projects.assert_not_called()
+
 
 class TestGetConfluenceInstance:
     """Test cases for get_confluence_instance function."""
@@ -334,9 +374,7 @@ class TestAuthConfigContextPath:
             ("https://host.example.com:8443", "https://host.example.com:8443/confluence"),
         ],
     )
-    def test_get_instance_matches_context_path_url(
-        self, stored_key: str, lookup_url: str
-    ) -> None:
+    def test_get_instance_matches_context_path_url(self, stored_key: str, lookup_url: str) -> None:
         config = self._make_config(stored_key)
         assert config.get_instance(lookup_url) is not None
 
