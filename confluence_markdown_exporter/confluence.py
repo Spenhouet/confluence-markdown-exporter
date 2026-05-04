@@ -1242,6 +1242,14 @@ class Page(Document):
                 if el["data-macro-name"] == "jira":
                     return self.convert_jira_issue(el, text, parent_tags)
 
+            if el.has_attr("class") and "inline-comment-marker" in el["class"]:
+                return self.convert_inline_comment_marker(el, text, parent_tags)
+
+            return text
+
+        def convert_inline_comment_marker(
+            self, _el: BeautifulSoup, text: str, _parent_tags: list[str]
+        ) -> str:
             return text
 
         def convert_attachments(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
