@@ -340,6 +340,13 @@ Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links
 - Default: `True`
 - ENV Var: `CME_EXPORT__ENABLE_JIRA_ENRICHMENT`
 
+##### export.inline_comments
+
+Fetch and export open inline comments as a sidecar `.comments.md` file placed next to the exported page file, using the same path stem. Only open (non-resolved, non-dangling) comments are included. Each comment thread shows the annotated text as a blockquote, followed by the author, date, and comment body. Replies are listed flat below the parent comment. Disabled by default — adds one extra API call per comment thread per page.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__INLINE_COMMENTS`
+
 ##### export.skip_unchanged
 
 Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.

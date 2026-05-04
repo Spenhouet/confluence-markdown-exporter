@@ -34,6 +34,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.page_breadcrumbs` | Include breadcrumb links at top of page |\n\n"
     "| `export.enable_jira_enrichment` | Fetch Jira data for enriched links |\n\n"
     "| `export.attachment_export_all` | Export all attachments, not only referenced ones |\n\n"
+    "| `export.inline_comments` | Export open inline comments as sidecar `.comments.md` files |\n\n"
     "| `export.filename_length` | Maximum filename length (default: 255) |\n\n"
     "| `connection_config.max_workers` | Parallel export workers (default: 20) |\n\n"
     "| `connection_config.use_v2_api` | Use Confluence REST API v2 (`true`/`false`) |\n\n"
