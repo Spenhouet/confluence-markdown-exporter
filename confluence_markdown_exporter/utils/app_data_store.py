@@ -466,6 +466,16 @@ class ExportConfig(BaseModel):
             "When disabled, only the issue key and link will be included."
         ),
     )
+    inline_comments: bool = Field(
+        default=False,
+        title="Export Inline Comments",
+        description=(
+            "Whether to fetch and export open inline comments as a sidecar "
+            "'.comments.md' file next to each exported page, using the same "
+            "path as the page file. "
+            "Disabled by default — adds extra API calls per page."
+        ),
+    )
     skip_unchanged: bool = Field(
         default=True,
         title="Skip Unchanged Pages",
