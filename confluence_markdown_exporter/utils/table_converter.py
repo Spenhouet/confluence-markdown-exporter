@@ -121,12 +121,23 @@ class TableConverter(MarkdownConverter):
             return str(el)
         return super().convert_ol(el, text, tags)
 
+    def convert_li(
+        self, el: BeautifulSoup, text: str, parent_tags: "TableConverter.ParentTags | bool"
+    ) -> str:
+        tags = self._normalize_parent_tags(parent_tags)
+        if "td" in tags:
+            return text.strip().removesuffix("<br/>") + "\n"
+        return MarkdownConverter.convert_li(self, el, text, tags)  # type: ignore[attr-defined]
+
     def convert_ul(
         self, el: BeautifulSoup, text: str, parent_tags: "TableConverter.ParentTags | bool"
     ) -> str:
         tags = self._normalize_parent_tags(parent_tags)
         if "td" in tags:
-            return str(el)
+            items = [item for item in text.splitlines() if item.strip()]
+            if not items:
+                return ""
+            return "- " + "<br>- ".join(items)
         return super().convert_ul(el, text, tags)
 
     def convert_p(
