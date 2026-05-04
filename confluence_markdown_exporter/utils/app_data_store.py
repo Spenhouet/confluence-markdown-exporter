@@ -457,6 +457,15 @@ class ExportConfig(BaseModel):
             "If enabled, the title will be added as a top-level heading."
         ),
     )
+    include_toc: bool = Field(
+        default=True,
+        title="Export Table of Contents",
+        description=(
+            "Whether to export the Confluence Table of Contents macro. "
+            "When enabled (default), the TOC is converted to markdown. "
+            "When disabled, the TOC macro is removed from the output."
+        ),
+    )
     enable_jira_enrichment: bool = Field(
         default=True,
         title="Enable Jira Enrichment",
