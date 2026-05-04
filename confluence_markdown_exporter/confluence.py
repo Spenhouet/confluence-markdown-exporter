@@ -842,6 +842,9 @@ class Page(Document):
         attachment_entries = self.export_attachments()
         logger.debug("Converting to Markdown for page id=%s", self.id)
         self.export_markdown()
+        if settings.export.inline_comments:
+            logger.debug("Exporting inline comments for page id=%s", self.id)
+            self.export_inline_comments()
         logger.info(
             "Exported '%s' -> %s", self.title, settings.export.output_path / self.export_path
         )
@@ -877,9 +880,129 @@ class Page(Document):
         )
 
     def export_markdown(self) -> None:
+        conv = self.Converter(self)
         save_file(
             settings.export.output_path / self.export_path,
-            self.markdown,
+            conv.markdown,
+        )
+        self._marked_texts: dict[str, str] = conv._marked_texts
+
+    _COMMENT_TITLE_MAX_LEN = 60
+
+    def _fetch_inline_comments(self) -> list[dict]:
+        client = get_thread_confluence(self.base_url)
+        results: list[dict] = []
+        try:
+            resp = cast(
+                "dict",
+                client.get_page_comments(
+                    self.id,
+                    location="inline",
+                    expand="extensions.inlineProperties,extensions.resolution,body.view,history.createdBy",
+                    limit=50,
+                ),
+            )
+            for comment in resp.get("results", []):
+                status = comment.get("extensions", {}).get("resolution", {}).get("status", "open")
+                if status == "open":
+                    results.append(comment)
+            next_path = resp.get("_links", {}).get("next")
+            while next_path:
+                resp = cast("dict", client.get(next_path))
+                for comment in resp.get("results", []):
+                    status = (
+                        comment.get("extensions", {}).get("resolution", {}).get("status", "open")
+                    )
+                    if status == "open":
+                        results.append(comment)
+                next_path = resp.get("_links", {}).get("next")
+        except Exception:  # noqa: BLE001
+            logger.warning("Failed to fetch inline comments for page id=%s", self.id)
+        return results
+
+    def _fetch_comment_replies(self, comment_id: str) -> list[dict]:
+        client = get_thread_confluence(self.base_url)
+        try:
+            resp = cast(
+                "dict",
+                client.get(
+                    f"rest/api/content/{comment_id}/child/comment",
+                    params={"expand": "body.view,history.createdBy", "limit": 50},
+                ),
+            )
+            return resp.get("results", [])
+        except Exception:  # noqa: BLE001
+            return []
+
+    def export_inline_comments(self) -> None:
+        comments = self._fetch_inline_comments()
+        if not comments:
+            return
+
+        source_url = f"{self.base_url}/wiki/spaces/{self.space.key}/pages/{self.id}"
+
+        lines: list[str] = [
+            "---",
+            f'page_id: "{self.id}"',
+            f'page_title: "{self.title}"',
+            f'source: "{source_url}"',
+            "---",
+            "",
+        ]
+
+        for comment in comments:
+            ref = comment.get("extensions", {}).get("inlineProperties", {}).get("markerRef", "")
+            marked_md = self._marked_texts.get(ref, "")
+
+            plain = re.sub(r"\s+", " ", marked_md).strip()
+            n = self._COMMENT_TITLE_MAX_LEN
+            short_title = plain[:n] + "…" if len(plain) > n else plain
+            if not short_title:
+                short_title = f"Comment {ref[:8]}"
+            lines.append(f"## {short_title}")
+            lines.append("")
+
+            if marked_md:
+                lines.extend(
+                    f"> {line}" if line.strip() else ">" for line in marked_md.splitlines()
+                )
+                lines.append("")
+
+            author = comment.get("history", {}).get("createdBy", {}).get("displayName", "Unknown")
+            created = comment.get("history", {}).get("createdDate", "")[:10]
+            body_md = (
+                MarkdownConverter()
+                .convert(comment.get("body", {}).get("view", {}).get("value", ""))
+                .strip()
+            )
+
+            lines.append(f"**{author}** · {created}")
+            lines.append("")
+            if body_md:
+                lines.append(body_md)
+                lines.append("")
+
+            for reply in self._fetch_comment_replies(comment["id"]):
+                r_author = (
+                    reply.get("history", {}).get("createdBy", {}).get("displayName", "Unknown")
+                )
+                r_created = reply.get("history", {}).get("createdDate", "")[:10]
+                r_body_md = (
+                    MarkdownConverter()
+                    .convert(reply.get("body", {}).get("view", {}).get("value", ""))
+                    .strip()
+                )
+                lines.append(f"**{r_author}** · {r_created}")
+                lines.append("")
+                if r_body_md:
+                    lines.append(r_body_md)
+                    lines.append("")
+
+        save_file(
+            settings.export.output_path
+            / self.export_path.parent
+            / f"{self.export_path.stem}.comments.md",
+            "\n".join(lines),
         )
 
     def _attachments_for_export(self) -> list["Attachment"]:
@@ -1098,6 +1221,7 @@ class Page(Document):
             super().__init__(**options)
             self.page = page
             self.page_properties = {}
+            self._marked_texts: dict[str, str] = {}
 
         @property
         def markdown(self) -> str:
@@ -1248,8 +1372,12 @@ class Page(Document):
             return text
 
         def convert_inline_comment_marker(
-            self, _el: BeautifulSoup, text: str, _parent_tags: list[str]
+            self, el: BeautifulSoup, text: str, _parent_tags: list[str]
         ) -> str:
+            if settings.export.inline_comments:
+                ref = el.get("data-ref", "")
+                if isinstance(ref, str) and ref and ref not in self._marked_texts:
+                    self._marked_texts[ref] = text
             return text
 
         def convert_attachments(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
