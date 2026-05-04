@@ -333,6 +333,13 @@ Whether to include the document title in the exported markdown file.
 - Default: `True`
 - ENV Var: `CME_EXPORT__INCLUDE_DOCUMENT_TITLE`
 
+##### export.include_toc
+
+Whether to export the Confluence Table of Contents macro. When enabled, the TOC is converted to markdown. When disabled, the TOC macro is removed from the output.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__INCLUDE_TOC`
+
 ##### export.enable_jira_enrichment
 
 Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links include the issue summary. Requires Jira auth to be configured.
