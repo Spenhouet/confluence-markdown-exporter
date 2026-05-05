@@ -32,6 +32,40 @@ def converter() -> Page.Converter:
     return Page.Converter(MockPage())
 
 
+class TestSquareBracketEscaping:
+    """Square brackets in plain text must be escaped to avoid markdown link syntax."""
+
+    def test_bracket_notation_escaped(self, converter: Page.Converter) -> None:
+        html = "<p>test [R1] test</p>"
+        result = converter.convert(html).strip()
+        assert result == r"test \[R1\] test"
+
+    def test_bracket_at_start(self, converter: Page.Converter) -> None:
+        html = "<p>[R1] test</p>"
+        result = converter.convert(html).strip()
+        assert result == r"\[R1\] test"
+
+    def test_bracket_at_end(self, converter: Page.Converter) -> None:
+        html = "<p>test [R1]</p>"
+        result = converter.convert(html).strip()
+        assert result == r"test \[R1\]"
+
+    def test_multiple_bracket_groups(self, converter: Page.Converter) -> None:
+        html = "<p>[A1] and [B2]</p>"
+        result = converter.convert(html).strip()
+        assert result == r"\[A1\] and \[B2\]"
+
+    def test_bracket_in_code_not_escaped(self, converter: Page.Converter) -> None:
+        html = "<code>[R1]</code>"
+        result = converter.convert(html).strip()
+        assert result == "`[R1]`"
+
+    def test_real_link_not_affected(self, converter: Page.Converter) -> None:
+        html = '<a href="https://example.com">click here</a>'
+        result = converter.convert(html).strip()
+        assert result == "[click here](https://example.com)"
+
+
 class TestAnchorLinkConversion:
     """Internal anchor links must use the href value for slug, not link text."""
 
