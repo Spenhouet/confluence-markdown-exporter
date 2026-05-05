@@ -566,7 +566,10 @@ class ExportConfig(BaseModel):
     skip_unchanged: bool = Field(
         default=True,
         title="Skip Unchanged Pages",
-        description="Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.",
+        description=(
+            "Skip exporting pages that have not changed since last export."
+            " Uses a lockfile to track page versions."
+        ),
     )
     cleanup_stale: bool = Field(
         default=True,
