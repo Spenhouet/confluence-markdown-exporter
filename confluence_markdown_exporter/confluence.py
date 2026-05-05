@@ -1462,6 +1462,8 @@ class Page(Document):
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
             content = super().convert_p(el, text, parent_tags)
+            if not content.strip():
+                return ""
             return f"\n<!--{content}-->\n"
 
         def convert_jira_issue(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:

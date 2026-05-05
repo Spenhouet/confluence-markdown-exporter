@@ -131,6 +131,42 @@ class TestTableConverter:
         result = converter.convert_ul(el, "item", parent_tags=False)  # type: ignore[arg-type]
         assert "item" in result
 
+    def test_single_item_ul_in_cell_strips_list_symbol(self) -> None:
+        """Single-item ul in a table cell should not render a leading '- '."""
+        html = """
+        <table>
+            <tr>
+                <th>Header</th>
+            </tr>
+            <tr>
+                <td><ul><li>Only item</li></ul></td>
+            </tr>
+        </table>
+        """
+        converter = TableConverter()
+        result = converter.convert(html)
+
+        assert "Only item" in result
+        assert "- Only item" not in result
+
+    def test_multi_item_ul_in_cell_keeps_list_symbols(self) -> None:
+        """Multi-item ul in a table cell should still render with '- ' prefixes."""
+        html = """
+        <table>
+            <tr>
+                <th>Header</th>
+            </tr>
+            <tr>
+                <td><ul><li>First</li><li>Second</li></ul></td>
+            </tr>
+        </table>
+        """
+        converter = TableConverter()
+        result = converter.convert(html)
+
+        assert "- First" in result
+        assert "- Second" in result
+
     def test_td_detection_still_works_with_set_parent_tags(self) -> None:
         """set-based parent_tags (markdownify 1.x) must still trigger td-specific behaviour."""
         converter = TableConverter()
