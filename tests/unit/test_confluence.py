@@ -422,3 +422,212 @@ class TestStatusBadgeConversion:
             result = converter.convert(html).strip()
         assert "<mark" not in result
         assert "BLOCKED" in result
+
+
+_DETAILS_HTML = """
+<div data-macro-name="details">
+    <table>
+        <tr><th>Author</th><td>John Doe</td></tr>
+        <tr><th>Status</th><td>Active</td></tr>
+    </table>
+</div>
+"""
+
+
+class TestPagePropertiesFormat:
+    """Page Properties macro renders according to page_properties_format setting."""
+
+    def _converter(self) -> Page.Converter:
+        return Page.Converter(MockPage())
+
+    def test_frontmatter_removes_table(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_format = "frontmatter"
+            result = converter.convert(_DETAILS_HTML)
+        assert "Author" not in result
+        assert "author" in converter.page_properties
+        assert converter.page_properties["author"] == "John Doe"
+
+    def test_table_keeps_table_no_properties(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_format = "table"
+            result = converter.convert(_DETAILS_HTML)
+        assert "Author" in result
+        assert converter.page_properties == {}
+
+    def test_frontmatter_and_table_keeps_both(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_format = "frontmatter_and_table"
+            result = converter.convert(_DETAILS_HTML)
+        assert "Author" in result
+        assert "author" in converter.page_properties
+        assert converter.page_properties["author"] == "John Doe"
+
+    def test_dataview_inline_field(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_format = "dataview-inline-field"
+            result = converter.convert(_DETAILS_HTML)
+        assert "Author:: John Doe" in result
+        assert "Status:: Active" in result
+        assert "|" not in result
+        assert converter.page_properties == {}
+
+    def test_meta_bind_view_fields(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_format = "meta-bind-view-fields"
+            result = converter.convert(_DETAILS_HTML)
+        assert "| Author | `VIEW[{author}][text]` |" in result
+        assert "| Status | `VIEW[{status}][text]` |" in result
+        assert "author" in converter.page_properties
+        assert "status" in converter.page_properties
+
+    def test_duplicate_keys_get_numeric_suffix(self) -> None:
+        html = """
+        <div data-macro-name="details">
+            <table>
+                <tr><th>Status</th><td>Draft</td></tr>
+                <tr><th>Status</th><td>Review</td></tr>
+                <tr><th>Status</th><td>Final</td></tr>
+            </table>
+        </div>
+        """
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_format = "frontmatter"
+            converter.convert(html)
+        assert converter.page_properties["status"] == "Draft"
+        assert converter.page_properties["status_2"] == "Review"
+        assert converter.page_properties["status_3"] == "Final"
+
+    def test_duplicate_keys_in_inline_fields(self) -> None:
+        html = """
+        <div data-macro-name="details">
+            <table>
+                <tr><th>Tag</th><td>foo</td></tr>
+                <tr><th>Tag</th><td>bar</td></tr>
+            </table>
+        </div>
+        """
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_format = "dataview-inline-field"
+            result = converter.convert(html)
+        assert "Tag:: foo" in result
+        assert "Tag 2:: bar" in result
+
+
+class TestPagePropertiesMigration:
+    """Legacy page_properties_as_front_matter bool migrates to page_properties_format."""
+
+    def test_old_true_maps_to_frontmatter(self) -> None:
+        from confluence_markdown_exporter.utils.app_data_store import ExportConfig
+
+        config = ExportConfig.model_validate({"page_properties_as_front_matter": True})
+        assert config.page_properties_format == "frontmatter"
+
+    def test_old_false_maps_to_table(self) -> None:
+        from confluence_markdown_exporter.utils.app_data_store import ExportConfig
+
+        config = ExportConfig.model_validate({"page_properties_as_front_matter": False})
+        assert config.page_properties_format == "table"
+
+    def test_new_field_takes_precedence_over_old(self) -> None:
+        from confluence_markdown_exporter.utils.app_data_store import ExportConfig
+
+        config = ExportConfig.model_validate(
+            {"page_properties_as_front_matter": True, "page_properties_format": "table"}
+        )
+        assert config.page_properties_format == "table"
+
+    def test_default_is_frontmatter_and_table(self) -> None:
+        from confluence_markdown_exporter.utils.app_data_store import ExportConfig
+
+        config = ExportConfig()
+        assert config.page_properties_format == "frontmatter_and_table"
+
+
+class TestPagePropertiesReportDataview:
+    """Page Properties Report macro can be exported as a Dataview DQL query."""
+
+    _REPORT_HTML = (
+        '<table class="aui metadata-summary-macro null"'
+        ' data-cql=\'label = "tool-validation" and parent = "42"\''
+        ' data-current-content-id="42"'
+        ' data-current-space-key="TS"'
+        ' data-first-column-heading="Title"'
+        ' data-headings="Tool Version,Approved for Use"'
+        ' data-sort-by="Title"'
+        ' data-reverse-sort="false">'
+        "</table>"
+    )
+
+    _BODY_EXPORT = (
+        '<table class="aui metadata-summary-macro null"'
+        ' data-cql=\'label = "tool-validation" and parent = "42"\''
+        ">"
+        "<tr><th>Title</th><th>Tool Version</th><th>Approved for Use</th></tr>"
+        "<tr><td>Page A</td><td>1.0</td><td>Yes</td></tr>"
+        "</table>"
+    )
+
+    class _MockPageWithExport:
+        def __init__(self, body_export: str = "") -> None:
+            from pathlib import Path
+
+            self.id = 42
+            self.title = "Test Page"
+            self.html = ""
+            self.labels: list = []
+            self.ancestors: list = []
+            self.body_export = body_export
+            self.export_path = Path("Test Space/Test Page/Test Page.md")
+
+        def get_attachment_by_file_id(self, file_id: str) -> None:
+            return None
+
+    def test_dataview_output_contains_table_clause(self) -> None:
+        page = self._MockPageWithExport(body_export=self._BODY_EXPORT)
+        converter = Page.Converter(page)
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_report_format = "dataview"
+            result = converter.convert(self._REPORT_HTML)
+        assert "```dataview" in result
+        assert "TABLE tool_version, approved_for_use" in result
+
+    def test_dataview_output_contains_from_clause(self) -> None:
+        page = self._MockPageWithExport(body_export=self._BODY_EXPORT)
+        converter = Page.Converter(page)
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_report_format = "dataview"
+            result = converter.convert(self._REPORT_HTML)
+        assert 'FROM "Test Space/Test Page"' in result
+
+    def test_dataview_output_contains_where_clause(self) -> None:
+        page = self._MockPageWithExport(body_export=self._BODY_EXPORT)
+        converter = Page.Converter(page)
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_report_format = "dataview"
+            result = converter.convert(self._REPORT_HTML)
+        assert 'contains(tags, "#tool-validation")' in result
+
+    def test_dataview_output_contains_sort_clause(self) -> None:
+        page = self._MockPageWithExport(body_export=self._BODY_EXPORT)
+        converter = Page.Converter(page)
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_report_format = "dataview"
+            result = converter.convert(self._REPORT_HTML)
+        assert "SORT title ASC" in result
+
+    def test_frozen_table_when_format_is_frozen(self) -> None:
+        page = self._MockPageWithExport(body_export=self._BODY_EXPORT)
+        converter = Page.Converter(page)
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_report_format = "frozen"
+            result = converter.convert(self._REPORT_HTML)
+        assert "```dataview" not in result
+        assert "Page A" in result
