@@ -1009,6 +1009,7 @@ class Page(Document):
         """Return the subset of attachments that should be exported for this page."""
         if settings.export.attachment_export_all:
             return list(self.attachments)
+        bodies = self.body + self.body_export
         return [
             a
             for a in self.attachments
@@ -1017,7 +1018,10 @@ class Page(Document):
                 a.filename.endswith((".drawio.png", ".drawio"))
                 and a.title.replace(" ", "%20") in self.body_export
             )
-            or a.file_id in self.body
+            or a.file_id in bodies
+            or a.id in bodies
+            or a.title in bodies
+            or a.title.replace(" ", "%20") in bodies
         ]
 
     def export_attachments(self) -> dict[str, AttachmentEntry]:
@@ -1683,8 +1687,16 @@ class Page(Document):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
             if not attachment and (fid := el.get("data-media-id")):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
+            if not attachment and (fid := el.get("data-linked-resource-file-id")):
+                attachment = self.page.get_attachment_by_file_id(str(fid))
             if not attachment and (aid := el.get("data-linked-resource-id")):
                 attachment = self.page.get_attachment_by_id(str(aid))
+            if not attachment and (encoded_xml := el.get("data-encoded-xml")):
+                decoded = unquote(str(encoded_xml))
+                if m := re.search(r'ri:filename="([^"]+)"', decoded):
+                    matches = self.page.get_attachments_by_title(m.group(1))
+                    if matches:
+                        attachment = matches[0]
 
             url_src = str(el.get("src", ""))
 
