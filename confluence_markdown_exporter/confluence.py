@@ -783,11 +783,41 @@ class Descendant(Document):
         )
 
 
+def _parse_image_captions(storage_xml: str) -> dict[str, str]:
+    """Return {filename: caption} parsed from Confluence storage-format XML."""
+    captions: dict[str, str] = {}
+    if not storage_xml:
+        return captions
+    for block in re.findall(r"<ac:image[^>]*>.*?</ac:image>", storage_xml, re.DOTALL):
+        filename_m = re.search(r'ri:filename="([^"]+)"', block)
+        if not filename_m:
+            continue
+        caption_m = re.search(r"<ac:caption[^>]*>(.*?)</ac:caption>", block, re.DOTALL)
+        if not caption_m:
+            continue
+        caption_content = caption_m.group(1)
+        # CDATA in ac:plain-text-body (older format)
+        cdata_m = re.search(
+            r"<ac:plain-text-body>\s*<!\[CDATA\[(.*?)\]\]>\s*</ac:plain-text-body>",
+            caption_content,
+            re.DOTALL,
+        )
+        if cdata_m:
+            caption = cdata_m.group(1).strip()
+        else:
+            # HTML elements in caption (e.g. <p>text</p>) — strip tags
+            caption = BeautifulSoup(caption_content, "html.parser").get_text().strip()
+        if caption:
+            captions[filename_m.group(1)] = caption
+    return captions
+
+
 class Page(Document):
     id: int
     body: str
     body_export: str
     editor2: str
+    body_storage: str = ""
     labels: list["Label"]
     attachments: list["Attachment"]
 
@@ -1115,6 +1145,7 @@ class Page(Document):
             body=data.get("body", {}).get("view", {}).get("value", ""),
             body_export=data.get("body", {}).get("export_view", {}).get("value", ""),
             editor2=data.get("body", {}).get("editor2", {}).get("value", ""),
+            body_storage=data.get("body", {}).get("storage", {}).get("value", ""),
             labels=[
                 Label.from_json(label)
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
@@ -1145,13 +1176,18 @@ class Page(Document):
                 ancestors=[],
             )
         logger.debug("Fetching page id=%s from %s", page_id, base_url)
+        expand = (
+            "body.view,body.export_view,body.editor2,metadata.labels,"
+            "metadata.properties,ancestors,version"
+        )
+        if settings.export.image_captions:
+            expand += ",body.storage"
         try:
             return cls.from_json(
                 _require_dict(
                     get_thread_confluence(base_url).get_page_by_id(
                         page_id,
-                        expand="body.view,body.export_view,body.editor2,metadata.labels,"
-                        "metadata.properties,ancestors,version",
+                        expand=expand,
                     ),
                     f"page id={page_id} at {base_url}",
                 ),
@@ -1247,6 +1283,7 @@ class Page(Document):
             self.page_properties = {}
             self._marked_texts: dict[str, str] = {}
             self._colorid_map_cache: dict[str, str] | None = None
+            self._image_captions_cache: dict[str, str] | None = None
 
         @property
         def _colorid_map(self) -> dict[str, str]:
@@ -1261,6 +1298,12 @@ class Page(Document):
                             cache[color_id] = m.group(2)
                 self._colorid_map_cache = cache
             return self._colorid_map_cache
+
+        @property
+        def _image_captions(self) -> dict[str, str]:
+            if self._image_captions_cache is None:
+                self._image_captions_cache = _parse_image_captions(self.page.body_storage)
+            return self._image_captions_cache
 
         @property
         def markdown(self) -> str:
@@ -1828,10 +1871,15 @@ class Page(Document):
                     return f"![{text}]({url_src})"
                 return text
 
+            caption = (
+                self._image_captions.get(attachment.title, "")
+                if settings.export.image_captions
+                else ""
+            )
+
             if settings.export.attachment_href == "wiki":
-                alt = str(el.get("alt", "") or text).strip()
-                suffix = f"|{alt}" if alt else ""
-                return f"![[{attachment.export_path.name}{suffix}]]"
+                img_md = f"![[{attachment.export_path.name}]]"
+                return f"{img_md}\n*{caption}*" if caption else img_md
 
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             el["src"] = path.replace(" ", "%20")
@@ -1839,7 +1887,8 @@ class Page(Document):
             if "_inline" in tags:
                 tags = set(tags)
                 tags.discard("_inline")  # Always show images.
-            return super().convert_img(el, text, tags)
+            img_md = super().convert_img(el, text, tags)  # type: ignore[union-attr]
+            return f"{img_md}\n*{caption}*" if caption else img_md
 
         def _normalize_unicode_whitespace(self, text: str) -> str:
             r"""Normalize Unicode whitespace to regular spaces.
