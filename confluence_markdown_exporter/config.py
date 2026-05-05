@@ -36,7 +36,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.enable_jira_enrichment` | Fetch Jira data for enriched links |\n\n"
     "| `export.attachment_export_all` | Export all attachments, not only referenced ones |\n\n"
     "| `export.inline_comments` | Export open inline comments as sidecar `.comments.md` files |\n\n"
-    "| `export.convert_status_badges` | Convert Confluence status badge macros to `<mark>` elements |\n\n"
+    "| `export.convert_status_badges` | Convert Confluence status badges to `<mark>` elements |\n\n"
     "| `export.convert_text_highlights` | Convert background-color spans to `<mark>` elements |\n\n"
     "| `export.convert_font_colors` | Convert font-color spans to `<font>` elements |\n\n"
     "| `export.filename_length` | Maximum filename length (default: 255) |\n\n"
