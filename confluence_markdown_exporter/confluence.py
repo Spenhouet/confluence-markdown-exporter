@@ -16,6 +16,7 @@ from concurrent.futures import as_completed
 from os import PathLike
 from pathlib import Path
 from string import Template
+from typing import Any
 from typing import ClassVar
 from typing import Literal
 from typing import TypeAlias
@@ -1763,6 +1764,10 @@ class Page(Document):
                     # Replace Unicode whitespace with regular space
                     normalized = normalized.replace(char, " ")
             return normalized
+
+        def escape(self, text: str, parent_tags: list[str]) -> str:
+            escaped: str = cast("Any", MarkdownConverter).escape(self, text, parent_tags)
+            return escaped.replace("[", r"\[").replace("]", r"\]")
 
         def _escape_template_placeholders(self, text: str) -> str:
             r"""Escape <placeholder> patterns that Obsidian misparsed as HTML tags.
