@@ -14,35 +14,31 @@
 
 ## Features
 
-- Converts Confluence pages to Markdown format.
-- Uses the Atlassian API to export individual pages, pages including children, and whole spaces.
-- Supports various Confluence elements such as headings, paragraphs, lists, tables, and more.
-- Retains formatting such as bold, italic, and underline.
-- Converts Confluence macros to equivalent Markdown syntax where possible.
-- Handles images and attachments by linking them appropriately in the Markdown output.
-- Supports extended Markdown features like tasks, alerts, and front matter.
-- Skips unchanged pages by default — only re-exports pages that have changed since the last run.
-- Supports Confluence add-ons: [draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts), [PlantUML](https://marketplace.atlassian.com/apps/1222993/flowchart-plantuml-diagrams-for-confluence), [Markdown Extensions](https://marketplace.atlassian.com/apps/1215703/markdown-extensions-for-confluence)
+Exports individual pages, pages with descendants, or entire spaces via the Atlassian API. Skips unchanged pages by default — only re-exports what has changed since the last run.
 
-## Supported Markdown Elements
+### Supported Confluence Features
 
-- **Headings**: Converts Confluence headings to Markdown headings.
-- **Paragraphs**: Converts Confluence paragraphs to Markdown paragraphs.
-- **Lists**: Supports both ordered and unordered lists.
-- **Tables**: Converts Confluence tables to Markdown tables.
-- **Formatting**: Supports bold, italic, and underline text.
-- **Links**: Converts Confluence links to Markdown links.
-- **Images**: Converts Confluence images to Markdown images with appropriate links.
-- **Code Blocks**: Converts Confluence code blocks to Markdown code blocks.
-- **Tasks**: Converts Confluence tasks to Markdown task lists.
-- **Alerts**: Converts Confluence info panels to Markdown alert blocks.
-- **Text Highlights**: Preserves Confluence text highlights with their original colour.
-- **Font Colors**: Preserves Confluence font colours.
-- **Status Badges**: Converts Confluence status badges to coloured highlights.
-- **Inline Comments**: Exports open inline comments as sidecar files placed next to each page.
-- **Front Matter**: Adds front matter to the Markdown files for metadata like page properties and page labels.
-- **Mermaid**: Converts Mermaid diagrams embedded in draw.io diagrams to Mermaid code blocks.
-- **PlantUML**: Converts PlantUML diagrams to Markdown code blocks.
+#### Content & formatting
+
+- **Rich text** — headings, paragraphs, bold, italic, underline, lists, tables, links, images, and attachments
+- **Code blocks** — language-aware fenced code blocks
+- **Task lists** — checkboxes with completion state
+- **Text highlights & font colours** — preserved with inline HTML colour styling
+- **Status badges** — converted to coloured inline highlights
+- **Info / note / tip / warning panels** — converted to Markdown alert blocks (`[!NOTE]`, `[!TIP]`, …)
+- **Inline comments** — open comments exported as sidecar files next to each page
+
+#### Page metadata
+
+- **Page properties** — Page Properties macro exported as YAML front matter, [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, or [Meta Bind](https://www.moritzjung.dev/obsidian-meta-bind-plugin-docs/) VIEW fields; duplicate keys are disambiguated automatically (configurable via `export.page_properties_format`)
+- **Page Properties Report** — dynamic cross-page property tables exported as a static snapshot or a live [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) DQL query (configurable via `export.page_properties_report_format`)
+- **Page labels** — exported as `tags` in YAML front matter
+
+#### Diagrams & add-ons
+
+- **[draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts)** — diagram files saved as attachments; embedded Mermaid diagrams extracted as fenced Mermaid blocks
+- **[PlantUML](https://marketplace.atlassian.com/apps/1222993/flowchart-plantuml-diagrams-for-confluence)** — exported as fenced PlantUML code blocks
+- **[Markdown Extensions](https://marketplace.atlassian.com/apps/1215703/markdown-extensions-for-confluence)** — pass-through of raw Markdown macro content
 
 ## Usage
 
@@ -53,16 +49,19 @@ To use the confluence-markdown-exporter, follow these steps:
 Install or update confluence-markdown-exporter with a single command.
 
 **macOS and Linux**
+
 ```bash
 curl -LsSf uvx.sh/confluence-markdown-exporter/install.sh | sh
 ```
 
 **Windows**
+
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://uvx.sh/confluence-markdown-exporter/install.ps1 | iex"
 ```
 
 Installing a specific version
+
 ```bash
 curl -LsSf uvx.sh/confluence-markdown-exporter/4.2.1/install.sh | sh
 ```
@@ -86,6 +85,7 @@ cme page <page-url>
 ```
 
 Supported page URL formats:
+
 - Confluence Cloud: <https://company.atlassian.net/wiki/spaces/SPACEKEY/pages/123456789/Page+Title>
 - Confluence Cloud (API gateway): <https://api.atlassian.com/ex/confluence/CLOUDID/wiki/spaces/SPACEKEY/pages/123456789/Page+Title>
 - Confluence Server (long): <https://wiki.company.com/display/SPACEKEY/Page+Title>
@@ -117,6 +117,7 @@ cme space <space-url>
 ```
 
 Supported space URL formats:
+
 - Confluence Cloud: <https://company.atlassian.net/wiki/spaces/SPACEKEY>
 - Confluence Cloud (API gateway): <https://api.atlassian.com/ex/confluence/CLOUDID/wiki/spaces/SPACEKEY>
 - Confluence Server (long): <https://wiki.company.com/display/SPACEKEY>
@@ -155,15 +156,15 @@ All configuration and authentication is stored in a single JSON file managed by 
 
 ### Config Commands
 
-| Command | Description |
-| ------- | ----------- |
-| `cme config` | Open the interactive configuration menu |
-| `cme config list` | Print the full configuration as YAML |
-| `cme config get <key>` | Print the value of a single config key |
-| `cme config set <key=value>...` | Set one or more config values |
-| `cme config edit <key>` | Open the interactive editor for a specific key |
-| `cme config path` | Print the path to the config file |
-| `cme config reset` | Reset all configuration to defaults |
+| Command                         | Description                                    |
+| ------------------------------- | ---------------------------------------------- |
+| `cme config`                    | Open the interactive configuration menu        |
+| `cme config list`               | Print the full configuration as YAML           |
+| `cme config get <key>`          | Print the value of a single config key         |
+| `cme config set <key=value>...` | Set one or more config values                  |
+| `cme config edit <key>`         | Open the interactive editor for a specific key |
+| `cme config path`               | Print the path to the config file              |
+| `cme config reset`              | Reset all configuration to defaults            |
 
 #### Interactive Menu
 
@@ -239,7 +240,7 @@ Resets the entire configuration to factory defaults after confirmation.
 
 All options can be set via the config file (using `cme config set`) or overridden for the current session via environment variables. ENV vars take precedence over stored config and are **not** persisted. ENV var names use the `CME_` prefix and `__` as the nested delimiter (matching the key in uppercase).
 
-#### export.*
+#### export.\*
 
 ##### export.log_level
 
@@ -262,11 +263,11 @@ How to generate links to pages in Markdown. Options: `relative` (default), `abso
 - Default: `relative`
 - ENV Var: `CME_EXPORT__PAGE_HREF`
 
-| Value | Output |
-|-------|--------|
-| `relative` | `[Page Title](../path/to/page.md)` |
+| Value      | Output                                 |
+| ---------- | -------------------------------------- |
+| `relative` | `[Page Title](../path/to/page.md)`     |
 | `absolute` | `[Page Title](/space/path/to/page.md)` |
-| `wiki` | `[[Page Title]]` |
+| `wiki`     | `[[Page Title]]`                       |
 
 ##### export.page_path
 
@@ -282,11 +283,11 @@ How to generate links to attachments in Markdown. Options: `relative` (default),
 - Default: `relative`
 - ENV Var: `CME_EXPORT__ATTACHMENT_HREF`
 
-| Value | Output |
-|-------|--------|
-| `relative` | `[file.pdf](../path/to/file.pdf)` / `![alt](../path/to/image.png)` |
+| Value      | Output                                                                             |
+| ---------- | ---------------------------------------------------------------------------------- |
+| `relative` | `[file.pdf](../path/to/file.pdf)` / `![alt](../path/to/image.png)`                 |
 | `absolute` | `[file.pdf](/space/attachments/file.pdf)` / `![alt](/space/attachments/image.png)` |
-| `wiki` | `[[file.pdf\|File Title]]` / `![[image.png\|alt text]]` |
+| `wiki`     | `[[file.pdf\|File Title]]` / `![[image.png\|alt text]]`                            |
 
 ##### export.attachment_path
 
@@ -309,12 +310,34 @@ Whether to include breadcrumb links at the top of the page.
 - Default: `True`
 - ENV Var: `CME_EXPORT__PAGE_BREADCRUMBS`
 
-##### export.page_properties_as_front_matter
+##### export.page_properties_format
 
-Whether to convert Confluence Page Properties macro tables into YAML front matter. When enabled, key-value pairs in the macro are extracted and written as YAML front matter at the top of the exported file. When disabled, the macro is converted to a regular markdown table.
+Controls how Confluence Page Properties macros (key-value tables) are rendered. Duplicate property keys are automatically disambiguated by appending a counter (e.g. `status`, `status_2`, `status_3`).
 
-- Default: `True`
-- ENV Var: `CME_EXPORT__PAGE_PROPERTIES_AS_FRONT_MATTER`
+| Value                   | Description                                                                                                                                                                                                    |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontmatter`           | Extract to YAML front matter; table is removed from the page body                                                                                                                                              |
+| `table`                 | Keep as a regular markdown table; no metadata is written                                                                                                                                                       |
+| `frontmatter_and_table` | Write to YAML front matter **and** keep the original table in the body (default)                                                                                                                               |
+| `dataview-inline-field` | Replace the table with [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) `Key:: Value` inline fields                                                                                               |
+| `meta-bind-view-fields` | Write YAML front matter and a table using [Meta Bind](https://www.moritzjung.dev/obsidian-meta-bind-plugin-docs/) `VIEW[{key}][text]` fields                                                                   |
+
+> **Migration:** The legacy `page_properties_as_front_matter=true/false` is still accepted and maps to `frontmatter` / `table` respectively.
+
+- Default: `frontmatter_and_table`
+- ENV Var: `CME_EXPORT__PAGE_PROPERTIES_FORMAT`
+
+##### export.page_properties_report_format
+
+Controls how Confluence Page Properties Report macros (dynamic cross-page property tables) are rendered.
+
+| Value      | Description                                                                                                                                                                                                                                                                                                |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frozen`   | Export the rendered table as a static markdown table snapshot (default)                                                                                                                                                                                                                                    |
+| `dataview` | Translate the CQL query to an [Obsidian Dataview](https://blacksmithgu.github.io/obsidian-dataview/) DQL code block; requires the Dataview plugin and all referenced child pages to be exported with their page properties as front matter; falls back to a frozen table if the query cannot be translated |
+
+- Default: `frozen`
+- ENV Var: `CME_EXPORT__PAGE_PROPERTIES_REPORT_FORMAT`
 
 ##### export.filename_encoding
 
@@ -362,14 +385,14 @@ Fetch and export open inline comments as a sidecar `.comments.md` file placed ne
 
 Whether to convert Confluence status badge macros to HTML `<mark>` elements coloured with the badge's background colour. Each lozenge variant maps to an Atlassian design-system pastel:
 
-| Lozenge | Colour | Hex |
-| ------- | ------ | --- |
-| Gray (default) | Gray | `#dfe1e6` |
-| Blue | Blue | `#cce0ff` |
-| Green | Green | `#baf3db` |
-| Yellow | Yellow / Orange | `#f8e6a0` |
-| Red | Red | `#ffd5d2` |
-| Purple | Purple / Violet | `#dfd8fd` |
+| Lozenge        | Colour          | Hex       |
+| -------------- | --------------- | --------- |
+| Gray (default) | Gray            | `#dfe1e6` |
+| Blue           | Blue            | `#cce0ff` |
+| Green          | Green           | `#baf3db` |
+| Yellow         | Yellow / Orange | `#f8e6a0` |
+| Red            | Red             | `#ffd5d2` |
+| Purple         | Purple / Violet | `#dfd8fd` |
 
 When disabled, only the badge label text is kept.
 
@@ -418,7 +441,7 @@ Number of page IDs per batch when checking page existence during cleanup. Capped
 - Default: `250`
 - ENV Var: `CME_EXPORT__EXISTENCE_CHECK_BATCH_SIZE`
 
-#### connection_config.*
+#### connection_config.\*
 
 ##### connection_config.backoff_and_retry
 
@@ -483,7 +506,7 @@ Maximum number of parallel workers for page export. Set to `1` for serial/debug 
 - Default: `20`
 - ENV Var: `CME_CONNECTION_CONFIG__MAX_WORKERS`
 
-#### auth.*
+#### auth.\*
 
 > [!Note]
 > Auth credentials use URL-keyed nested dicts (e.g. `auth.confluence["https://company.atlassian.net"]`) and cannot be mapped to flat ENV var names. Use `cme config edit auth.confluence` or `cme config set` for auth configuration.
@@ -586,12 +609,27 @@ cme config set \
   export.include_document_title=false \
   export.page_breadcrumbs=false \
   export.page_href=wiki \
-  export.attachment_href=wiki
+  export.attachment_href=wiki \
+  export.page_properties_format=meta-bind-view-fields \
+  export.page_properties_report_format=dataview
 ```
 
 Obsidian natively renders the document title and page breadcrumbs, so both are disabled to avoid redundant output. Wiki-style links (`[[Page Title]]` and `![[attachment.png]]`) are used so Obsidian can resolve links by title across the vault without depending on the file system path.
 
+`meta-bind-view-fields` writes all page properties to YAML front matter and replaces the property table with inline `` `VIEW[{key}][text]` `` fields. `dataview` replaces frozen Page Properties Report snapshots with live Dataview DQL queries that re-evaluate across your vault.
+
+The following Obsidian plugins are recommended for the best experience:
+
+| Plugin | Purpose |
+| ------ | ------- |
+| [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) | Query and display page metadata across the vault; powers the Page Properties Report DQL queries |
+| [Meta Bind](https://www.moritzjung.dev/obsidian-meta-bind-plugin-docs/) | Renders the exported `VIEW[{key}][text]` fields as live, readable values inline in the page body; works alongside Dataview |
+| [Highlightr](https://github.com/chetachiezikeuzor/Highlightr-Plugin) | Renders the colour highlights exported from Confluence text highlights |
+| [Folder Notes](https://github.com/LostPaul/obsidian-folder-notes) | Opens the page note when clicking a folder, mirroring Confluence's page-as-folder structure |
+
 > **Note:** Wiki links resolve by page title. If multiple pages share the same title across spaces, Obsidian may link to the wrong file. In that case, omit `export.page_href=wiki` and use `relative` or `absolute` links instead.
+>
+> **Note:** Dataview report queries only work correctly if all referenced child pages are also exported and their page properties are available as front matter.
 
 #### Azure DevOps (ADO) Wikis
 
@@ -621,9 +659,9 @@ The exporter automatically detects CI environments and suppresses rich terminal 
 
 Detection is based on two standard environment variables:
 
-| Variable | Effect |
-| -------- | ------ |
-| `CI=true` | Disables ANSI color codes and live terminal output |
+| Variable     | Effect                                                                    |
+| ------------ | ------------------------------------------------------------------------- |
+| `CI=true`    | Disables ANSI color codes and live terminal output                        |
 | `NO_COLOR=1` | Same effect (follows the [no-color.org](https://no-color.org) convention) |
 
 Most CI platforms (GitHub Actions, GitLab CI, CircleCI, Jenkins, etc.) set `CI=true` automatically.
@@ -642,7 +680,6 @@ CME_EXPORT__LOG_LEVEL=WARNING cme pages <page-url>
 ```
 
 This is useful for using different log levels for different environments or for scripting.
-
 
 ## Compatibility
 

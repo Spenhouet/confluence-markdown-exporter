@@ -1306,7 +1306,9 @@ class Page(Document):
         def convert_page_properties(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str | None:
-            if not settings.export.page_properties_as_front_matter:
+            fmt = settings.export.page_properties_format
+
+            if fmt == "table":
                 return text
 
             rows = [
@@ -1317,14 +1319,34 @@ class Page(Document):
             if not rows:
                 return None
 
-            props = {
-                row[0].get_text(strip=True): self.convert(str(row[1])).strip()
-                for row in rows
-                if len(row) == 2  # noqa: PLR2004
-            }
+            props: dict[str, str] = {}
+            key_counts: dict[str, int] = {}
+            for row in rows:
+                if len(row) == 2:  # noqa: PLR2004
+                    raw_key = row[0].get_text(strip=True)
+                    count = key_counts.get(raw_key, 0) + 1
+                    key_counts[raw_key] = count
+                    unique_key = raw_key if count == 1 else f"{raw_key} {count}"
+                    props[unique_key] = self.convert(str(row[1])).strip()
 
-            self.set_page_properties(**props)
-            return None
+            if fmt in ("frontmatter", "frontmatter_and_table", "meta-bind-view-fields"):
+                self.set_page_properties(**props)
+
+            if fmt == "frontmatter":
+                return None
+
+            if fmt == "frontmatter_and_table":
+                return text
+
+            if fmt == "dataview-inline-field":
+                lines = "\n".join(f"{k}:: {v}" for k, v in props.items())
+                return f"\n{lines}\n"
+
+            # meta-bind-view-fields: two-column table with VIEW fields in value column
+            rows = "\n".join(
+                f"| {k} | `VIEW[{{{sanitize_key(k)}}}][text]` |" for k in props
+            )
+            return f"\n| Property | Value |\n| -------- | ----- |\n{rows}\n"
 
         def convert_alert(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert Confluence info macros to Markdown GitHub style alerts.
@@ -2154,11 +2176,65 @@ class Page(Document):
             data_cql = el.get("data-cql")
             if not data_cql:
                 return ""
+
+            if settings.export.page_properties_report_format == "dataview":
+                dql = self._cql_to_dataview(el, str(data_cql))
+                if dql is not None:
+                    return f"\n```dataview\n{dql}\n```\n"
+
             soup = BeautifulSoup(self.page.body_export, "html.parser")
             table = soup.find("table", {"data-cql": data_cql})
             if not table:
                 return ""
             return super().convert_table(table, "", parent_tags)  # type: ignore -
+
+        def _cql_to_dataview(self, el: BeautifulSoup, cql: str) -> str | None:
+            """Translate a Confluence CQL query to an Obsidian Dataview DQL query.
+
+            Returns None if the CQL cannot be meaningfully translated.
+            """
+            current_content_id = str(el.get("data-current-content-id", ""))
+            headings_raw = str(el.get("data-headings", ""))
+            first_col = str(el.get("data-first-column-heading", "Title"))
+            sort_by = str(el.get("data-sort-by", first_col))
+            reverse_sort = str(el.get("data-reverse-sort", "false")).lower() == "true"
+
+            label_conditions = [
+                m.group(1)
+                for m in re.finditer(r'label\s*=\s*"([^"]+)"', cql, re.IGNORECASE)
+            ]
+
+            parent_match = re.search(r'parent\s*=\s*"?(\d+)"?', cql, re.IGNORECASE)
+
+            from_clause: str | None = None
+            if parent_match and parent_match.group(1) == current_content_id:
+                folder = str(self.page.export_path.parent).replace("\\", "/")
+                from_clause = f'FROM "{folder}"'
+
+            if from_clause is None and not label_conditions:
+                return None
+
+            lines: list[str] = []
+
+            if headings_raw:
+                headings = [h.strip() for h in headings_raw.split(",") if h.strip()]
+                col_names = ", ".join(sanitize_key(h) for h in headings)
+                lines.append(f"TABLE {col_names}")
+            else:
+                lines.append("TABLE")
+
+            if from_clause:
+                lines.append(from_clause)
+
+            if label_conditions:
+                where_parts = [f'contains(tags, "#{lbl}")' for lbl in label_conditions]
+                lines.append(f"WHERE {' AND '.join(where_parts)}")
+
+            sort_col = sanitize_key(sort_by)
+            sort_dir = "DESC" if reverse_sort else "ASC"
+            lines.append(f"SORT {sort_col} {sort_dir}")
+
+            return "\n".join(lines)
 
         def _get_path_for_href(
             self, path: Path, style: Literal["absolute", "relative", "wiki"]
