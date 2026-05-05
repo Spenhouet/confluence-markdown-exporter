@@ -14,31 +14,31 @@
 
 ## Features
 
-Exports individual pages, pages with descendants, or entire spaces via the Atlassian API. Skips unchanged pages by default — only re-exports what has changed since the last run.
+Exports individual pages, pages with descendants, or entire spaces via the Atlassian API. Skips unchanged pages by default, re-exporting only what has changed since the last run.
 
 ### Supported Confluence Features
 
 #### Content & formatting
 
-- **Rich text** — headings, paragraphs, bold, italic, underline, lists, tables, links, images, attachments, and image captions
-- **Code blocks** — language-aware fenced code blocks
-- **Task lists** — checkboxes with completion state
-- **Text highlights & font colours** — preserved with inline HTML colour styling
-- **Status badges** — converted to coloured inline highlights
-- **Info / note / tip / warning panels** — converted to Markdown alert blocks (`[!NOTE]`, `[!TIP]`, …)
-- **Inline comments** — open comments exported as sidecar files next to each page
+- **Rich text**: headings, paragraphs, bold, italic, underline, lists, tables, links, images, attachments, and image captions
+- **Code blocks**: language-aware fenced code blocks
+- **Task lists**: checkboxes with completion state
+- **Text highlights & font colours**: preserved with inline HTML colour styling
+- **Status badges**: converted to coloured inline highlights
+- **Info / note / tip / warning panels**: converted to Markdown alert blocks (`[!NOTE]`, `[!TIP]`, …)
+- **Inline comments**: open comments exported as sidecar files next to each page
 
 #### Page metadata
 
-- **Page properties** — Page Properties macro exported as YAML front matter, [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, or [Meta Bind](https://www.moritzjung.dev/obsidian-meta-bind-plugin-docs/) VIEW fields; duplicate keys are disambiguated automatically (configurable via `export.page_properties_format`)
-- **Page Properties Report** — dynamic cross-page property tables exported as a static snapshot or a live [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) DQL query (configurable via `export.page_properties_report_format`)
-- **Page labels** — exported as `tags` in YAML front matter
+- **Page properties**: Page Properties macro exported as YAML front matter, [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, or [Meta Bind](https://www.moritzjung.dev/obsidian-meta-bind-plugin-docs/) VIEW fields; duplicate keys are disambiguated automatically (configurable via `export.page_properties_format`)
+- **Page Properties Report**: dynamic cross-page property tables exported as a static snapshot or a live [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) DQL query (configurable via `export.page_properties_report_format`)
+- **Page labels**: exported as `tags` in YAML front matter
 
 #### Diagrams & add-ons
 
-- **[draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts)** — diagram files saved as attachments; embedded Mermaid diagrams extracted as fenced Mermaid blocks
-- **[PlantUML](https://marketplace.atlassian.com/apps/1222993/flowchart-plantuml-diagrams-for-confluence)** — exported as fenced PlantUML code blocks
-- **[Markdown Extensions](https://marketplace.atlassian.com/apps/1215703/markdown-extensions-for-confluence)** — pass-through of raw Markdown macro content
+- **[draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts)**: diagram files saved as attachments; embedded Mermaid diagrams extracted as fenced Mermaid blocks
+- **[PlantUML](https://marketplace.atlassian.com/apps/1222993/flowchart-plantuml-diagrams-for-confluence)**: exported as fenced PlantUML code blocks
+- **[Markdown Extensions](https://marketplace.atlassian.com/apps/1215703/markdown-extensions-for-confluence)**: pass-through of raw Markdown macro content
 
 ## Usage
 
@@ -208,7 +208,7 @@ cme config set export.skip_unchanged=false
 Sets one or more key=value pairs directly. Values are parsed as JSON where possible (so `true`, `false`, and numbers work as expected), falling back to a plain string.
 
 > [!Note]
-> For auth keys that contain a URL (e.g. `auth.confluence.https://...`), use `cme config edit auth.confluence` instead — the interactive editor handles URL-based keys correctly.
+> For auth keys that contain a URL (e.g. `auth.confluence.https://...`), use `cme config edit auth.confluence` instead, which handles URL-based keys correctly.
 
 #### Edit a Specific Key Interactively
 
@@ -367,9 +367,16 @@ Maximum length of filenames.
 - Default: `255`
 - ENV Var: `CME_EXPORT__FILENAME_LENGTH`
 
+##### export.filename_lowercase
+
+Make all exported paths and filenames lowercase. By default the original casing from Confluence is retained.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__FILENAME_LOWERCASE`
+
 ##### export.include_document_title
 
-Whether to include the document title in the exported markdown file.
+Whether to include the document title in the exported markdown file. If enabled, the title will be added as a top-level heading.
 
 - Default: `True`
 - ENV Var: `CME_EXPORT__INCLUDE_DOCUMENT_TITLE`
@@ -390,7 +397,7 @@ Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links
 
 ##### export.inline_comments
 
-Fetch and export open inline comments as a sidecar `.comments.md` file placed next to the exported page file, using the same path stem. Only open (non-resolved, non-dangling) comments are included. Each comment thread shows the annotated text as a blockquote, followed by the author, date, and comment body. Replies are listed flat below the parent comment. Disabled by default — adds one extra API call per comment thread per page.
+Fetch and export open inline comments as a sidecar `.comments.md` file placed next to the exported page file, using the same path stem. Only open (non-resolved, non-dangling) comments are included. Each comment thread shows the annotated text as a blockquote, followed by the author, date, and comment body. Replies are listed flat below the parent comment. Disabled by default. Enabling it adds one extra API call per comment thread per page.
 
 - Default: `False`
 - ENV Var: `CME_EXPORT__INLINE_COMMENTS`
@@ -459,14 +466,14 @@ Number of page IDs per batch when checking page existence during cleanup. Capped
 
 ##### connection_config.backoff_and_retry
 
-Enable automatic retry with exponential backoff.
+Enable or disable automatic retry with exponential backoff on network errors.
 
 - Default: `True`
 - ENV Var: `CME_CONNECTION_CONFIG__BACKOFF_AND_RETRY`
 
 ##### connection_config.backoff_factor
 
-Multiplier for exponential backoff.
+Multiplier for exponential backoff between retries. For example, `2` means each retry waits twice as long as the previous.
 
 - Default: `2`
 - ENV Var: `CME_CONNECTION_CONFIG__BACKOFF_FACTOR`
@@ -480,7 +487,7 @@ Maximum seconds to wait between retries.
 
 ##### connection_config.max_backoff_retries
 
-Maximum number of retry attempts.
+Maximum number of retry attempts before giving up.
 
 - Default: `5`
 - ENV Var: `CME_CONNECTION_CONFIG__MAX_BACKOFF_RETRIES`
@@ -501,7 +508,7 @@ Timeout in seconds for API requests. Prevents hanging on slow or unresponsive se
 
 ##### connection_config.verify_ssl
 
-Whether to verify SSL certificates for HTTPS requests.
+Whether to verify SSL certificates for HTTPS requests. Set to `False` only if you are sure about the security of your connection.
 
 - Default: `True`
 - ENV Var: `CME_CONNECTION_CONFIG__VERIFY_SSL`
@@ -553,7 +560,7 @@ Confluence Personal Access Token.
 
 Atlassian Cloud ID for the Confluence instance. When set, API calls are routed through the Atlassian API gateway (`https://api.atlassian.com/ex/confluence/{cloud_id}`), which enables the use of [scoped API tokens](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/).
 
-For Atlassian Cloud instances (`.atlassian.net`) this is fetched and stored **automatically** on first connection. You can also set it manually — see [How to retrieve your Atlassian Cloud ID](https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/).
+For Atlassian Cloud instances (`.atlassian.net`) this is fetched and stored **automatically** on first connection. You can also set it manually. See [How to retrieve your Atlassian Cloud ID](https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/).
 
 - Default: `""`
 

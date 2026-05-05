@@ -1389,7 +1389,7 @@ class Page(Document):
             rows = "\n".join(
                 f"| {k} | `VIEW[{{{sanitize_key(k)}}}][text]` |" for k in props
             )
-            return f"\n| Property | Value |\n| -------- | ----- |\n{rows}\n"
+            return f"\n\n| Property | Value |\n| -------- | ----- |\n{rows}\n"
 
         def convert_alert(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert Confluence info macros to Markdown GitHub style alerts.
