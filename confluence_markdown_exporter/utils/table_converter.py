@@ -137,6 +137,8 @@ class TableConverter(MarkdownConverter):
             items = [item for item in text.splitlines() if item.strip()]
             if not items:
                 return ""
+            if len(items) == 1:
+                return items[0]
             return "- " + "<br>- ".join(items)
         return super().convert_ul(el, text, tags)
 
