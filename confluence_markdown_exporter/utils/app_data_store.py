@@ -413,17 +413,50 @@ class ExportConfig(BaseModel):
         title="Page Breadcrumbs",
         description="Whether to include breadcrumb links at the top of the page.",
     )
-    page_properties_as_front_matter: bool = Field(
-        default=True,
-        title="Page Properties as Front Matter",
+    page_properties_format: Literal[
+        "frontmatter",
+        "table",
+        "frontmatter_and_table",
+        "dataview-inline-field",
+        "meta-bind-view-fields",
+    ] = Field(
+        default="frontmatter_and_table",
+        title="Page Properties Format",
         description=(
-            "Whether to convert Confluence page property tables (Page Properties macro) "
-            "into YAML front matter. "
-            "When enabled (default), the macro's key-value table is extracted and written "
-            "as YAML front matter at the top of the exported file. "
-            "When disabled, the macro is converted to a regular markdown table."
+            "How to render Confluence Page Properties macros (Page Properties macro).\n"
+            "  frontmatter: extract to YAML front matter only (table removed from content)\n"
+            "  table: keep as markdown table only (no metadata)\n"
+            "  frontmatter_and_table: front matter + keep original table in content (default)\n"
+            "  dataview-inline-field: replace table with Dataview Key:: Value inline fields\n"
+            "  meta-bind-view-fields: front matter + Meta Bind VIEW fields inline (requires plugin)"
         ),
     )
+    page_properties_report_format: Literal["frozen", "dataview"] = Field(
+        default="frozen",
+        title="Page Properties Report Format",
+        description=(
+            "How to render Confluence Page Properties Report macros.\n"
+            "  frozen: export the rendered table as a static markdown table (default)\n"
+            "  dataview: translate the CQL query to an Obsidian Dataview DQL code block;\n"
+            "    requires the Dataview plugin and all referenced child pages to be exported\n"
+            "    with their page properties as frontmatter; falls back to frozen on failure"
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_page_properties(cls, data: object) -> object:
+        """Migrate legacy page_properties_as_front_matter bool to page_properties_format."""
+        if not isinstance(data, dict):
+            return data
+        old_val = data.pop("page_properties_as_front_matter", None)
+        if old_val is not None and "page_properties_format" not in data:
+            if str(old_val).lower() in ("false", "0"):
+                data["page_properties_format"] = "table"
+            else:
+                data["page_properties_format"] = "frontmatter"
+        return data
+
     filename_encoding: str = Field(
         default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_","\'":"_","’":"_","´":"_","`":"_"',  # noqa: RUF001
         title="Filename Encoding",
