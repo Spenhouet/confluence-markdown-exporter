@@ -408,6 +408,18 @@ class ExportConfig(BaseModel):
             "\nNote: large and multiple attachments will take more time"
         ),
     )
+    image_captions: bool = Field(
+        default=False,
+        title="Image Captions",
+        description=(
+            "Whether to export Confluence image captions in the exported Markdown.\n"
+            "When enabled, the storage format of each page is fetched via an additional "
+            "API expansion to extract caption text from `ac:image` elements.\n"
+            "Captions are rendered as an italic line directly below the image:\n"
+            "  ![](image.png)\n"
+            "  *Caption text*"
+        ),
+    )
     page_breadcrumbs: bool = Field(
         default=True,
         title="Page Breadcrumbs",

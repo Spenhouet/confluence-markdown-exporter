@@ -20,7 +20,7 @@ Exports individual pages, pages with descendants, or entire spaces via the Atlas
 
 #### Content & formatting
 
-- **Rich text** — headings, paragraphs, bold, italic, underline, lists, tables, links, images, and attachments
+- **Rich text** — headings, paragraphs, bold, italic, underline, lists, tables, links, images, attachments, and image captions
 - **Code blocks** — language-aware fenced code blocks
 - **Task lists** — checkboxes with completion state
 - **Text highlights & font colours** — preserved with inline HTML colour styling
@@ -287,7 +287,7 @@ How to generate links to attachments in Markdown. Options: `relative` (default),
 | ---------- | ---------------------------------------------------------------------------------- |
 | `relative` | `[file.pdf](../path/to/file.pdf)` / `![alt](../path/to/image.png)`                 |
 | `absolute` | `[file.pdf](/space/attachments/file.pdf)` / `![alt](/space/attachments/image.png)` |
-| `wiki`     | `[[file.pdf\|File Title]]` / `![[image.png\|alt text]]`                            |
+| `wiki`     | `[[file.pdf\|File Title]]` / `![[image.png]]`                                      |
 
 ##### export.attachment_path
 
@@ -303,6 +303,20 @@ Export all attachments, not only those referenced by a page. Note: exporting lar
 - Default: `False`
 - ENV Var: `CME_EXPORT__ATTACHMENT_EXPORT_ALL`
 
+##### export.image_captions
+
+Whether to export Confluence image captions in the exported Markdown. When enabled, the storage format of each page is fetched (via an additional API body expansion) and `ac:image` captions are extracted and rendered as an italic line directly below the image:
+
+```markdown
+![](image.png)
+_Caption text_
+```
+
+When disabled, no caption is added.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__IMAGE_CAPTIONS`
+
 ##### export.page_breadcrumbs
 
 Whether to include breadcrumb links at the top of the page.
@@ -314,13 +328,13 @@ Whether to include breadcrumb links at the top of the page.
 
 Controls how Confluence Page Properties macros (key-value tables) are rendered. Duplicate property keys are automatically disambiguated by appending a counter (e.g. `status`, `status_2`, `status_3`).
 
-| Value                   | Description                                                                                                                                                                                                    |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `frontmatter`           | Extract to YAML front matter; table is removed from the page body                                                                                                                                              |
-| `table`                 | Keep as a regular markdown table; no metadata is written                                                                                                                                                       |
-| `frontmatter_and_table` | Write to YAML front matter **and** keep the original table in the body (default)                                                                                                                               |
-| `dataview-inline-field` | Replace the table with [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) `Key:: Value` inline fields                                                                                               |
-| `meta-bind-view-fields` | Write YAML front matter and a table using [Meta Bind](https://www.moritzjung.dev/obsidian-meta-bind-plugin-docs/) `VIEW[{key}][text]` fields                                                                   |
+| Value                   | Description                                                                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontmatter`           | Extract to YAML front matter; table is removed from the page body                                                                            |
+| `table`                 | Keep as a regular markdown table; no metadata is written                                                                                     |
+| `frontmatter_and_table` | Write to YAML front matter **and** keep the original table in the body (default)                                                             |
+| `dataview-inline-field` | Replace the table with [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) `Key:: Value` inline fields                             |
+| `meta-bind-view-fields` | Write YAML front matter and a table using [Meta Bind](https://www.moritzjung.dev/obsidian-meta-bind-plugin-docs/) `VIEW[{key}][text]` fields |
 
 > **Migration:** The legacy `page_properties_as_front_matter=true/false` is still accepted and maps to `frontmatter` / `table` respectively.
 
@@ -620,12 +634,12 @@ Obsidian natively renders the document title and page breadcrumbs, so both are d
 
 The following Obsidian plugins are recommended for the best experience:
 
-| Plugin | Purpose |
-| ------ | ------- |
-| [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) | Query and display page metadata across the vault; powers the Page Properties Report DQL queries |
+| Plugin                                                                  | Purpose                                                                                                                    |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| [Dataview](https://blacksmithgu.github.io/obsidian-dataview/)           | Query and display page metadata across the vault; powers the Page Properties Report DQL queries                            |
 | [Meta Bind](https://www.moritzjung.dev/obsidian-meta-bind-plugin-docs/) | Renders the exported `VIEW[{key}][text]` fields as live, readable values inline in the page body; works alongside Dataview |
-| [Highlightr](https://github.com/chetachiezikeuzor/Highlightr-Plugin) | Renders the colour highlights exported from Confluence text highlights |
-| [Folder Notes](https://github.com/LostPaul/obsidian-folder-notes) | Opens the page note when clicking a folder, mirroring Confluence's page-as-folder structure |
+| [Highlightr](https://github.com/chetachiezikeuzor/Highlightr-Plugin)    | Renders the colour highlights exported from Confluence text highlights                                                     |
+| [Folder Notes](https://github.com/LostPaul/obsidian-folder-notes)       | Opens the page note when clicking a folder, mirroring Confluence's page-as-folder structure                                |
 
 > **Note:** Wiki links resolve by page title. If multiple pages share the same title across spaces, Obsidian may link to the wrong file. In that case, omit `export.page_href=wiki` and use `relative` or `absolute` links instead.
 >

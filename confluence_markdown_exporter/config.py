@@ -35,6 +35,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.page_breadcrumbs` | Include breadcrumb links at top of page |\n\n"
     "| `export.enable_jira_enrichment` | Fetch Jira data for enriched links |\n\n"
     "| `export.attachment_export_all` | Export all attachments, not only referenced ones |\n\n"
+    "| `export.image_captions` | Use image captions as markdown alt text (`true`/`false`) |\n\n"
     "| `export.inline_comments` | Export open inline comments as sidecar `.comments.md` files |\n\n"
     "| `export.convert_status_badges` | Convert Confluence status badges to `<mark>` elements |\n\n"
     "| `export.convert_text_highlights` | Convert background-color spans to `<mark>` elements |\n\n"
