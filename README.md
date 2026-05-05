@@ -296,6 +296,8 @@ Path template for attachments.
 - Default: `{space_name}/attachments/{attachment_file_id}{attachment_extension}`
 - ENV Var: `CME_EXPORT__ATTACHMENT_PATH`
 
+On Confluence Data Center / Server, where the API does not provide `fileId`, `{attachment_file_id}` falls back to the content id, so the default template still produces unique filenames.
+
 ##### export.attachment_export_all
 
 Export all attachments, not only those referenced by a page. Note: exporting large or many attachments increases export time.
