@@ -36,6 +36,10 @@
 - **Code Blocks**: Converts Confluence code blocks to Markdown code blocks.
 - **Tasks**: Converts Confluence tasks to Markdown task lists.
 - **Alerts**: Converts Confluence info panels to Markdown alert blocks.
+- **Text Highlights**: Preserves Confluence text highlights with their original colour.
+- **Font Colors**: Preserves Confluence font colours.
+- **Status Badges**: Converts Confluence status badges to coloured highlights.
+- **Inline Comments**: Exports open inline comments as sidecar files placed next to each page.
 - **Front Matter**: Adds front matter to the Markdown files for metadata like page properties and page labels.
 - **Mermaid**: Converts Mermaid diagrams embedded in draw.io diagrams to Mermaid code blocks.
 - **PlantUML**: Converts PlantUML diagrams to Markdown code blocks.
@@ -353,6 +357,38 @@ Fetch and export open inline comments as a sidecar `.comments.md` file placed ne
 
 - Default: `False`
 - ENV Var: `CME_EXPORT__INLINE_COMMENTS`
+
+##### export.convert_status_badges
+
+Whether to convert Confluence status badge macros to HTML `<mark>` elements coloured with the badge's background colour. Each lozenge variant maps to an Atlassian design-system pastel:
+
+| Lozenge | Colour | Hex |
+| ------- | ------ | --- |
+| Gray (default) | Gray | `#dfe1e6` |
+| Blue | Blue | `#cce0ff` |
+| Green | Green | `#baf3db` |
+| Yellow | Yellow / Orange | `#f8e6a0` |
+| Red | Red | `#ffd5d2` |
+| Purple | Purple / Violet | `#dfd8fd` |
+
+When disabled, only the badge label text is kept.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__CONVERT_STATUS_BADGES`
+
+##### export.convert_text_highlights
+
+Whether to convert Confluence text highlights (`<span style="background-color: rgb(...);">`) to HTML `<mark>` elements with a hex color value. When disabled, the highlight span is stripped and only the plain text is kept.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__CONVERT_TEXT_HIGHLIGHTS`
+
+##### export.convert_font_colors
+
+Whether to convert Confluence font colors to HTML `<font>` elements with a hex color value. Handles both inline-style spans (`<span style="color: rgb(...);">`) and CSS-class-based spans (`<span data-colorid="...">`) used in the Confluence export view. When disabled, the color span is stripped and only the plain text is kept.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__CONVERT_FONT_COLORS`
 
 ##### export.skip_unchanged
 
