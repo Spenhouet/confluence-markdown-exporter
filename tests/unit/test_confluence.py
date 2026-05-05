@@ -6,7 +6,11 @@ from unittest.mock import patch
 
 import pytest
 
+from confluence_markdown_exporter.confluence import Attachment
 from confluence_markdown_exporter.confluence import Page
+from confluence_markdown_exporter.confluence import Space
+from confluence_markdown_exporter.confluence import User
+from confluence_markdown_exporter.confluence import Version
 
 
 class MockPage:
@@ -58,6 +62,194 @@ class TestAnchorLinkConversion:
             html = '<a href="#1.-Request-Service">Request Service</a>'
             result = converter.convert(html).strip()
         assert result == "[[#Request Service]]"
+
+
+def _make_attachment(
+    att_id: str,
+    file_id: str,
+    title: str = "file.png",
+    media_type: str = "image/png",
+) -> Attachment:
+    space = Space(base_url="https://example.com", key="TS", name="Test", description="", homepage=0)
+    version = Version(
+        number=1,
+        by=User(account_id="u1", display_name="User", username="user", public_name="", email=""),
+        when="2024-01-01T00:00:00Z",
+        friendly_when="Jan 1",
+    )
+    return Attachment(
+        base_url="https://example.com",
+        title=title,
+        space=space,
+        ancestors=[],
+        version=version,
+        id=att_id,
+        file_size=100,
+        media_type=media_type,
+        media_type_description="",
+        file_id=file_id,
+        collection_name="",
+        download_link="/download",
+        comment="",
+    )
+
+
+def _make_page(body: str, body_export: str, attachments: list[Attachment]) -> Page:
+    space = Space(base_url="https://example.com", key="TS", name="Test", description="", homepage=0)
+    version = Version(
+        number=1,
+        by=User(account_id="u1", display_name="User", username="user", public_name="", email=""),
+        when="2024-01-01T00:00:00Z",
+        friendly_when="Jan 1",
+    )
+    return Page(
+        base_url="https://example.com",
+        id=1,
+        title="Test Page",
+        space=space,
+        ancestors=[],
+        version=version,
+        body=body,
+        body_export=body_export,
+        editor2="",
+        labels=[],
+        attachments=attachments,
+    )
+
+
+class TestAttachmentsForExport:
+    """_attachments_for_export selects the right attachments."""
+
+    def test_file_id_in_body_included(self) -> None:
+        att = _make_attachment("111", "abc-guid-111")
+        page = _make_page(
+            body='<img data-media-id="abc-guid-111" src="...">',
+            body_export="",
+            attachments=[att],
+        )
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_export_all = False
+            result = page._attachments_for_export()
+        assert att in result
+
+    def test_attachment_id_in_body_included(self) -> None:
+        """SVG/MP4 referenced via data-linked-resource-id must be exported."""
+        att = _make_attachment(
+            "99999", "xyz-guid-99", title="image.svg", media_type="image/svg+xml"
+        )
+        page = _make_page(
+            body='<img data-linked-resource-id="99999" src="...">',
+            body_export="",
+            attachments=[att],
+        )
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_export_all = False
+            result = page._attachments_for_export()
+        assert att in result
+
+    def test_attachment_id_in_body_export_included(self) -> None:
+        """Attachment referenced only in body_export (e.g. MP4) must be exported."""
+        att = _make_attachment("88888", "xyz-guid-88", title="video.mp4", media_type="video/mp4")
+        page = _make_page(
+            body="",
+            body_export='<a data-linked-resource-id="88888" href="...">video.mp4</a>',
+            attachments=[att],
+        )
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_export_all = False
+            result = page._attachments_for_export()
+        assert att in result
+
+    def test_title_in_body_src_url_included(self) -> None:
+        """SVG referenced only by filename in src URL (no data attributes) must be exported."""
+        att = _make_attachment(
+            "66666", "xyz-guid-66", title="MEP-Symbol_CH-REP.svg", media_type="image/svg+xml"
+        )
+        page = _make_page(
+            body='<img src="/download/attachments/12345/MEP-Symbol_CH-REP.svg?version=1">',
+            body_export="",
+            attachments=[att],
+        )
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_export_all = False
+            result = page._attachments_for_export()
+        assert att in result
+
+    def test_title_with_spaces_url_encoded_in_body_export_included(self) -> None:
+        att = _make_attachment("55555", "xyz-guid-55", title="my video.mp4", media_type="video/mp4")
+        page = _make_page(
+            body="",
+            body_export='<img src="/download/attachments/12345/my%20video.mp4">',
+            attachments=[att],
+        )
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_export_all = False
+            result = page._attachments_for_export()
+        assert att in result
+
+    def test_unreferenced_attachment_excluded(self) -> None:
+        att = _make_attachment("77777", "xyz-guid-77", title="unused.png")
+        page = _make_page(body="no references here", body_export="", attachments=[att])
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_export_all = False
+            result = page._attachments_for_export()
+        assert att not in result
+
+    def test_attachment_export_all_returns_all(self) -> None:
+        att1 = _make_attachment("111", "aaa")
+        att2 = _make_attachment("222", "bbb", title="other.svg", media_type="image/svg+xml")
+        page = _make_page(body="", body_export="", attachments=[att1, att2])
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_export_all = True
+            result = page._attachments_for_export()
+        assert result == [att1, att2]
+
+
+class TestTransformErrorImg:
+    """transform-error SVG images must resolve via data-encoded-xml."""
+
+    def test_transform_error_resolves_attachment_by_encoded_xml(self) -> None:
+        from pathlib import Path
+        from urllib.parse import quote
+
+        class MockAttachment:
+            title = "MEP-Symbol_CH-REP.svg"
+            export_path = Path("TEST/attachments/guid123.svg")
+
+        class MockPageWithSvg:
+            def __init__(self) -> None:
+                self.id = "test-page"
+                self.title = "Test Page"
+                self.html = ""
+                self.labels: list = []
+                self.ancestors: list = []
+                self.export_path = Path("TEST/Instructions for Use.md")
+
+            def get_attachment_by_file_id(self, _fid: str) -> None:
+                return None
+
+            def get_attachment_by_id(self, _aid: str) -> None:
+                return None
+
+            def get_attachments_by_title(self, title: str) -> list:
+                if title == "MEP-Symbol_CH-REP.svg":
+                    return [MockAttachment()]
+                return []
+
+        encoded = quote('<ac:image><ri:attachment ri:filename="MEP-Symbol_CH-REP.svg"/></ac:image>')
+        html = (
+            f'<img class="transform-error" data-encoded-xml="{encoded}" '
+            f'src="https://example.com/placeholder/error" title="">'
+        )
+
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_href = "relative"
+            s.export.page_href = "relative"
+            conv = Page.Converter(MockPageWithSvg())  # type: ignore[arg-type]
+            result = conv.convert(html).strip()
+
+        assert "placeholder/error" not in result
+        assert "MEP-Symbol_CH-REP.svg" in result or "guid123.svg" in result
 
 
 class TestPageFromUrl:
