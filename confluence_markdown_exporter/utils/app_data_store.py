@@ -517,7 +517,8 @@ class ExportConfig(BaseModel):
         description=(
             "Whether to fetch Jira issue data to enrich Confluence pages. "
             "When enabled, Jira issue links will include the issue summary. "
-            "When disabled, only the issue key and link will be included."
+            "When disabled, only the issue key and link will be included. "
+            "Requires Jira auth to be configured."
         ),
     )
     inline_comments: bool = Field(
@@ -525,9 +526,11 @@ class ExportConfig(BaseModel):
         title="Export Inline Comments",
         description=(
             "Whether to fetch and export open inline comments as a sidecar "
-            "'.comments.md' file next to each exported page, using the same "
-            "path as the page file. "
-            "Disabled by default — adds extra API calls per page."
+            "'.comments.md' file placed next to the exported page file, using the same path stem. "
+            "Only open (non-resolved, non-dangling) comments are included. "
+            "Each comment thread shows the annotated text as a blockquote, followed by the author, "
+            "date, and comment body. Replies are listed flat below the parent comment. "
+            "Disabled by default — adds one extra API call per comment thread per page."
         ),
     )
     convert_status_badges: bool = Field(
@@ -563,7 +566,7 @@ class ExportConfig(BaseModel):
     skip_unchanged: bool = Field(
         default=True,
         title="Skip Unchanged Pages",
-        description="Skip exporting pages that have not changed since last export.",
+        description="Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.",
     )
     cleanup_stale: bool = Field(
         default=True,
