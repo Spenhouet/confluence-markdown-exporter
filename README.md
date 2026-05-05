@@ -303,6 +303,13 @@ Export all attachments, not only those referenced by a page. Note: exporting lar
 - Default: `False`
 - ENV Var: `CME_EXPORT__ATTACHMENT_EXPORT_ALL`
 
+##### export.attachments_export
+
+Whether to download attachment files to disk. When disabled, no attachment files are written and no lockfile entries are created — useful when you only want the Markdown text and want to save disk space and bandwidth. Attachment metadata is still fetched from the Confluence API so image and file links in the page body continue to resolve in the rendered Markdown, but the referenced files will not exist locally.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__ATTACHMENTS_EXPORT`
+
 ##### export.image_captions
 
 Whether to export Confluence image captions in the exported Markdown. When enabled, the storage format of each page is fetched (via an additional API body expansion) and `ac:image` captions are extracted and rendered as an italic line directly below the image:

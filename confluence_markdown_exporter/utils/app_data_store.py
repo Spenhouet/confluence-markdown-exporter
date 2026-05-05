@@ -408,6 +408,18 @@ class ExportConfig(BaseModel):
             "\nNote: large and multiple attachments will take more time"
         ),
     )
+    attachments_export: bool = Field(
+        default=True,
+        title="Attachments Export",
+        description=(
+            "Whether to download attachment files to disk. "
+            "When disabled, no attachment files are written and no lockfile "
+            "entries are created. Attachment metadata is still fetched from "
+            "the Confluence API so image and file links in the page body "
+            "continue to resolve, but the referenced files will not exist "
+            "locally."
+        ),
+    )
     image_captions: bool = Field(
         default=False,
         title="Image Captions",
