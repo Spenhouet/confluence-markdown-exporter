@@ -72,6 +72,24 @@ StrPath: TypeAlias = str | PathLike[str]
 logger = logging.getLogger(__name__)
 _MAX_UNICODE_CODEPOINT = 0x10FFFF
 
+_RE_RGB_BG = re.compile(r"background-color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
+_RE_RGB_COLOR = re.compile(r"(?<![a-z-])color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
+_RE_COLORID_CSS = re.compile(r"(?<![>\w])\[data-colorid=(\w+)\]\{color:(#[0-9a-fA-F]+)\}")
+
+
+def _rgb_to_hex(r: int, g: int, b: int) -> str:
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+# Background colours for Confluence status-badge lozenges (Atlassian design token pastels).
+_LOZENGE_COLORS: dict[str, str] = {
+    "aui-lozenge-complete": "#cce0ff",   # blue
+    "aui-lozenge-success": "#baf3db",    # green
+    "aui-lozenge-current": "#f8e6a0",    # yellow / orange
+    "aui-lozenge-error": "#ffd5d2",      # red
+    "aui-lozenge-progress": "#dfd8fd",   # purple / violet
+}
+
 
 def _require_dict(response: object, context: str) -> JsonResponse:
     """Validate that an API response is a dict, not an HTML redirect or error string.
@@ -198,6 +216,7 @@ _HTML_ELEMENTS = frozenset(
         "fieldset",
         "figcaption",
         "figure",
+        "font",
         "footer",
         "form",
         "h1",
@@ -1227,6 +1246,21 @@ class Page(Document):
             self.page = page
             self.page_properties = {}
             self._marked_texts: dict[str, str] = {}
+            self._colorid_map_cache: dict[str, str] | None = None
+
+        @property
+        def _colorid_map(self) -> dict[str, str]:
+            if self._colorid_map_cache is None:
+                cache: dict[str, str] = {}
+                soup = BeautifulSoup(self.page.html, "html.parser")
+                for style_tag in soup.find_all("style"):
+                    css = style_tag.get_text()
+                    for m in _RE_COLORID_CSS.finditer(css):
+                        color_id = m.group(1)
+                        if color_id not in cache:
+                            cache[color_id] = m.group(2)
+                self._colorid_map_cache = cache
+            return self._colorid_map_cache
 
         @property
         def markdown(self) -> str:
@@ -1366,13 +1400,65 @@ class Page(Document):
             # Return as details element
             return f"\n<details>\n<summary>{summary_text}</summary>\n\n{content}\n\n</details>\n\n"
 
+        def _span_highlight(self, style: str, text: str) -> str | None:
+            bg_m = _RE_RGB_BG.search(style)
+            if not bg_m:
+                return None
+            hex_color = _rgb_to_hex(int(bg_m.group(1)), int(bg_m.group(2)), int(bg_m.group(3)))
+            return f'<mark style="background: {hex_color};">{text}</mark>'
+
+        def _span_font_color(self, el: BeautifulSoup, style: str, text: str) -> str | None:
+            color_m = _RE_RGB_COLOR.search(style)
+            if color_m:
+                hex_color = _rgb_to_hex(
+                    int(color_m.group(1)), int(color_m.group(2)), int(color_m.group(3))
+                )
+                return f'<font style="color: {hex_color};">{text}</font>'
+            color_id = el.get("data-colorid")
+            if isinstance(color_id, str):
+                hex_color = self._colorid_map.get(color_id)
+                if hex_color:
+                    return f'<font style="color: {hex_color};">{text}</font>'
+            return None
+
+        def _span_status_badge(self, el: BeautifulSoup, text: str) -> str | None:
+            if not settings.export.convert_status_badges:
+                return None
+            classes = el.get("class") or []
+            if not isinstance(classes, list):
+                return None
+            if "status-macro" not in classes:
+                return None
+            bg = "#dfe1e6"  # default gray
+            for cls, color in _LOZENGE_COLORS.items():
+                if cls in classes:
+                    bg = color
+                    break
+            return f'<mark style="background: {bg};">{text.strip()}</mark>'
+
         def convert_span(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("data-macro-name"):
                 if el["data-macro-name"] == "jira":
                     return self.convert_jira_issue(el, text, parent_tags)
+                if el["data-macro-name"] == "status":
+                    result = self._span_status_badge(el, text)
+                    if result is not None:
+                        return result
 
             if el.has_attr("class") and "inline-comment-marker" in el["class"]:
                 return self.convert_inline_comment_marker(el, text, parent_tags)
+
+            raw_style = el.get("style", "")
+            style = raw_style if isinstance(raw_style, str) else ""
+            if settings.export.convert_text_highlights:
+                result = self._span_highlight(style, text)
+                if result is not None:
+                    return result
+
+            if settings.export.convert_font_colors:
+                result = self._span_font_color(el, style, text)
+                if result is not None:
+                    return result
 
             return text
 
