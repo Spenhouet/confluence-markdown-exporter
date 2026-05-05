@@ -308,3 +308,117 @@ class TestPageFromUrl:
         assert result == "page"
         mock_from_id.assert_called_once_with(317425825, "https://wiki.example.com")
         mock_client.assert_not_called()
+
+
+class TestSpanHighlightConversion:
+    """Background-color spans must become <mark> elements when enabled."""
+
+    def test_background_color_rgb_converted_to_mark(self, converter: Page.Converter) -> None:
+        html = '<p><span style="background-color: rgb(248,230,160);">hello</span></p>'
+        result = converter.convert(html).strip()
+        assert '<mark style="background: #f8e6a0;">hello</mark>' in result
+
+    def test_multiple_channels_converted_correctly(self, converter: Page.Converter) -> None:
+        html = '<p><span style="background-color: rgb(198,237,251);">text</span></p>'
+        result = converter.convert(html).strip()
+        assert '<mark style="background: #c6edfb;">text</mark>' in result
+
+    def test_highlight_disabled_returns_plain_text(self, converter: Page.Converter) -> None:
+        html = '<p><span style="background-color: rgb(248,230,160);">hello</span></p>'
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.convert_text_highlights = False
+            s.export.convert_font_colors = True
+            result = converter.convert(html).strip()
+        assert "<mark" not in result
+        assert "hello" in result
+
+
+class TestSpanFontColorConversion:
+    """Color spans must become <font> elements when enabled."""
+
+    def test_inline_color_rgb_converted_to_font(self, converter: Page.Converter) -> None:
+        html = '<p><span style="color: rgb(7,71,166);">blue text</span></p>'
+        result = converter.convert(html).strip()
+        assert '<font style="color: #0747a6;">blue text</font>' in result
+
+    def test_background_color_not_matched_as_font_color(self, converter: Page.Converter) -> None:
+        html = '<p><span style="background-color: rgb(248,230,160);">hi</span></p>'
+        result = converter.convert(html).strip()
+        assert "<font" not in result
+        assert '<mark style="background: #f8e6a0;">hi</mark>' in result
+
+    def test_data_colorid_resolved_from_style_tag(self) -> None:
+        page = MockPage()
+        page.html = (
+            '<style>[data-colorid=abc123]{color:#ff5630} '
+            'html[data-color-mode=dark] [data-colorid=abc123]{color:#cf2600}</style>'
+        )
+        conv = Page.Converter(page)  # type: ignore[arg-type]
+        html = '<p><span data-colorid="abc123">colored</span></p>'
+        result = conv.convert(html).strip()
+        assert '<font style="color: #ff5630;">colored</font>' in result
+
+    def test_data_colorid_unknown_falls_through(self, converter: Page.Converter) -> None:
+        html = '<p><span data-colorid="unknown999">text</span></p>'
+        result = converter.convert(html).strip()
+        assert "<font" not in result
+        assert "text" in result
+
+    def test_font_color_disabled_returns_plain_text(self, converter: Page.Converter) -> None:
+        html = '<p><span style="color: rgb(255,86,48);">red text</span></p>'
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.convert_text_highlights = True
+            s.export.convert_font_colors = False
+            result = converter.convert(html).strip()
+        assert "<font" not in result
+        assert "red text" in result
+
+
+class TestStatusBadgeConversion:
+    """Confluence status-macro lozenge spans must become <mark> elements when enabled."""
+
+    def _badge(self, extra_class: str, label: str) -> str:
+        classes = f"status-macro aui-lozenge aui-lozenge-visual-refresh {extra_class}".strip()
+        return (
+            f'<p><span class="{classes}" data-macro-name="status">{label}</span></p>'
+        )
+
+    def test_gray_badge(self, converter: Page.Converter) -> None:
+        html = self._badge("", "IN PROGRESS")
+        result = converter.convert(html).strip()
+        assert '<mark style="background: #dfe1e6;">IN PROGRESS</mark>' in result
+
+    def test_blue_badge(self, converter: Page.Converter) -> None:
+        html = self._badge("aui-lozenge-complete", "DONE")
+        result = converter.convert(html).strip()
+        assert '<mark style="background: #cce0ff;">DONE</mark>' in result
+
+    def test_green_badge(self, converter: Page.Converter) -> None:
+        html = self._badge("aui-lozenge-success", "SUCCESS")
+        result = converter.convert(html).strip()
+        assert '<mark style="background: #baf3db;">SUCCESS</mark>' in result
+
+    def test_yellow_badge(self, converter: Page.Converter) -> None:
+        html = self._badge("aui-lozenge-current", "ORANGE")
+        result = converter.convert(html).strip()
+        assert '<mark style="background: #f8e6a0;">ORANGE</mark>' in result
+
+    def test_red_badge(self, converter: Page.Converter) -> None:
+        html = self._badge("aui-lozenge-error", "BLOCKED")
+        result = converter.convert(html).strip()
+        assert '<mark style="background: #ffd5d2;">BLOCKED</mark>' in result
+
+    def test_purple_badge(self, converter: Page.Converter) -> None:
+        html = self._badge("aui-lozenge-progress", "VIOLET")
+        result = converter.convert(html).strip()
+        assert '<mark style="background: #dfd8fd;">VIOLET</mark>' in result
+
+    def test_badge_disabled_returns_plain_text(self, converter: Page.Converter) -> None:
+        html = self._badge("aui-lozenge-error", "BLOCKED")
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.convert_status_badges = False
+            s.export.convert_font_colors = True
+            s.export.convert_text_highlights = True
+            result = converter.convert(html).strip()
+        assert "<mark" not in result
+        assert "BLOCKED" in result
