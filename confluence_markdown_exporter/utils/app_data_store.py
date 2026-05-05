@@ -485,6 +485,36 @@ class ExportConfig(BaseModel):
             "Disabled by default — adds extra API calls per page."
         ),
     )
+    convert_status_badges: bool = Field(
+        default=True,
+        title="Convert Status Badges",
+        description=(
+            "Whether to convert Confluence status badge macros "
+            "(<span class=\"status-macro ...\"/>) "
+            "to HTML <mark> elements coloured with the badge's background colour. "
+            "When disabled, only the badge label text is kept."
+        ),
+    )
+    convert_text_highlights: bool = Field(
+        default=True,
+        title="Convert Text Highlights",
+        description=(
+            "Whether to convert Confluence text highlights "
+            "(<span style=\"background-color: rgb(...);\"/>) "
+            "to HTML <mark> elements with a hex color. "
+            "When disabled, the highlight span is stripped and only the text is kept."
+        ),
+    )
+    convert_font_colors: bool = Field(
+        default=True,
+        title="Convert Font Colors",
+        description=(
+            "Whether to convert Confluence font colors "
+            "(<span data-colorid=\"...\"/> or <span style=\"color: rgb(...);\"/>) "
+            "to HTML <font> elements with a hex color. "
+            "When disabled, the color span is stripped and only the text is kept."
+        ),
+    )
     skip_unchanged: bool = Field(
         default=True,
         title="Skip Unchanged Pages",
