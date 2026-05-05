@@ -20,6 +20,7 @@ class MockPage:
         self.id = "test-page"
         self.title = "Test Page"
         self.html = ""
+        self.body_storage = ""
         self.labels = []
         self.ancestors = []
 
@@ -128,7 +129,12 @@ def _make_attachment(
     )
 
 
-def _make_page(body: str, body_export: str, attachments: list[Attachment]) -> Page:
+def _make_page(
+    body: str,
+    body_export: str,
+    attachments: list[Attachment],
+    body_storage: str = "",
+) -> Page:
     space = Space(base_url="https://example.com", key="TS", name="Test", description="", homepage=0)
     version = Version(
         number=1,
@@ -146,6 +152,7 @@ def _make_page(body: str, body_export: str, attachments: list[Attachment]) -> Pa
         body=body,
         body_export=body_export,
         editor2="",
+        body_storage=body_storage,
         labels=[],
         attachments=attachments,
     )
@@ -255,6 +262,7 @@ class TestTransformErrorImg:
                 self.id = "test-page"
                 self.title = "Test Page"
                 self.html = ""
+                self.body_storage = ""
                 self.labels: list = []
                 self.ancestors: list = []
                 self.export_path = Path("TEST/Instructions for Use.md")
@@ -284,6 +292,164 @@ class TestTransformErrorImg:
 
         assert "placeholder/error" not in result
         assert "MEP-Symbol_CH-REP.svg" in result or "guid123.svg" in result
+
+
+class TestParseImageCaptions:
+    """_parse_image_captions extracts captions from Confluence storage XML."""
+
+    def test_cdata_caption_extracted(self) -> None:
+        from confluence_markdown_exporter.confluence import _parse_image_captions
+
+        storage = (
+            '<ac:image ac:align="center">'
+            '<ri:attachment ri:filename="testbild.jpeg"/>'
+            "<ac:caption>"
+            "<ac:plain-text-body><![CDATA[My Caption]]></ac:plain-text-body>"
+            "</ac:caption>"
+            "</ac:image>"
+        )
+        assert _parse_image_captions(storage) == {"testbild.jpeg": "My Caption"}
+
+    def test_plain_text_caption_extracted(self) -> None:
+        from confluence_markdown_exporter.confluence import _parse_image_captions
+
+        storage = (
+            "<ac:image>"
+            '<ri:attachment ri:filename="photo.png"/>'
+            "<ac:caption>"
+            "<ac:plain-text-body>Plain Caption</ac:plain-text-body>"
+            "</ac:caption>"
+            "</ac:image>"
+        )
+        assert _parse_image_captions(storage) == {"photo.png": "Plain Caption"}
+
+    def test_paragraph_caption_extracted(self) -> None:
+        from confluence_markdown_exporter.confluence import _parse_image_captions
+
+        storage = (
+            '<ac:image ac:align="center">'
+            '<ri:attachment ri:filename="screenshot.png" ri:version-at-save="1"/>'
+            "<ac:caption><p>Dialog in VS Code to create a new branch</p></ac:caption>"
+            "</ac:image>"
+        )
+        result = _parse_image_captions(storage)
+        assert result == {"screenshot.png": "Dialog in VS Code to create a new branch"}
+
+    def test_caption_with_attributes_extracted(self) -> None:
+        from confluence_markdown_exporter.confluence import _parse_image_captions
+
+        storage = (
+            '<ac:image ac:align="center" ac:width="544">'
+            '<ri:attachment ri:filename="TissueMap.png" ri:version-at-save="1"/>'
+            '<ac:caption ac:local-id="6a5ac213-73a0">'
+            "<p>Exemplary Tissue Map</p>"
+            "</ac:caption>"
+            "</ac:image>"
+        )
+        result = _parse_image_captions(storage)
+        assert result == {"TissueMap.png": "Exemplary Tissue Map"}
+
+    def test_image_without_caption_excluded(self) -> None:
+        from confluence_markdown_exporter.confluence import _parse_image_captions
+
+        storage = (
+            "<ac:image>"
+            '<ri:attachment ri:filename="no-caption.png"/>'
+            "</ac:image>"
+        )
+        assert _parse_image_captions(storage) == {}
+
+    def test_multiple_images_mixed(self) -> None:
+        from confluence_markdown_exporter.confluence import _parse_image_captions
+
+        storage = (
+            "<ac:image>"
+            '<ri:attachment ri:filename="a.png"/>'
+            "<ac:caption><ac:plain-text-body>"
+            "<![CDATA[Caption A]]></ac:plain-text-body></ac:caption>"
+            "</ac:image>"
+            "<ac:image>"
+            '<ri:attachment ri:filename="b.png"/>'
+            "</ac:image>"
+            "<ac:image>"
+            '<ri:attachment ri:filename="c.jpg"/>'
+            "<ac:caption><ac:plain-text-body>"
+            "<![CDATA[Caption C]]></ac:plain-text-body></ac:caption>"
+            "</ac:image>"
+        )
+        result = _parse_image_captions(storage)
+        assert result == {"a.png": "Caption A", "c.jpg": "Caption C"}
+
+    def test_empty_storage_returns_empty(self) -> None:
+        from confluence_markdown_exporter.confluence import _parse_image_captions
+
+        assert _parse_image_captions("") == {}
+
+
+class TestImageCaptionsInConvertImg:
+    """convert_img renders captions as italics below the image when image_captions is enabled."""
+
+    def test_caption_rendered_as_italic_below_image(self) -> None:
+        att = _make_attachment("111", "abc-guid-111", title="testbild.jpeg")
+        storage = (
+            "<ac:image>"
+            '<ri:attachment ri:filename="testbild.jpeg"/>'
+            "<ac:caption>"
+            "<ac:plain-text-body><![CDATA[My Caption]]></ac:plain-text-body>"
+            "</ac:caption>"
+            "</ac:image>"
+        )
+        page = _make_page(
+            body='<img data-media-id="abc-guid-111" src="/download/testbild.jpeg" alt="">',
+            body_export="",
+            attachments=[att],
+            body_storage=storage,
+        )
+        _att_path = "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_href = "relative"
+            s.export.attachment_path = _att_path
+            s.export.page_href = "relative"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            s.export.image_captions = True
+            s.export.include_document_title = False
+            s.export.page_breadcrumbs = False
+            conv = Page.Converter(page)
+            result = conv.convert(page.body).strip()
+        assert "![](" in result  # image with empty alt
+        assert "*My Caption*" in result
+        lines = result.splitlines()
+        img_line = next(i for i, line in enumerate(lines) if "![](" in line)
+        assert lines[img_line + 1] == "*My Caption*"
+
+    def test_caption_disabled_preserves_original_alt(self) -> None:
+        att = _make_attachment("111", "abc-guid-111", title="testbild.jpeg")
+        storage = (
+            "<ac:image>"
+            '<ri:attachment ri:filename="testbild.jpeg"/>'
+            "<ac:caption>"
+            "<ac:plain-text-body><![CDATA[My Caption]]></ac:plain-text-body>"
+            "</ac:caption>"
+            "</ac:image>"
+        )
+        page = _make_page(
+            body='<img data-media-id="abc-guid-111" src="/download/testbild.jpeg" alt="">',
+            body_export="",
+            attachments=[att],
+            body_storage=storage,
+        )
+        _att_path = "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_href = "relative"
+            s.export.attachment_path = _att_path
+            s.export.page_href = "relative"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            s.export.image_captions = False
+            s.export.include_document_title = False
+            s.export.page_breadcrumbs = False
+            conv = Page.Converter(page)
+            result = conv.convert(page.body).strip()
+        assert "My Caption" not in result
 
 
 class TestPageFromUrl:
