@@ -647,8 +647,8 @@ class TestPagePropertiesFormat:
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.page_properties_format = "meta-bind-view-fields"
             result = converter.convert(_DETAILS_HTML)
-        assert "| **Author** | `VIEW[{author}][text]` |" in result
-        assert "| **Status** | `VIEW[{status}][text]` |" in result
+        assert "| **Author** | `VIEW[{author}][text(renderMarkdown)]` |" in result
+        assert "| **Status** | `VIEW[{status}][text(renderMarkdown)]` |" in result
         assert "author" in converter.page_properties
         assert "status" in converter.page_properties
 
