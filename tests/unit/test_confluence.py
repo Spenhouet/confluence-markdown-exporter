@@ -763,7 +763,8 @@ class TestPagePropertiesReportDataview:
             s.export.page_properties_report_format = "dataview"
             result = converter.convert(self._REPORT_HTML)
         assert "```dataview" in result
-        assert "TABLE tool_version, approved_for_use" in result
+        expected_cols = 'tool_version AS "Tool Version", approved_for_use AS "Approved for Use"'
+        assert f"TABLE {expected_cols}" in result
 
     def test_dataview_output_contains_from_clause(self) -> None:
         page = self._MockPageWithExport(body_export=self._BODY_EXPORT)
