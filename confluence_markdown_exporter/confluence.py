@@ -1390,7 +1390,9 @@ class Page(Document):
                 return f"\n{lines}\n"
 
             # meta-bind-view-fields: two-column table with VIEW fields in value column
-            table_data = [(f"**{k}**", f"`VIEW[{{{sanitize_key(k)}}}][text]`") for k in props]
+            table_data = [
+                (f"**{k}**", f"`VIEW[{{{sanitize_key(k)}}}][text(renderMarkdown)]`") for k in props
+            ]
             return "\n\n" + tabulate(table_data, headers=["", ""], tablefmt="pipe") + "\n"
 
         def convert_alert(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
