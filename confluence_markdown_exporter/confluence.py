@@ -2270,7 +2270,9 @@ class Page(Document):
             else:
                 lines.append("TABLE")
 
-            from_parts = ([from_clause] if from_clause else []) + [f"#{lbl}" for lbl in label_conditions]
+            from_parts = ([from_clause] if from_clause else []) + [
+                f"#{lbl}" for lbl in label_conditions
+            ]
             if from_parts:
                 lines.append("FROM " + " AND ".join(from_parts))
 
