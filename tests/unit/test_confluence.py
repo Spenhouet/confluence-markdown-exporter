@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
@@ -169,7 +171,7 @@ class TestAttachmentsForExport:
             attachments=[att],
         )
         with patch("confluence_markdown_exporter.confluence.settings") as s:
-            s.export.attachment_export_all = False
+            s.export.attachments_export = "referenced"
             result = page._attachments_for_export()
         assert att in result
 
@@ -184,7 +186,7 @@ class TestAttachmentsForExport:
             attachments=[att],
         )
         with patch("confluence_markdown_exporter.confluence.settings") as s:
-            s.export.attachment_export_all = False
+            s.export.attachments_export = "referenced"
             result = page._attachments_for_export()
         assert att in result
 
@@ -197,7 +199,7 @@ class TestAttachmentsForExport:
             attachments=[att],
         )
         with patch("confluence_markdown_exporter.confluence.settings") as s:
-            s.export.attachment_export_all = False
+            s.export.attachments_export = "referenced"
             result = page._attachments_for_export()
         assert att in result
 
@@ -212,7 +214,7 @@ class TestAttachmentsForExport:
             attachments=[att],
         )
         with patch("confluence_markdown_exporter.confluence.settings") as s:
-            s.export.attachment_export_all = False
+            s.export.attachments_export = "referenced"
             result = page._attachments_for_export()
         assert att in result
 
@@ -224,7 +226,7 @@ class TestAttachmentsForExport:
             attachments=[att],
         )
         with patch("confluence_markdown_exporter.confluence.settings") as s:
-            s.export.attachment_export_all = False
+            s.export.attachments_export = "referenced"
             result = page._attachments_for_export()
         assert att in result
 
@@ -232,18 +234,137 @@ class TestAttachmentsForExport:
         att = _make_attachment("77777", "xyz-guid-77", title="unused.png")
         page = _make_page(body="no references here", body_export="", attachments=[att])
         with patch("confluence_markdown_exporter.confluence.settings") as s:
-            s.export.attachment_export_all = False
+            s.export.attachments_export = "referenced"
             result = page._attachments_for_export()
         assert att not in result
 
-    def test_attachment_export_all_returns_all(self) -> None:
+    def test_attachments_export_all_returns_all(self) -> None:
         att1 = _make_attachment("111", "aaa")
         att2 = _make_attachment("222", "bbb", title="other.svg", media_type="image/svg+xml")
         page = _make_page(body="", body_export="", attachments=[att1, att2])
         with patch("confluence_markdown_exporter.confluence.settings") as s:
-            s.export.attachment_export_all = True
+            s.export.attachments_export = "all"
             result = page._attachments_for_export()
         assert result == [att1, att2]
+
+
+class TestAttachmentsExportFlag:
+    """Tests for the export.attachments_export setting."""
+
+    def _make_attachment_mock(self, att_id: str = "att-1", version: int = 3) -> MagicMock:
+        att = MagicMock()
+        att.id = att_id
+        att.version.number = version
+        att.export_path = Path(f"attachments/{att_id}.bin")
+        return att
+
+    def _make_page_mock(self, attachments: list) -> MagicMock:
+        page = MagicMock()
+        page.id = 42
+        page._attachments_for_export.return_value = attachments
+        return page
+
+    def test_referenced_default_exports_attachments(self, tmp_path: Path) -> None:
+        """With attachments_export='referenced' (default), attachments are downloaded."""
+        att = self._make_attachment_mock()
+        page = self._make_page_mock([att])
+
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as mock_settings,
+            patch(
+                "confluence_markdown_exporter.confluence.LockfileManager"
+            ) as mock_lockfile,
+            patch("confluence_markdown_exporter.confluence.get_stats"),
+        ):
+            mock_settings.export.attachments_export = "referenced"
+            mock_settings.export.output_path = tmp_path
+            mock_lockfile.get_page_attachment_entries.return_value = {}
+
+            result = Page.export_attachments(page)
+
+        att.export.assert_called_once()
+        assert "att-1" in result
+
+    def test_disabled_skips_download_and_lockfile(self) -> None:
+        """With attachments_export='disabled', no download and no lockfile lookup."""
+        att = self._make_attachment_mock()
+        page = self._make_page_mock([att])
+
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as mock_settings,
+            patch(
+                "confluence_markdown_exporter.confluence.LockfileManager"
+            ) as mock_lockfile,
+            patch("confluence_markdown_exporter.confluence.get_stats"),
+        ):
+            mock_settings.export.attachments_export = "disabled"
+
+            result = Page.export_attachments(page)
+
+        assert result == {}
+        att.export.assert_not_called()
+        mock_lockfile.get_page_attachment_entries.assert_not_called()
+
+    def test_metadata_still_populated_when_disabled(self) -> None:
+        """Page.from_json populates Page.attachments even when downloads are disabled.
+
+        Guards against future scope creep that would gate metadata loading on
+        the same flag — body image and file links must keep resolving.
+        """
+        base_url = "https://example.atlassian.net"
+        fake_space = Space(
+            base_url=base_url, key="K", name="Space", description="", homepage=None
+        )
+        fake_user = User(
+            account_id="", username="", display_name="", public_name="", email=""
+        )
+        fake_version = Version(number=1, by=fake_user, when="", friendly_when="")
+        fake_attachment = Attachment(
+            base_url=base_url,
+            id="att-1",
+            title="file.png",
+            space=fake_space,
+            ancestors=[],
+            version=fake_version,
+            file_size=10,
+            media_type="image/png",
+            media_type_description="",
+            file_id="file-id-1",
+            collection_name="",
+            download_link="",
+            comment="",
+        )
+        page_data = {
+            "id": 42,
+            "title": "Test",
+            "_expandable": {"space": "/rest/api/space/K"},
+            "body": {
+                "view": {"value": ""},
+                "export_view": {"value": ""},
+                "editor2": {"value": ""},
+            },
+            "metadata": {"labels": {"results": []}},
+            "ancestors": [],
+            "version": {},
+        }
+
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.Attachment.from_page_id",
+                return_value=[fake_attachment],
+            ),
+            patch(
+                "confluence_markdown_exporter.confluence.Space.from_key",
+                return_value=fake_space,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as mock_settings,
+        ):
+            mock_settings.export.attachments_export = "disabled"
+
+            page = Page.from_json(page_data, base_url)
+
+        assert len(page.attachments) == 1
+        assert page.attachments[0].id == "att-1"
 
 
 class TestTransformErrorImg:

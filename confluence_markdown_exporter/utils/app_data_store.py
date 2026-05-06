@@ -401,13 +401,17 @@ class ExportConfig(BaseModel):
             return v.replace("{attachment_title}", "{attachment_title}{attachment_extension}")
         return v
 
-    attachment_export_all: bool = Field(
-        default=False,
-        title="Attachment Export All",
+    attachments_export: Literal["referenced", "all", "disabled"] = Field(
+        default="referenced",
+        title="Attachments Export",
         description=(
-            "Whether to export all attachments or only the ones whose ID "
-            "is referred in the page."
-            "\nNote: large and multiple attachments will take more time"
+            "Which attachments to download to disk:\n"
+            "  referenced: only attachments referenced from the page body (default)\n"
+            "  all: every attachment on the page (slower, more disk and bandwidth)\n"
+            "  disabled: skip the download entirely - no files written, no lockfile\n"
+            "    entries, no lockfile lookup. Attachment metadata is still fetched\n"
+            "    from the Confluence API so image and file links in the page body\n"
+            "    continue to resolve, but the referenced files will not exist locally."
         ),
     )
     image_captions: bool = Field(
@@ -469,6 +473,19 @@ class ExportConfig(BaseModel):
                 data["page_properties_format"] = "table"
             else:
                 data["page_properties_format"] = "frontmatter"
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_attachments_export(cls, data: object) -> object:
+        """Migrate legacy attachment_export_all bool to attachments_export literal."""
+        if not isinstance(data, dict):
+            return data
+        old_val = data.pop("attachment_export_all", None)
+        if old_val is not None and "attachments_export" not in data:
+            data["attachments_export"] = (
+                "all" if str(old_val).lower() in ("true", "1") else "referenced"
+            )
         return data
 
     filename_encoding: str = Field(
