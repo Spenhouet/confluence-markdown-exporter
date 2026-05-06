@@ -1340,7 +1340,7 @@ class Page(Document):
 
         @property
         def labels(self) -> list[str]:
-            return [f"#{label.name}" for label in self.page.labels]
+            return [label.name for label in self.page.labels]
 
         def set_page_properties(self, **props: list[str] | str | None) -> None:
             for key, value in props.items():
@@ -2256,7 +2256,7 @@ class Page(Document):
             from_clause: str | None = None
             if parent_match and parent_match.group(1) == current_content_id:
                 folder = str(self.page.export_path.parent).replace("\\", "/")
-                from_clause = f'FROM "{folder}"'
+                from_clause = f'"{folder}"'
 
             if from_clause is None and not label_conditions:
                 return None
@@ -2270,12 +2270,11 @@ class Page(Document):
             else:
                 lines.append("TABLE")
 
-            if from_clause:
-                lines.append(from_clause)
-
-            if label_conditions:
-                where_parts = [f'contains(tags, "#{lbl}")' for lbl in label_conditions]
-                lines.append(f"WHERE {' AND '.join(where_parts)}")
+            from_parts = ([from_clause] if from_clause else []) + [
+                f"#{lbl}" for lbl in label_conditions
+            ]
+            if from_parts:
+                lines.append("FROM " + " AND ".join(from_parts))
 
             sort_col = sanitize_key(sort_by)
             sort_dir = "DESC" if reverse_sort else "ASC"
