@@ -42,6 +42,7 @@ from rich.progress import TaskProgressColumn
 from rich.progress import TextColumn
 from rich.progress import TimeElapsedColumn
 from rich.progress import TimeRemainingColumn
+from tabulate import tabulate
 
 from confluence_markdown_exporter.api_clients import JiraAuthenticationError
 from confluence_markdown_exporter.api_clients import build_gateway_url
@@ -83,11 +84,11 @@ def _rgb_to_hex(r: int, g: int, b: int) -> str:
 
 # Background colours for Confluence status-badge lozenges (Atlassian design token pastels).
 _LOZENGE_COLORS: dict[str, str] = {
-    "aui-lozenge-complete": "#cce0ff",   # blue
-    "aui-lozenge-success": "#baf3db",    # green
-    "aui-lozenge-current": "#f8e6a0",    # yellow / orange
-    "aui-lozenge-error": "#ffd5d2",      # red
-    "aui-lozenge-progress": "#dfd8fd",   # purple / violet
+    "aui-lozenge-complete": "#cce0ff",  # blue
+    "aui-lozenge-success": "#baf3db",  # green
+    "aui-lozenge-current": "#f8e6a0",  # yellow / orange
+    "aui-lozenge-error": "#ffd5d2",  # red
+    "aui-lozenge-progress": "#dfd8fd",  # purple / violet
 }
 
 
@@ -1386,10 +1387,8 @@ class Page(Document):
                 return f"\n{lines}\n"
 
             # meta-bind-view-fields: two-column table with VIEW fields in value column
-            rows = "\n".join(
-                f"| {k} | `VIEW[{{{sanitize_key(k)}}}][text]` |" for k in props
-            )
-            return f"\n\n| Property | Value |\n| -------- | ----- |\n{rows}\n"
+            table_data = [(k, f"`VIEW[{{{sanitize_key(k)}}}][text]`") for k in props]
+            return "\n\n" + tabulate(table_data, headers=["", ""], tablefmt="pipe") + "\n"
 
         def convert_alert(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert Confluence info macros to Markdown GitHub style alerts.
@@ -2249,8 +2248,7 @@ class Page(Document):
             reverse_sort = str(el.get("data-reverse-sort", "false")).lower() == "true"
 
             label_conditions = [
-                m.group(1)
-                for m in re.finditer(r'label\s*=\s*"([^"]+)"', cql, re.IGNORECASE)
+                m.group(1) for m in re.finditer(r'label\s*=\s*"([^"]+)"', cql, re.IGNORECASE)
             ]
 
             parent_match = re.search(r'parent\s*=\s*"?(\d+)"?', cql, re.IGNORECASE)
