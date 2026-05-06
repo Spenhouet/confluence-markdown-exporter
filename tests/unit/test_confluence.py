@@ -647,8 +647,8 @@ class TestPagePropertiesFormat:
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.page_properties_format = "meta-bind-view-fields"
             result = converter.convert(_DETAILS_HTML)
-        assert "| Author | `VIEW[{author}][text]` |" in result
-        assert "| Status | `VIEW[{status}][text]` |" in result
+        assert "| **Author** | `VIEW[{author}][text]` |" in result
+        assert "| **Status** | `VIEW[{status}][text]` |" in result
         assert "author" in converter.page_properties
         assert "status" in converter.page_properties
 
@@ -772,6 +772,25 @@ class TestPagePropertiesReportDataview:
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.page_properties_report_format = "dataview"
             result = converter.convert(self._REPORT_HTML)
+        assert 'FROM "Test Space/Test Page"' in result
+
+    def test_dataview_from_clause_with_current_content_ancestor(self) -> None:
+        html = (
+            '<table class="aui metadata-summary-macro null"'
+            " data-cql='label = \"tool\" and ancestor = currentContent()'"
+            ' data-current-content-id="99"'
+            ' data-current-space-key="TS"'
+            ' data-first-column-heading="Name"'
+            ' data-headings="Vendor"'
+            ' data-sort-by="Name"'
+            ' data-reverse-sort="false">'
+            "</table>"
+        )
+        page = self._MockPageWithExport(body_export="")
+        converter = Page.Converter(page)
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_report_format = "dataview"
+            result = converter.convert(html)
         assert 'FROM "Test Space/Test Page"' in result
 
     def test_dataview_output_contains_label_in_from_clause(self) -> None:
