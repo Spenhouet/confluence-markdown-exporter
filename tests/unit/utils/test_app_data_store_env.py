@@ -59,6 +59,12 @@ class TestEnvVarOverrides:
             settings = get_settings()
         assert settings.export.confluence_url_in_frontmatter == "both"
 
+    def test_page_metadata_in_frontmatter_env_override(self) -> None:
+        """CME_EXPORT__PAGE_METADATA_IN_FRONTMATTER=true sets page_metadata_in_frontmatter."""
+        with patch.dict(os.environ, {"CME_EXPORT__PAGE_METADATA_IN_FRONTMATTER": "true"}):
+            settings = get_settings()
+        assert settings.export.page_metadata_in_frontmatter is True
+
     def test_env_var_does_not_persist(self) -> None:
         """ENV var override is session-only and does not alter the JSON config file."""
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -377,6 +377,40 @@ If a Page Properties macro on the page already defines `confluence_webui_url` or
 - Default: `none`
 - ENV Var: `CME_EXPORT__CONFLUENCE_URL_IN_FRONTMATTER`
 
+##### export.page_metadata_in_frontmatter
+
+Add five Confluence page metadata fields to the YAML front matter of each exported page.
+
+| Field | Source |
+| ----- | ------ |
+| `confluence_page_id` | Page ID (string) |
+| `confluence_space_key` | Space key |
+| `confluence_last_modified` | ISO 8601 timestamp of the most recent version (`version.when`), including minor edits |
+| `confluence_last_modified_by` | Display name of the last editor |
+| `confluence_version` | Version number (integer) |
+
+Fields with empty or zero values are omitted. If a Page Properties macro on the page already defines a key with the same name, the macro value takes precedence.
+
+`confluence_page_id` is intentionally written as a quoted string (e.g. `'629839369'`) rather than an integer. Confluence Cloud page IDs can exceed JavaScript's safe-integer range (`2^53 − 1`), so JS-based static site generators (Hugo, Astro, …) parsing the front matter would silently truncate them. `confluence_last_modified` is also quoted because PyYAML wraps ISO-8601 timestamps with timezone offsets to prevent loaders from coercing the value into a `datetime` object.
+
+Example front matter with both `confluence_url_in_frontmatter: webui` and `page_metadata_in_frontmatter: true`:
+
+```yaml
+---
+tags:
+  - team-foo
+confluence_webui_url: https://.../wiki/spaces/.../pages/123/Title
+confluence_page_id: '123'
+confluence_space_key: TEAM
+confluence_last_modified: "2026-04-12T10:34:00.000+02:00"
+confluence_last_modified_by: Alex Johnson
+confluence_version: 7
+---
+```
+
+- Default: `false`
+- ENV Var: `CME_EXPORT__PAGE_METADATA_IN_FRONTMATTER`
+
 ##### export.filename_encoding
 
 Character mapping for filename encoding.
