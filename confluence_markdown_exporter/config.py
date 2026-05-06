@@ -33,6 +33,8 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.include_document_title` | Prepend H1 title to each page |\n\n"
     "| `export.include_toc` | Export Table of Contents macro (`true`/`false`) |\n\n"
     "| `export.page_breadcrumbs` | Include breadcrumb links at top of page |\n\n"
+    "| `export.confluence_url_in_frontmatter` | Include Confluence page URL in YAML "
+    "front matter: `none`, `webui`, `tinyui`, `both` |\n\n"
     "| `export.enable_jira_enrichment` | Fetch Jira data for enriched links |\n\n"
     "| `export.attachments_export` | Which attachments to download:"
     " `referenced` (default), `all`, `disabled` |\n\n"
