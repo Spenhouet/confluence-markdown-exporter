@@ -375,7 +375,9 @@ class ExportConfig(BaseModel):
             "  - {ancestor_titles}: A slash-separated list of ancestor page titles.\n"
             "  - {attachment_id}: The unique ID of the attachment.\n"
             "  - {attachment_title}: The title of the attachment (without file extension).\n"
-            "  - {attachment_file_id}: The file ID of the attachment.\n"
+            "  - {attachment_file_id}: The file ID of the attachment. Falls back to "
+            "{attachment_id} on Confluence Data Center / Server, where the API does "
+            "not provide a file ID.\n"
             "  - {attachment_extension}: The file extension of the attachment,\n"
             "including the leading dot."
         ),
