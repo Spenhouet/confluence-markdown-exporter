@@ -1061,7 +1061,7 @@ class Page(Document):
 
     def _attachments_for_export(self) -> list["Attachment"]:
         """Return the subset of attachments that should be exported for this page."""
-        if settings.export.attachment_export_all:
+        if settings.export.attachments_export == "all":
             return list(self.attachments)
         bodies = self.body + self.body_export
         return [
@@ -1079,6 +1079,9 @@ class Page(Document):
         ]
 
     def export_attachments(self) -> dict[str, AttachmentEntry]:
+        if settings.export.attachments_export == "disabled":
+            logger.debug("Attachment download disabled for page id=%s", self.id)
+            return {}
         old_entries = LockfileManager.get_page_attachment_entries(str(self.id))
         new_entries: dict[str, AttachmentEntry] = {}
         output_path = settings.export.output_path
