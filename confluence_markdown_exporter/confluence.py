@@ -1387,6 +1387,9 @@ class Page(Document):
             page = self.page
             version = page.version
             metadata = {
+                # Stored as str to stay JS-safe-integer compatible: Confluence
+                # Cloud page IDs can exceed 2^53, which JS-based SSGs (Hugo,
+                # Astro, ...) parsing the front matter would silently truncate.
                 "confluence_page_id": str(page.id),
                 "confluence_space_key": page.space.key,
                 "confluence_last_modified": version.when,

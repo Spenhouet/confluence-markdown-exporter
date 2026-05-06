@@ -391,6 +391,8 @@ Add five Confluence page metadata fields to the YAML front matter of each export
 
 Fields with empty or zero values are omitted. If a Page Properties macro on the page already defines a key with the same name, the macro value takes precedence.
 
+`confluence_page_id` is intentionally written as a quoted string (e.g. `'629839369'`) rather than an integer. Confluence Cloud page IDs can exceed JavaScript's safe-integer range (`2^53 − 1`), so JS-based static site generators (Hugo, Astro, …) parsing the front matter would silently truncate them. `confluence_last_modified` is also quoted because PyYAML wraps ISO-8601 timestamps with timezone offsets to prevent loaders from coercing the value into a `datetime` object.
+
 Example front matter with both `confluence_url_in_frontmatter: webui` and `page_metadata_in_frontmatter: true`:
 
 ```yaml
