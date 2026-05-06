@@ -95,3 +95,26 @@ class TestTemplatePlaceholderEscaping:
         assert "\\<TOPIC\\>" in lines[0]
         assert "<TOPIC>" in lines[2]
         assert "\\<medical device\\>" in lines[4]
+
+    def test_https_autolink_preserved(self, converter: Page.Converter) -> None:
+        result = converter._escape_template_placeholders(
+            "URL: <https://api.airamed.de/v1/udi>."
+        )
+        assert result == "URL: <https://api.airamed.de/v1/udi>."
+
+    def test_http_autolink_preserved(self, converter: Page.Converter) -> None:
+        result = converter._escape_template_placeholders("see <http://example.com/path?q=1>")
+        assert result == "see <http://example.com/path?q=1>"
+
+    def test_mailto_autolink_preserved(self, converter: Page.Converter) -> None:
+        result = converter._escape_template_placeholders("contact <mailto:foo@bar.com>")
+        assert result == "contact <mailto:foo@bar.com>"
+
+    def test_email_autolink_preserved(self, converter: Page.Converter) -> None:
+        result = converter._escape_template_placeholders("contact <foo@bar.com> now")
+        assert result == "contact <foo@bar.com> now"
+
+    def test_autolink_with_space_still_escaped(self, converter: Page.Converter) -> None:
+        # Not a valid autolink (contains whitespace) — treat as placeholder
+        result = converter._escape_template_placeholders("<https://x y>")
+        assert result == "\\<https://x y\\>"

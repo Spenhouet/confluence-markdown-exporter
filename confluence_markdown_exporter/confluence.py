@@ -300,6 +300,11 @@ _HTML_ELEMENTS = frozenset(
 _ANGLE_BRACKET_RE = re.compile(r"<([^<>\n]*)>")
 _CODE_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+_AUTOLINK_URI_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]{1,31}:[^\s<>]*$")
+_AUTOLINK_EMAIL_RE = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~\-]+@[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?)*$"
+)
 
 
 def _extract_jira_base_url(url: str) -> str | None:
@@ -1944,6 +1949,8 @@ class Page(Document):
 
             def _escape_if_placeholder(m: re.Match) -> str:
                 inner = m.group(1)
+                if _AUTOLINK_URI_RE.match(inner) or _AUTOLINK_EMAIL_RE.match(inner):
+                    return m.group(0)
                 # Strip leading slash (closing tag), get first token, strip trailing slash
                 stripped = inner.strip().lstrip("/")
                 tag_name = re.split(r"[\s/]", stripped)[0].lower() if stripped else ""
