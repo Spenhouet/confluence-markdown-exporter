@@ -460,6 +460,19 @@ class ExportConfig(BaseModel):
             "    with their page properties as frontmatter; falls back to frozen on failure"
         ),
     )
+    confluence_url_in_frontmatter: Literal["none", "webui", "tinyui", "both"] = Field(
+        default="none",
+        title="Confluence URL in Front Matter",
+        description=(
+            "Whether to include the original Confluence page URL in YAML front matter.\n"
+            "  none: do not include (default)\n"
+            "  webui: include human-readable URL as `confluence_webui_url`\n"
+            "  tinyui: include stable short permalink as `confluence_tinyui_url`\n"
+            "  both: include both fields\n"
+            "If a Page Properties macro already defines one of these keys, "
+            "the macro value takes precedence."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
