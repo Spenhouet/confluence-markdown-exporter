@@ -118,7 +118,15 @@ class TableConverter(MarkdownConverter):
     ) -> str:
         tags = self._normalize_parent_tags(parent_tags)
         if "td" in tags:
-            return str(el)
+            lines = text.splitlines()
+            if not lines:
+                return ""
+            start = int(el.get("start") or 1)
+            numbered = [
+                f"{start + i}. {item}".rstrip() if item.strip() else str(start + i)
+                for i, item in enumerate(lines)
+            ]
+            return "<br>".join(n for n in numbered if n)
         return super().convert_ol(el, text, tags)
 
     def convert_li(
