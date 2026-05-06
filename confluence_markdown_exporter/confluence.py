@@ -638,8 +638,11 @@ class Attachment(Document):
             **super()._template_vars,
             "attachment_id": str(self.id),
             "attachment_title": sanitize_filename(title_without_ext),
-            # file_id is a GUID and does not need sanitized.
-            "attachment_file_id": self.file_id,
+            # file_id is a GUID and does not need sanitization. On
+            # Confluence Data Center / Server the API does not populate
+            # fileId, so fall back to the content id which is always
+            # present and unique.
+            "attachment_file_id": self.file_id or str(self.id),
             "attachment_extension": self.extension,
         }
 

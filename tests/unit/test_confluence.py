@@ -817,3 +817,31 @@ class TestPagePropertiesReportDataview:
             result = converter.convert(self._REPORT_HTML)
         assert "```dataview" not in result
         assert "Page A" in result
+
+
+class TestAttachmentTemplateVars:
+    """`attachment_file_id` falls back to the content id when fileId is empty."""
+
+    def test_cloud_style_keeps_file_id(self) -> None:
+        """Cloud attachments expose the GUID fileId verbatim."""
+        attachment = _make_attachment("content-456", "cloud-guid-123")
+        assert attachment._template_vars["attachment_file_id"] == "cloud-guid-123"
+
+    def test_dc_style_falls_back_to_content_id(self) -> None:
+        """Data Center / Server attachments fall back to the content id."""
+        attachment = _make_attachment("content-456", "")
+        assert attachment._template_vars["attachment_file_id"] == "content-456"
+
+    def test_two_dc_attachments_get_distinct_paths(self) -> None:
+        """Two DC attachments with the same extension must not collide."""
+        att1 = _make_attachment("123", "")
+        att2 = _make_attachment("124", "")
+
+        with patch("confluence_markdown_exporter.confluence.settings") as mock_settings:
+            mock_settings.export.attachment_path = (
+                "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
+            )
+            path1 = att1.export_path
+            path2 = att2.export_path
+
+        assert path1 != path2
