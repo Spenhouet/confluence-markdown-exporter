@@ -1,9 +1,13 @@
+import re
 from typing import cast
 
 from bs4 import BeautifulSoup
 from bs4 import Tag
 from markdownify import MarkdownConverter
 from tabulate import tabulate
+
+_LEADING_BR_OR_WS = re.compile(r"^(?:\s|<br\s*/?>)+")
+_TRAILING_BR_OR_WS = re.compile(r"(?:\s|<br\s*/?>)+$")
 
 
 def _get_int_attr(cell: Tag, attr: str, default: str = "1") -> int:
@@ -54,12 +58,9 @@ def make_empty_cell() -> Tag:
 
 
 def _normalize_table_cell_text(text: str) -> str:
-    return (
-        text.replace("|", "\\|")  # Escape pipe characters to prevent breaking table formatting
-        .replace("\n", "<br/>")  # Replace newlines with <br/> to preserve line breaks in tables
-        .removesuffix("<br/>")  # Remove trailing <br/> that may be added by the last cell in a row
-        .removeprefix("<br/>")  # Remove leading <br/> that may be added by the first cell in a row
-    )
+    text = text.replace("|", "\\|").replace("\n", "<br/>")
+    text = _LEADING_BR_OR_WS.sub("", text)
+    return _TRAILING_BR_OR_WS.sub("", text)
 
 
 class TableConverter(MarkdownConverter):
