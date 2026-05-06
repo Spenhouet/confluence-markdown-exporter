@@ -1355,6 +1355,7 @@ class Page(Document):
             indent = self.options["front_matter_indent"]
             self.set_page_properties(tags=self.labels)
             self._add_confluence_url_properties()
+            self._add_page_metadata_properties()
 
             if not self.page_properties:
                 return ""
@@ -1378,6 +1379,26 @@ class Page(Document):
                 key = sanitize_key("confluence_tinyui_url")
                 if key not in self.page_properties:
                     self.page_properties[key] = self.page.tiny_url
+
+        def _add_page_metadata_properties(self) -> None:
+            if not settings.export.page_metadata_in_frontmatter:
+                return
+
+            page = self.page
+            version = page.version
+            metadata = {
+                "confluence_page_id": str(page.id),
+                "confluence_space_key": page.space.key,
+                "confluence_last_modified": version.when,
+                "confluence_last_modified_by": version.by.display_name,
+                "confluence_version": version.number,
+            }
+            for raw_key, value in metadata.items():
+                if value in (None, "", 0):
+                    continue
+                key = sanitize_key(raw_key)
+                if key not in self.page_properties:
+                    self.page_properties[key] = value
 
         @property
         def breadcrumbs(self) -> str:

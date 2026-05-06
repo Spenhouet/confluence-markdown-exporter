@@ -27,6 +27,13 @@ class MockPage:
         self.tiny_url = ""
         self.labels = []
         self.ancestors = []
+        self.space = MagicMock()
+        self.space.key = "TEST"
+        self.version = MagicMock()
+        self.version.number = 1
+        self.version.when = ""
+        self.version.by = MagicMock()
+        self.version.by.display_name = ""
 
     def get_attachment_by_file_id(self, file_id: str) -> None:
         return None
@@ -954,6 +961,74 @@ class TestConfluenceUrlInFrontmatter:
             result = converter.front_matter
         assert "confluence_webui_url: manual-override" in result
         assert self._WEBUI not in result
+
+
+class TestPageMetadataInFrontmatter:
+    """Page metadata fields render to YAML front matter according to the setting."""
+
+    def _make_page(self, *, display_name: str = "Alex Johnson") -> MockPage:
+        page = MockPage()
+        page.id = 123
+        space = MagicMock()
+        space.key = "TEAM"
+        page.space = space
+        version = MagicMock()
+        version.when = "2026-04-12T10:34:00.000+02:00"
+        version.number = 7
+        version.by = MagicMock()
+        version.by.display_name = display_name
+        page.version = version
+        return page
+
+    def _converter(self, **kwargs: object) -> Page.Converter:
+        return Page.Converter(self._make_page(**kwargs))
+
+    def test_default_disabled_writes_no_metadata(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "none"
+            s.export.page_metadata_in_frontmatter = False
+            result = converter.front_matter
+        assert "confluence_page_id" not in result
+        assert "confluence_space_key" not in result
+        assert "confluence_last_modified" not in result
+        assert "confluence_last_modified_by" not in result
+        assert "confluence_version" not in result
+
+    def test_enabled_writes_all_five_keys(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "none"
+            s.export.page_metadata_in_frontmatter = True
+            result = converter.front_matter
+        assert "confluence_page_id: '123'" in result
+        assert "confluence_space_key: TEAM" in result
+        assert "confluence_last_modified: '2026-04-12T10:34:00.000+02:00'" in result
+        assert "confluence_last_modified_by: Alex Johnson" in result
+        assert "confluence_version: 7" in result
+        assert "confluence_version: '7'" not in result
+
+    def test_macro_precedence_for_page_id(self) -> None:
+        converter = self._converter()
+        converter.page_properties["confluence_page_id"] = "macro-override"
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "none"
+            s.export.page_metadata_in_frontmatter = True
+            result = converter.front_matter
+        assert "confluence_page_id: macro-override" in result
+        assert "confluence_page_id: '123'" not in result
+
+    def test_empty_display_name_skipped(self) -> None:
+        converter = self._converter(display_name="")
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "none"
+            s.export.page_metadata_in_frontmatter = True
+            result = converter.front_matter
+        assert "confluence_last_modified_by" not in result
+        assert "confluence_page_id: '123'" in result
+        assert "confluence_space_key: TEAM" in result
+        assert "confluence_last_modified" in result
+        assert "confluence_version: 7" in result
 
 
 class TestPagePropertiesReportDataview:

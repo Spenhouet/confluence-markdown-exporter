@@ -377,6 +377,38 @@ If a Page Properties macro on the page already defines `confluence_webui_url` or
 - Default: `none`
 - ENV Var: `CME_EXPORT__CONFLUENCE_URL_IN_FRONTMATTER`
 
+##### export.page_metadata_in_frontmatter
+
+Add five Confluence page metadata fields to the YAML front matter of each exported page.
+
+| Field | Source |
+| ----- | ------ |
+| `confluence_page_id` | Page ID (string) |
+| `confluence_space_key` | Space key |
+| `confluence_last_modified` | ISO 8601 timestamp of the most recent version (`version.when`), including minor edits |
+| `confluence_last_modified_by` | Display name of the last editor |
+| `confluence_version` | Version number (integer) |
+
+Fields with empty or zero values are omitted. If a Page Properties macro on the page already defines a key with the same name, the macro value takes precedence.
+
+Example front matter with both `confluence_url_in_frontmatter: webui` and `page_metadata_in_frontmatter: true`:
+
+```yaml
+---
+tags:
+  - team-foo
+confluence_webui_url: https://.../wiki/spaces/.../pages/123/Title
+confluence_page_id: '123'
+confluence_space_key: TEAM
+confluence_last_modified: "2026-04-12T10:34:00.000+02:00"
+confluence_last_modified_by: Alex Johnson
+confluence_version: 7
+---
+```
+
+- Default: `false`
+- ENV Var: `CME_EXPORT__PAGE_METADATA_IN_FRONTMATTER`
+
 ##### export.filename_encoding
 
 Character mapping for filename encoding.
