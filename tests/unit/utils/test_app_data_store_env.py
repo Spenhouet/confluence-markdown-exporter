@@ -47,11 +47,11 @@ class TestEnvVarOverrides:
             settings = get_settings()
         assert settings.export.skip_unchanged is False
 
-    def test_attachment_export_all_env_override(self) -> None:
-        """CME_EXPORT__ATTACHMENT_EXPORT_ALL=true enables attachment export all."""
-        with patch.dict(os.environ, {"CME_EXPORT__ATTACHMENT_EXPORT_ALL": "true"}):
+    def test_attachments_export_env_override(self) -> None:
+        """CME_EXPORT__ATTACHMENTS_EXPORT overrides attachments_export."""
+        with patch.dict(os.environ, {"CME_EXPORT__ATTACHMENTS_EXPORT": "all"}):
             settings = get_settings()
-        assert settings.export.attachment_export_all is True
+        assert settings.export.attachments_export == "all"
 
     def test_env_var_does_not_persist(self) -> None:
         """ENV var override is session-only and does not alter the JSON config file."""
@@ -243,3 +243,24 @@ class TestAttachmentPathMigration:
         assert settings.export.attachment_path == (
             "{space_name}/attachments/{attachment_title}{attachment_extension}"
         )
+
+
+class TestAttachmentsExportMigration:
+    """Migration of legacy attachment_export_all bool to attachments_export literal."""
+
+    def test_legacy_false_maps_to_referenced(self) -> None:
+        """attachment_export_all=False migrates to attachments_export='referenced'."""
+        config = ExportConfig.model_validate({"attachment_export_all": False})
+        assert config.attachments_export == "referenced"
+
+    def test_legacy_true_maps_to_all(self) -> None:
+        """attachment_export_all=True migrates to attachments_export='all'."""
+        config = ExportConfig.model_validate({"attachment_export_all": True})
+        assert config.attachments_export == "all"
+
+    def test_new_field_takes_precedence_over_old(self) -> None:
+        """When both are present, the explicit new value wins and old is dropped."""
+        config = ExportConfig.model_validate(
+            {"attachment_export_all": True, "attachments_export": "disabled"}
+        )
+        assert config.attachments_export == "disabled"

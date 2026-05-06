@@ -298,12 +298,18 @@ Path template for attachments.
 
 On Confluence Data Center / Server, where the API does not provide `fileId`, `{attachment_file_id}` falls back to the content id, so the default template still produces unique filenames.
 
-##### export.attachment_export_all
+##### export.attachments_export
 
-Export all attachments, not only those referenced by a page. Note: exporting large or many attachments increases export time.
+Which attachments to download to disk.
 
-- Default: `False`
-- ENV Var: `CME_EXPORT__ATTACHMENT_EXPORT_ALL`
+| Value        | Behaviour                                                                                                                                                                          |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `referenced` | Only attachments whose ID/filename appears in the page body (default).                                                                                                             |
+| `all`        | Every attachment on the page. Large or numerous attachments increase export time.                                                                                                  |
+| `disabled`   | Skip downloads entirely — no files written, no lockfile entries, no lookup. Body image and file links still point at `attachment_path`, but the files will not exist locally.     |
+
+- Default: `referenced`
+- ENV Var: `CME_EXPORT__ATTACHMENTS_EXPORT`
 
 ##### export.image_captions
 
