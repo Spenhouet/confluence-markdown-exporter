@@ -167,6 +167,58 @@ class TestTableConverter:
         assert "- First" in result
         assert "- Second" in result
 
+    def test_ol_in_cell_with_empty_paragraph_shows_number(self) -> None:
+        """Ol with empty <p> in a table cell should show the CSS-implicit number."""
+        html = """
+        <table>
+            <tr><th>Header</th></tr>
+            <tr><td><ol start="1"><li><p></p></li></ol></td></tr>
+        </table>
+        """
+        converter = TableConverter()
+        result = converter.convert(html)
+        assert "1" in result
+
+    def test_ol_in_cell_with_empty_paragraph_respects_start(self) -> None:
+        """Ol with start attribute and empty <p> should use the start number."""
+        html = """
+        <table>
+            <tr><th>Header</th></tr>
+            <tr><td><ol start="3"><li><p></p></li></ol></td></tr>
+        </table>
+        """
+        converter = TableConverter()
+        result = converter.convert(html)
+        assert "3" in result
+
+    def test_ol_in_cell_with_content(self) -> None:
+        """Ol with text content in a table cell should number each item."""
+        html = """
+        <table>
+            <tr><th>Header</th></tr>
+            <tr><td><ol start="1"><li><p>alpha</p></li><li><p>beta</p></li></ol></td></tr>
+        </table>
+        """
+        converter = TableConverter()
+        result = converter.convert(html)
+        assert "1. alpha" in result
+        assert "2. beta" in result
+        assert "<br>" in result
+
+    def test_ul_in_cell_with_paragraph_items(self) -> None:
+        """Ul with <p>-wrapped items in a table cell should use '- ' bullet syntax."""
+        html = """
+        <table>
+            <tr><th>Header</th></tr>
+            <tr><td><ul><li><p>First</p></li><li><p>Second</p></li><li><p>Third</p></li></ul></td></tr>
+        </table>
+        """
+        converter = TableConverter()
+        result = converter.convert(html)
+        assert "- First" in result
+        assert "<br>- Second" in result
+        assert "<br>- Third" in result
+
     def test_td_detection_still_works_with_set_parent_tags(self) -> None:
         """set-based parent_tags (markdownify 1.x) must still trigger td-specific behaviour."""
         converter = TableConverter()
