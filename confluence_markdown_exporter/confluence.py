@@ -164,6 +164,25 @@ def _extract_base_url(url: str) -> str:
     return normalize_instance_url(base)
 
 
+def _join_confluence_link(data: JsonResponse, key: str) -> str:
+    links = data.get("_links", {})
+    if not isinstance(links, dict):
+        return ""
+    base = links.get("base")
+    rel = links.get(key)
+    if not isinstance(base, str) or not isinstance(rel, str) or not base or not rel:
+        return ""
+    return f"{base.rstrip('/')}/{rel.lstrip('/')}"
+
+
+def _get_web_url(data: JsonResponse) -> str:
+    return _join_confluence_link(data, "webui")
+
+
+def _get_tiny_url(data: JsonResponse) -> str:
+    return _join_confluence_link(data, "tinyui")
+
+
 _JIRA_ROUTE_SEGMENTS = {
     "agile",
     "backlog",
@@ -823,6 +842,8 @@ def _parse_image_captions(storage_xml: str) -> dict[str, str]:
 
 class Page(Document):
     id: int
+    web_url: str = ""
+    tiny_url: str = ""
     body: str
     body_export: str
     editor2: str
@@ -1150,6 +1171,8 @@ class Page(Document):
         return cls(
             base_url=base_url,
             id=data.get("id", 0),
+            web_url=_get_web_url(data),
+            tiny_url=_get_tiny_url(data),
             title=data.get("title", ""),
             space=Space.from_key(
                 data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
@@ -1331,6 +1354,7 @@ class Page(Document):
         def front_matter(self) -> str:
             indent = self.options["front_matter_indent"]
             self.set_page_properties(tags=self.labels)
+            self._add_confluence_url_properties()
 
             if not self.page_properties:
                 return ""
@@ -1339,6 +1363,21 @@ class Page(Document):
             # Indent the root level list items
             yml = re.sub(r"^( *)(- )", r"\1" + " " * indent + r"\2", yml, flags=re.MULTILINE)
             return f"---\n{yml}\n---\n"
+
+        def _add_confluence_url_properties(self) -> None:
+            mode = settings.export.confluence_url_in_frontmatter
+            if mode == "none":
+                return
+
+            if mode in ("webui", "both") and self.page.web_url:
+                key = sanitize_key("confluence_webui_url")
+                if key not in self.page_properties:
+                    self.page_properties[key] = self.page.web_url
+
+            if mode in ("tinyui", "both") and self.page.tiny_url:
+                key = sanitize_key("confluence_tinyui_url")
+                if key not in self.page_properties:
+                    self.page_properties[key] = self.page.tiny_url
 
         @property
         def breadcrumbs(self) -> str:

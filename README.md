@@ -361,6 +361,22 @@ Controls how Confluence Page Properties Report macros (dynamic cross-page proper
 - Default: `frozen`
 - ENV Var: `CME_EXPORT__PAGE_PROPERTIES_REPORT_FORMAT`
 
+##### export.confluence_url_in_frontmatter
+
+Whether to include the original Confluence page URL in the YAML front matter of the exported file.
+
+| Value    | Description                                                                                                |
+| -------- | ---------------------------------------------------------------------------------------------------------- |
+| `none`   | Do not include any URL (default)                                                                           |
+| `webui`  | Include `confluence_webui_url` (human-readable URL; may change when the page is renamed or moved)          |
+| `tinyui` | Include `confluence_tinyui_url` (stable short permalink based on the page ID; survives renames and moves)  |
+| `both`   | Include both fields                                                                                        |
+
+If a Page Properties macro on the page already defines `confluence_webui_url` or `confluence_tinyui_url`, the value from the macro takes precedence over the URL extracted from the API.
+
+- Default: `none`
+- ENV Var: `CME_EXPORT__CONFLUENCE_URL_IN_FRONTMATTER`
+
 ##### export.filename_encoding
 
 Character mapping for filename encoding.

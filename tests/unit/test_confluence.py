@@ -23,6 +23,8 @@ class MockPage:
         self.title = "Test Page"
         self.html = ""
         self.body_storage = ""
+        self.web_url = ""
+        self.tiny_url = ""
         self.labels = []
         self.ancestors = []
 
@@ -836,6 +838,122 @@ class TestPagePropertiesMigration:
 
         config = ExportConfig()
         assert config.page_properties_format == "frontmatter_and_table"
+
+
+class TestConfluenceUrlInFrontmatter:
+    """Confluence page URLs render to YAML front matter according to the setting."""
+
+    _WEBUI = "https://example.atlassian.net/wiki/spaces/TEST/pages/123/Test+Page"
+    _TINYUI = "https://example.atlassian.net/wiki/x/AbCdEf"
+
+    def _converter(self, *, with_urls: bool = True) -> Page.Converter:
+        page = MockPage()
+        if with_urls:
+            page.web_url = self._WEBUI
+            page.tiny_url = self._TINYUI
+        return Page.Converter(page)
+
+    def test_get_web_url_combines_base_and_webui(self) -> None:
+        from confluence_markdown_exporter.confluence import _get_web_url
+
+        data = {
+            "_links": {
+                "base": "https://example.atlassian.net/wiki",
+                "webui": "/spaces/TEST/pages/123/Test+Page",
+            }
+        }
+        assert _get_web_url(data) == self._WEBUI
+
+    def test_get_tiny_url_combines_base_and_tinyui(self) -> None:
+        from confluence_markdown_exporter.confluence import _get_tiny_url
+
+        data = {
+            "_links": {
+                "base": "https://example.atlassian.net/wiki",
+                "tinyui": "/x/AbCdEf",
+            }
+        }
+        assert _get_tiny_url(data) == self._TINYUI
+
+    def test_helpers_strip_redundant_separators(self) -> None:
+        from confluence_markdown_exporter.confluence import _get_web_url
+
+        data = {
+            "_links": {
+                "base": "https://example.atlassian.net/wiki/",
+                "webui": "/spaces/TEST/pages/123/Test+Page",
+            }
+        }
+        assert _get_web_url(data) == self._WEBUI
+
+    def test_helpers_return_empty_when_links_missing(self) -> None:
+        from confluence_markdown_exporter.confluence import _get_tiny_url
+        from confluence_markdown_exporter.confluence import _get_web_url
+
+        assert _get_web_url({}) == ""
+        assert _get_tiny_url({}) == ""
+
+    def test_helpers_return_empty_when_links_not_dict(self) -> None:
+        from confluence_markdown_exporter.confluence import _get_tiny_url
+        from confluence_markdown_exporter.confluence import _get_web_url
+
+        assert _get_web_url({"_links": "broken"}) == ""
+        assert _get_tiny_url({"_links": None}) == ""
+
+    def test_helpers_return_empty_when_base_or_rel_missing(self) -> None:
+        from confluence_markdown_exporter.confluence import _get_web_url
+
+        assert _get_web_url({"_links": {"base": "https://example.com"}}) == ""
+        assert _get_web_url({"_links": {"webui": "/spaces/TEST"}}) == ""
+
+    def test_frontmatter_contains_webui_url_when_mode_webui(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "webui"
+            result = converter.front_matter
+        assert f"confluence_webui_url: {self._WEBUI}" in result
+        assert "confluence_tinyui_url" not in result
+
+    def test_frontmatter_contains_tinyui_url_when_mode_tinyui(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "tinyui"
+            result = converter.front_matter
+        assert f"confluence_tinyui_url: {self._TINYUI}" in result
+        assert "confluence_webui_url" not in result
+
+    def test_frontmatter_contains_both_when_mode_both(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "both"
+            result = converter.front_matter
+        assert f"confluence_webui_url: {self._WEBUI}" in result
+        assert f"confluence_tinyui_url: {self._TINYUI}" in result
+
+    def test_frontmatter_omits_urls_when_mode_none(self) -> None:
+        converter = self._converter()
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "none"
+            result = converter.front_matter
+        assert "confluence_webui_url" not in result
+        assert "confluence_tinyui_url" not in result
+
+    def test_frontmatter_skips_when_url_value_is_empty(self) -> None:
+        converter = self._converter(with_urls=False)
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "both"
+            result = converter.front_matter
+        assert "confluence_webui_url" not in result
+        assert "confluence_tinyui_url" not in result
+
+    def test_macro_value_takes_precedence_over_extracted_url(self) -> None:
+        converter = self._converter()
+        converter.page_properties["confluence_webui_url"] = "manual-override"
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "webui"
+            result = converter.front_matter
+        assert "confluence_webui_url: manual-override" in result
+        assert self._WEBUI not in result
 
 
 class TestPagePropertiesReportDataview:
