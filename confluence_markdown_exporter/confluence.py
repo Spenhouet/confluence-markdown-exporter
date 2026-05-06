@@ -1387,7 +1387,7 @@ class Page(Document):
                 return f"\n{lines}\n"
 
             # meta-bind-view-fields: two-column table with VIEW fields in value column
-            table_data = [(k, f"`VIEW[{{{sanitize_key(k)}}}][text]`") for k in props]
+            table_data = [(f"**{k}**", f"`VIEW[{{{sanitize_key(k)}}}][text]`") for k in props]
             return "\n\n" + tabulate(table_data, headers=["", ""], tablefmt="pipe") + "\n"
 
         def convert_alert(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
@@ -2252,9 +2252,14 @@ class Page(Document):
             ]
 
             parent_match = re.search(r'parent\s*=\s*"?(\d+)"?', cql, re.IGNORECASE)
+            current_content_match = re.search(
+                r'(?:ancestor|parent)\s*=\s*currentContent\s*\(\s*\)', cql, re.IGNORECASE
+            )
 
             from_clause: str | None = None
-            if parent_match and parent_match.group(1) == current_content_id:
+            if current_content_match or (
+                parent_match and parent_match.group(1) == current_content_id
+            ):
                 folder = str(self.page.export_path.parent).replace("\\", "/")
                 from_clause = f'"{folder}"'
 
