@@ -197,7 +197,12 @@ class ApiClientFactory:
                 token=auth.pat.get_secret_value() if auth.pat else None,
                 **self.connection_config.model_dump(),
             )
-            instance.get_all_spaces(limit=1)
+            # Skip the v1 /rest/api/space ping when routing through the
+            # Atlassian API gateway: Cloud has removed that endpoint
+            # (HTTP 410 Gone) and scoped tokens reject v1 calls outright
+            # with 401. Real export calls surface auth errors naturally.
+            if not auth.cloud_id:
+                instance.get_all_spaces(limit=1)
         except Exception as e:
             msg = f"Confluence connection failed: {e}"
             raise ConnectionError(msg) from e
@@ -212,7 +217,10 @@ class ApiClientFactory:
                 token=auth.pat.get_secret_value() if auth.pat else None,
                 **self.connection_config.model_dump(),
             )
-            instance.get_all_projects()
+            # See create_confluence: skip the v1 /rest/api/project ping
+            # when routing through the Atlassian API gateway.
+            if not auth.cloud_id:
+                instance.get_all_projects()
         except Exception as e:
             msg = f"Jira connection failed: {e}"
             raise ConnectionError(msg) from e
