@@ -1343,7 +1343,8 @@ class Page(Document):
 
         @property
         def markdown(self) -> str:
-            md_body = self.convert(self.page.html)
+            html = self._strip_excerpt_include_panel_titles(self.page.html)
+            md_body = self.convert(html)
             md_body = self._escape_template_placeholders(md_body)
             markdown = f"{self.front_matter}\n"
             if settings.export.page_breadcrumbs:
@@ -2196,6 +2197,33 @@ class Page(Document):
                 return super().convert_div(el, text, parent_tags)  # type: ignore[misc]
 
             return f"\n![[{target_title}]]\n\n"
+
+        def _strip_excerpt_include_panel_titles(self, html: str) -> str:
+            """Strip the source-page-title panel from `excerpt-include` bodies.
+
+            Confluence prepends a panel whose plain text is the source page
+            title to `excerpt-include` body.view content unless `nopanel=true`.
+            Without this, the converter emits the title as a stray bold line
+            above the included content.
+            """
+            soup = BeautifulSoup(html, "html.parser")
+            title_tags = ("p", "h1", "h2", "h3", "h4", "h5", "h6")
+            for el in soup.find_all(attrs={"data-macro-name": "excerpt-include"}):
+                macro_id = el.get("data-macro-id")
+                if not isinstance(macro_id, str):
+                    continue
+                target_title = self._extract_include_target_title(macro_id)
+                if not target_title:
+                    continue
+                first_tag = next((c for c in el.children if isinstance(c, Tag)), None)
+                if first_tag is None:
+                    continue
+                if (
+                    first_tag.name in title_tags
+                    and first_tag.get_text(strip=True) == target_title
+                ):
+                    first_tag.decompose()
+            return str(soup)
 
         def _extract_include_target_title(self, macro_id: str) -> str | None:
             """Resolve the target page title for an `include` / `excerpt-include` macro.
