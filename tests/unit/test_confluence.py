@@ -1084,3 +1084,119 @@ class TestAttachmentTemplateVars:
             path2 = att2.export_path
 
         assert path1 != path2
+
+
+class TestWikiLinkDisambiguation:
+    """Wiki page links use a vault-relative path when titles collide across spaces."""
+
+    def _make_target_page(self, page_id: int, title: str, space_key: str) -> Page:
+        space = Space(
+            base_url="https://example.com",
+            key=space_key,
+            name=space_key,
+            description="",
+            homepage=0,
+        )
+        version = Version(
+            number=1,
+            by=User(
+                account_id="u1",
+                display_name="User",
+                username="user",
+                public_name="",
+                email="",
+            ),
+            when="2024-01-01T00:00:00Z",
+            friendly_when="Jan 1",
+        )
+        return Page(
+            base_url="https://example.com",
+            id=page_id,
+            title=title,
+            space=space,
+            ancestors=[],
+            version=version,
+            body="",
+            body_export="",
+            editor2="",
+            body_storage="",
+            labels=[],
+            attachments=[],
+        )
+
+    def test_unique_title_emits_short_wiki_link(self) -> None:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(101, "Unique Page", "ALPHA")
+        PageTitleRegistry.register(target.id, target.title)
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch("confluence_markdown_exporter.confluence.Page.from_id", return_value=target),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = '<a data-linked-resource-type="page" data-linked-resource-id="101">x</a>'
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        assert result == "[[Unique Page]]"
+
+    def test_colliding_title_emits_path_qualified_wiki_link(self) -> None:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target_alpha = self._make_target_page(201, "Shared Title", "ALPHA")
+        target_beta = self._make_target_page(202, "Shared Title", "BETA")
+        PageTitleRegistry.register(target_alpha.id, target_alpha.title)
+        PageTitleRegistry.register(target_beta.id, target_beta.title)
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.Page.from_id",
+                return_value=target_alpha,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = '<a data-linked-resource-type="page" data-linked-resource-id="201">x</a>'
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        assert result == "[[ALPHA/Shared Title|Shared Title]]"
+
+    def test_relative_link_unaffected(self) -> None:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target_alpha = self._make_target_page(201, "Shared Title", "ALPHA")
+        target_beta = self._make_target_page(202, "Shared Title", "BETA")
+        PageTitleRegistry.register(target_alpha.id, target_alpha.title)
+        PageTitleRegistry.register(target_beta.id, target_beta.title)
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.Page.from_id",
+                return_value=target_alpha,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "relative"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = '<a data-linked-resource-type="page" data-linked-resource-id="201">x</a>'
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        assert "Shared%20Title.md" in result
+        assert result.startswith("[Shared Title](")

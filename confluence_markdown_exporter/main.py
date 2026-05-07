@@ -182,6 +182,7 @@ def pages(
 ) -> None:
     from confluence_markdown_exporter.confluence import Page
     from confluence_markdown_exporter.confluence import sync_removed_pages
+    from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
 
     _init_logging()
     stats = reset_stats(total=len(page_urls))
@@ -189,9 +190,14 @@ def pages(
         LockfileManager.init()
 
         exported_urls: set[str] = set()
+        fetched_pages: list[Page] = []
         for page_url in page_urls:
             with console.status(f"[dim]Fetching [highlight]{page_url}[/highlight]…[/dim]"):
                 page = Page.from_url(page_url)
+            PageTitleRegistry.register(int(page.id), page.title)
+            fetched_pages.append(page)
+
+        for page in fetched_pages:
             LockfileManager.mark_seen([page.id])
             if not LockfileManager.should_export(page):
                 stats.inc_skipped()
