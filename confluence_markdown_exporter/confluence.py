@@ -966,6 +966,17 @@ class Page(Document):
             conv.markdown,
         )
         self._marked_texts: dict[str, str] = conv._marked_texts
+        if settings.export.visual_fidelity_markdown:
+            fidelity_conv = self.Converter(self, preserve_nested_tables=True)
+            save_file(
+                settings.export.output_path / self.visual_fidelity_export_path,
+                fidelity_conv.markdown,
+            )
+
+    @property
+    def visual_fidelity_export_path(self) -> Path:
+        suffix = settings.export.visual_fidelity_suffix
+        return self.export_path.with_suffix(f"{suffix}.md")
 
     _COMMENT_TITLE_MAX_LEN = 60
 

@@ -189,7 +189,27 @@ class ApiClientFactory:
         )
 
     def create_confluence(self, url: str, auth: ApiDetails) -> ConfluenceApiSdk:
-        try:
+        # Check if session cookies are provided for SSO authentication
+        cookies_str = auth.session_cookies.get_secret_value() if auth.session_cookies else ""
+
+        if cookies_str:
+            # Create a custom session with cookies for SSO authentication
+            session = requests.Session()
+            cookies_dict = {}
+            for cookie_pair in cookies_str.split(";"):
+                cookie_pair = cookie_pair.strip()
+                if "=" in cookie_pair:
+                    name, value = cookie_pair.split("=", 1)
+                    cookies_dict[name.strip()] = value.strip()
+            session.cookies.update(cookies_dict)
+
+            instance = ConfluenceApiSdk(
+                url=url,
+                session=session,
+                **self.connection_config.model_dump(),
+            )
+        else:
+            # Standard authentication
             instance = ConfluenceApiSdk(
                 url=url,
                 username=auth.username.get_secret_value() if auth.api_token else None,
@@ -197,6 +217,8 @@ class ApiClientFactory:
                 token=auth.pat.get_secret_value() if auth.pat else None,
                 **self.connection_config.model_dump(),
             )
+
+        try:
             instance.get_all_spaces(limit=1)
         except Exception as e:
             msg = f"Confluence connection failed: {e}"

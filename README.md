@@ -426,6 +426,20 @@ Fetch and export open inline comments as a sidecar `.comments.md` file placed ne
 - Default: `False`
 - ENV Var: `CME_EXPORT__INLINE_COMMENTS`
 
+##### export.visual_fidelity_markdown
+
+Write an additional visual-fidelity Markdown sidecar file next to each exported page. This keeps the normal `.md` output unchanged, but the sidecar preserves nested table HTML so complex Confluence tables are not flattened into broken Markdown rows.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__VISUAL_FIDELITY_MARKDOWN`
+
+##### export.visual_fidelity_suffix
+
+Suffix inserted before `.md` for visual-fidelity Markdown files. With the default suffix, `foo.md` also produces `foo.visual.md` when `export.visual_fidelity_markdown=true`.
+
+- Default: `.visual`
+- ENV Var: `CME_EXPORT__VISUAL_FIDELITY_SUFFIX`
+
 ##### export.convert_status_badges
 
 Whether to convert Confluence status badge macros to HTML `<mark>` elements coloured with the badge's background colour. Each lozenge variant maps to an Atlassian design-system pastel:
