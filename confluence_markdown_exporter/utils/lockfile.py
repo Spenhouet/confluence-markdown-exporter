@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
 
+from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
 from confluence_markdown_exporter.utils.rich_console import get_stats
 
 if TYPE_CHECKING:
@@ -215,6 +216,12 @@ class LockfileManager:
         cls._lock = ConfluenceLock.load(cls._lockfile_path)
         cls._all_entries_snapshot = dict(cls._lock.all_pages())
         cls._seen_page_ids = set()
+        PageTitleRegistry.reset()
+        for pid, entry in cls._all_entries_snapshot.items():
+            try:
+                PageTitleRegistry.register(int(pid), entry.title)
+            except (TypeError, ValueError):
+                continue
         logger.debug(
             "Lockfile initialized: %s (%d tracked page(s))",
             cls._lockfile_path,
@@ -243,6 +250,7 @@ class LockfileManager:
             cls._lock.add_page(page, attachment_entries)
             cls._lock.save(cls._lockfile_path)
             cls._seen_page_ids.add(str(page.id))
+        PageTitleRegistry.register(int(page.id), page.title)
 
     @classmethod
     def mark_seen(cls, page_ids: list[int]) -> None:

@@ -61,6 +61,7 @@ from confluence_markdown_exporter.utils.export import sanitize_key
 from confluence_markdown_exporter.utils.export import save_file
 from confluence_markdown_exporter.utils.lockfile import AttachmentEntry
 from confluence_markdown_exporter.utils.lockfile import LockfileManager
+from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
 from confluence_markdown_exporter.utils.rich_console import ExportStats
 from confluence_markdown_exporter.utils.rich_console import console
 from confluence_markdown_exporter.utils.rich_console import get_stats
@@ -1776,7 +1777,12 @@ class Page(Document):
                 )
                 return f"[Page not accessible (ID: {page_id})]"
 
+            PageTitleRegistry.register(int(page.id), page.title)
+
             if settings.export.page_href == "wiki":
+                if PageTitleRegistry.is_ambiguous(page.title):
+                    vault_path = page.export_path.with_suffix("").as_posix()
+                    return f"[[{vault_path}|{page.title}]]"
                 return f"[[{page.title}]]"
 
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
@@ -2555,6 +2561,8 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
     """
     # Mark all pages as seen so cleanup skips API checks for unchanged pages
     LockfileManager.mark_seen([p.id for p in pages])
+    for p in pages:
+        PageTitleRegistry.register(int(p.id), p.title)
     pages_to_export = [page for page in pages if LockfileManager.should_export(page)]
 
     skipped_count = len(pages) - len(pages_to_export)
