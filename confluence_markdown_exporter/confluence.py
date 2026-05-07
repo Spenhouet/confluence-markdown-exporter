@@ -1754,10 +1754,26 @@ class Page(Document):
                 link = self.convert_attachment_link(el, text, parent_tags)
                 # convert_attachment_link may return None if the attachment meta is incomplete
                 return link or f"[{text}]({el.get('href')})"
-            if match := parse_confluence_path(str(el.get("href", ""))):
-                if match.page_id:
-                    return self.convert_page_link(match.page_id)
-            if (href := str(el.get("href", ""))).startswith("#"):
+            href_str = str(el.get("href", ""))
+            if href_str:
+                parsed_href = urlparse(href_str)
+                base_host = urlparse(getattr(self.page, "base_url", "") or "").hostname
+                if not parsed_href.hostname or parsed_href.hostname == base_host:
+                    query_params = urllib.parse.parse_qs(parsed_href.query)
+                    page_id_param = next(
+                        (
+                            values[0]
+                            for key, values in query_params.items()
+                            if key.lower() == "pageid" and values and values[0]
+                        ),
+                        None,
+                    )
+                    if page_id_param and page_id_param.isdigit():
+                        return self.convert_page_link(int(page_id_param))
+                    if match := parse_confluence_path(parsed_href.path):
+                        if match.page_id:
+                            return self.convert_page_link(match.page_id)
+            if (href := href_str).startswith("#"):
                 if settings.export.page_href == "wiki":
                     return f"[[#{text}]]"
                 return f"[{text}](#{github_heading_slug(href[1:])})"

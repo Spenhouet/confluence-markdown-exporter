@@ -1200,3 +1200,103 @@ class TestWikiLinkDisambiguation:
         PageTitleRegistry.reset()
         assert "Shared%20Title.md" in result
         assert result.startswith("[Shared Title](")
+
+
+class TestAbsoluteUrlPageLinks:
+    """Absolute Confluence URLs in href must resolve to page links, not pass through."""
+
+    def _make_target_page(self, page_id: int, title: str, space_key: str) -> Page:
+        space = Space(
+            base_url="https://example.com",
+            key=space_key,
+            name=space_key,
+            description="",
+            homepage=0,
+        )
+        version = Version(
+            number=1,
+            by=User(
+                account_id="u1",
+                display_name="User",
+                username="user",
+                public_name="",
+                email="",
+            ),
+            when="2024-01-01T00:00:00Z",
+            friendly_when="Jan 1",
+        )
+        return Page(
+            base_url="https://example.com",
+            id=page_id,
+            title=title,
+            space=space,
+            ancestors=[],
+            version=version,
+            body="",
+            body_export="",
+            editor2="",
+            body_storage="",
+            labels=[],
+            attachments=[],
+        )
+
+    def test_absolute_url_same_host_resolves_page(self) -> None:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(1437663233, "Linked Page", "STRUCT")
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.Page.from_id",
+                return_value=target,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = (
+                '<a href="https://example.com/wiki/spaces/STRUCT/pages/1437663233">'
+                "https://example.com/wiki/spaces/STRUCT/pages/1437663233</a>"
+            )
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        assert result == "[[Linked Page]]"
+
+    def test_absolute_url_different_host_left_alone(self) -> None:
+        source = _make_page(body="", body_export="", attachments=[])
+        conv = Page.Converter(source)
+        html = (
+            '<a href="https://other.atlassian.net/wiki/spaces/X/pages/9/T">'
+            "https://other.atlassian.net/wiki/spaces/X/pages/9/T</a>"
+        )
+        result = conv.convert(html).strip()
+        assert result == "<https://other.atlassian.net/wiki/spaces/X/pages/9/T>"
+
+    def test_legacy_pageid_query_resolves_page(self) -> None:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(555, "Legacy Page", "OLD")
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.Page.from_id",
+                return_value=target,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = '<a href="https://example.com/pages/viewpage.action?pageId=555">x</a>'
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        assert result == "[[Legacy Page]]"
