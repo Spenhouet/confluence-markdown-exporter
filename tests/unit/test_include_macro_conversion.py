@@ -20,22 +20,23 @@ def _make_page(editor2: str) -> MagicMock:
     return page
 
 
-INCLUDE_EDITOR2 = '''<?xml version="1.0" encoding="UTF-8"?>
+INCLUDE_EDITOR2 = """<?xml version="1.0" encoding="UTF-8"?>
 <ac:structured-macro ac:name="include" ac:schema-version="1"
     ac:local-id="local-1" ac:macro-id="macro-include-1">
     <ac:parameter ac:name="">
-        <ac:link><ri:page ri:content-title="Dataflow of the Medical Device" ri:version-at-save="29" /></ac:link>
+        <ac:link><ri:page ri:content-title="Shared Reference Page"
+            ri:version-at-save="1" /></ac:link>
     </ac:parameter>
-</ac:structured-macro>'''
+</ac:structured-macro>"""
 
-EXCERPT_INCLUDE_EDITOR2 = '''<?xml version="1.0" encoding="UTF-8"?>
+EXCERPT_INCLUDE_EDITOR2 = """<?xml version="1.0" encoding="UTF-8"?>
 <ac:structured-macro ac:name="excerpt-include" ac:schema-version="1"
     ac:local-id="local-2" ac:macro-id="macro-excerpt-1">
     <ac:parameter ac:name="">
-        <ac:link><ri:page ri:content-title="Indications for Use" /></ac:link>
+        <ac:link><ri:page ri:content-title="Source Page" /></ac:link>
     </ac:parameter>
-    <ac:parameter ac:name="name">Medical Purpose</ac:parameter>
-</ac:structured-macro>'''
+    <ac:parameter ac:name="name">Named Excerpt</ac:parameter>
+</ac:structured-macro>"""
 
 
 @patch("confluence_markdown_exporter.confluence.settings")
@@ -54,7 +55,7 @@ def test_include_macro_transclusion_mode(mock_settings: MagicMock) -> None:
 
     result = converter.convert_include(el, "fallback inline text", [])
 
-    assert result.strip() == "![[Dataflow of the Medical Device]]"
+    assert result.strip() == "![[Shared Reference Page]]"
 
 
 @patch("confluence_markdown_exporter.confluence.settings")
@@ -73,7 +74,7 @@ def test_excerpt_include_macro_transclusion_mode(mock_settings: MagicMock) -> No
 
     result = converter.convert_include(el, "resolved excerpt body", [])
 
-    assert result.strip() == "![[Indications for Use]]"
+    assert result.strip() == "![[Source Page]]"
 
 
 @patch("confluence_markdown_exporter.confluence.settings")
@@ -106,10 +107,7 @@ def test_include_macro_transclusion_falls_back_when_target_unresolvable(
     # editor2 has a different macro-id → lookup fails
     converter = Page.Converter(_make_page(INCLUDE_EDITOR2))
 
-    html = (
-        '<div data-macro-name="include" data-macro-id="missing-id">'
-        "<p>inlined content</p></div>"
-    )
+    html = '<div data-macro-name="include" data-macro-id="missing-id"><p>inlined content</p></div>'
     el = BeautifulSoup(html, "html.parser").find("div")
 
     result = converter.convert_include(el, "inlined content", [])
