@@ -543,6 +543,16 @@ class ExportConfig(BaseModel):
             "When disabled, the TOC macro is removed from the output."
         ),
     )
+    include_macro: Literal["inline", "transclusion"] = Field(
+        default="inline",
+        title="Include Macro Rendering",
+        description=(
+            "How to render Confluence `include` and `excerpt-include` macros.\n"
+            "  inline: expand the referenced page content inline (default)\n"
+            "  transclusion: emit an Obsidian-style `![[Page Title]]` embed link;\n"
+            "    the referenced page must also be exported for the link to resolve"
+        ),
+    )
     enable_jira_enrichment: bool = Field(
         default=True,
         title="Enable Jira Enrichment",

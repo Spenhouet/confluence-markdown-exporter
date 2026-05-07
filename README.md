@@ -27,6 +27,7 @@ Exports individual pages, pages with descendants, or entire spaces via the Atlas
 - **Status badges**: converted to coloured inline highlights
 - **Info / note / tip / warning panels**: converted to Markdown alert blocks (`[!NOTE]`, `[!TIP]`, …)
 - **Inline comments**: open comments exported as sidecar files next to each page
+- **Include / excerpt-include macros**: embedded pages either inlined or exported as Obsidian transclusion links (`![[Page Title]]`)
 
 #### Page metadata
 
@@ -302,11 +303,11 @@ On Confluence Data Center / Server, where the API does not provide `fileId`, `{a
 
 Which attachments to download to disk.
 
-| Value        | Behaviour                                                                                                                                                                          |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `referenced` | Only attachments whose ID/filename appears in the page body (default).                                                                                                             |
-| `all`        | Every attachment on the page. Large or numerous attachments increase export time.                                                                                                  |
-| `disabled`   | Skip downloads entirely — no files written, no lockfile entries, no lookup. Body image and file links still point at `attachment_path`, but the files will not exist locally.     |
+| Value        | Behaviour                                                                                                                                                                     |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `referenced` | Only attachments whose ID/filename appears in the page body (default).                                                                                                        |
+| `all`        | Every attachment on the page. Large or numerous attachments increase export time.                                                                                             |
+| `disabled`   | Skip downloads entirely — no files written, no lockfile entries, no lookup. Body image and file links still point at `attachment_path`, but the files will not exist locally. |
 
 - Default: `referenced`
 - ENV Var: `CME_EXPORT__ATTACHMENTS_EXPORT`
@@ -365,12 +366,12 @@ Controls how Confluence Page Properties Report macros (dynamic cross-page proper
 
 Whether to include the original Confluence page URL in the YAML front matter of the exported file.
 
-| Value    | Description                                                                                                |
-| -------- | ---------------------------------------------------------------------------------------------------------- |
-| `none`   | Do not include any URL (default)                                                                           |
-| `webui`  | Include `confluence_webui_url` (human-readable URL; may change when the page is renamed or moved)          |
-| `tinyui` | Include `confluence_tinyui_url` (stable short permalink based on the page ID; survives renames and moves)  |
-| `both`   | Include both fields                                                                                        |
+| Value    | Description                                                                                               |
+| -------- | --------------------------------------------------------------------------------------------------------- |
+| `none`   | Do not include any URL (default)                                                                          |
+| `webui`  | Include `confluence_webui_url` (human-readable URL; may change when the page is renamed or moved)         |
+| `tinyui` | Include `confluence_tinyui_url` (stable short permalink based on the page ID; survives renames and moves) |
+| `both`   | Include both fields                                                                                       |
 
 If a Page Properties macro on the page already defines `confluence_webui_url` or `confluence_tinyui_url`, the value from the macro takes precedence over the URL extracted from the API.
 
@@ -411,6 +412,18 @@ Whether to export the Confluence Table of Contents macro. When enabled, the TOC 
 
 - Default: `True`
 - ENV Var: `CME_EXPORT__INCLUDE_TOC`
+
+##### export.include_macro
+
+Controls how Confluence `include` and `excerpt-include` macros are rendered. The `include` macro embeds the full content of another page; `excerpt-include` embeds a named excerpt from another page.
+
+| Value          | Behaviour                                                                                                                                                                     |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `inline`       | Expand the referenced page content inline at the point of inclusion (default). The body already rendered by Confluence is used, so no extra API calls are required.           |
+| `transclusion` | Emit an Obsidian-style `![[Page Title]]` embed link. Obsidian renders the link as an inline preview of the target note. The referenced page must also be exported to resolve. |
+
+- Default: `inline`
+- ENV Var: `CME_EXPORT__INCLUDE_MACRO`
 
 ##### export.enable_jira_enrichment
 
