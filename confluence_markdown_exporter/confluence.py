@@ -1482,6 +1482,8 @@ class Page(Document):
                     "attachments": self.convert_attachments,
                     "markdown": self.convert_markdown,
                     "mohamicorp-markdown": self.convert_markdown,
+                    "include": self.convert_include,
+                    "excerpt-include": self.convert_include,
                 }
                 if macro_name in macro_handlers:
                     return macro_handlers[macro_name](el, text, parent_tags)
@@ -2158,6 +2160,59 @@ class Page(Document):
             else:
                 # Return as a Markdown code block with plantuml syntax
                 return f"\n```plantuml\n{uml_definition}\n```\n\n"
+
+        def convert_include(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert Confluence `include` / `excerpt-include` macro.
+
+            When `include_macro = transclusion`, emit an Obsidian-style embed link
+            (`![[Page Title]]`) so the referenced page renders inline in Obsidian,
+            mimicking the Confluence include/excerpt behavior. Requires the target
+            page to also be exported so the link can resolve.
+
+            When `include_macro = inline` (default), the body_view content is
+            already expanded — fall through to normal div processing to render it.
+            """
+            if settings.export.include_macro != "transclusion":
+                return super().convert_div(el, text, parent_tags)  # type: ignore[misc]
+
+            macro_name = str(el.get("data-macro-name", ""))
+            macro_id = el.get("data-macro-id")
+
+            target_title: str | None = None
+            if macro_id and isinstance(macro_id, str):
+                target_title = self._extract_include_target_title(macro_id)
+
+            if not target_title:
+                logger.warning(
+                    f"{macro_name} macro found but target page title could not be resolved; "
+                    f"falling back to inline content"
+                )
+                return super().convert_div(el, text, parent_tags)  # type: ignore[misc]
+
+            return f"\n![[{target_title}]]\n\n"
+
+        def _extract_include_target_title(self, macro_id: str) -> str | None:
+            """Resolve the target page title for an `include` / `excerpt-include` macro.
+
+            BeautifulSoup with `xml` parser strips namespace prefixes, so
+            `ac:structured-macro` becomes `structured-macro`, `ri:page` becomes
+            `page`, and `ri:content-title` becomes `content-title`.
+            """
+            wrapped_editor2 = f"<root>{self.page.editor2}</root>"
+            soup_editor2 = BeautifulSoup(wrapped_editor2, "xml")
+            for macro in soup_editor2.find_all("structured-macro"):
+                if not isinstance(macro, Tag):
+                    continue
+                if macro.get("name") not in ("include", "excerpt-include"):
+                    continue
+                if macro.get("macro-id") != macro_id:
+                    continue
+                ri_page = macro.find("page")
+                if isinstance(ri_page, Tag):
+                    title = ri_page.get("content-title")
+                    if isinstance(title, str) and title:
+                        return title
+            return None
 
         def _find_element_with_namespace(self, parent: BeautifulSoup, tag_name: str) -> Tag | None:
             """Find an element with or without namespace prefix."""

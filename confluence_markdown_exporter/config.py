@@ -32,6 +32,8 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.attachment_href` | Link style for attachments: `relative` or `absolute` |\n\n"
     "| `export.include_document_title` | Prepend H1 title to each page |\n\n"
     "| `export.include_toc` | Export Table of Contents macro (`true`/`false`) |\n\n"
+    "| `export.include_macro` | How to render `include`/`excerpt-include` macros:"
+    " `inline` (default) or `transclusion` (Obsidian `![[Page Title]]` embed) |\n\n"
     "| `export.page_breadcrumbs` | Include breadcrumb links at top of page |\n\n"
     "| `export.confluence_url_in_frontmatter` | Include Confluence page URL in YAML "
     "front matter: `none`, `webui`, `tinyui`, `both` |\n\n"
