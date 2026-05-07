@@ -196,8 +196,8 @@ class ApiClientFactory:
             # Create a custom session with cookies for SSO authentication
             session = requests.Session()
             cookies_dict = {}
-            for cookie_pair in cookies_str.split(";"):
-                cookie_pair = cookie_pair.strip()
+            for raw_cookie_pair in cookies_str.split(";"):
+                cookie_pair = raw_cookie_pair.strip()
                 if "=" in cookie_pair:
                     name, value = cookie_pair.split("=", 1)
                     cookies_dict[name.strip()] = value.strip()
