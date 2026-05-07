@@ -1343,7 +1343,8 @@ class Page(Document):
 
         @property
         def markdown(self) -> str:
-            md_body = self.convert(self.page.html)
+            html = self._strip_excerpt_include_panel_titles(self.page.html)
+            md_body = self.convert(html)
             md_body = self._escape_template_placeholders(md_body)
             markdown = f"{self.front_matter}\n"
             if settings.export.page_breadcrumbs:
@@ -2178,9 +2179,6 @@ class Page(Document):
             When `include_macro = inline` (default), the body_view content is
             already expanded — fall through to normal div processing to render it.
             """
-            if settings.export.include_macro != "transclusion":
-                return super().convert_div(el, text, parent_tags)  # type: ignore[misc]
-
             macro_name = str(el.get("data-macro-name", ""))
             macro_id = el.get("data-macro-id")
 
@@ -2188,14 +2186,48 @@ class Page(Document):
             if macro_id and isinstance(macro_id, str):
                 target_title = self._extract_include_target_title(macro_id)
 
-            if not target_title:
+            if settings.export.include_macro == "transclusion" and target_title:
+                return f"\n![[{target_title}]]\n\n"
+
+            if settings.export.include_macro == "transclusion":
                 logger.warning(
                     f"{macro_name} macro found but target page title could not be resolved; "
                     f"falling back to inline content"
                 )
-                return super().convert_div(el, text, parent_tags)  # type: ignore[misc]
 
-            return f"\n![[{target_title}]]\n\n"
+            inline = super().convert_div(el, text, parent_tags)  # type: ignore[misc]
+            if macro_name == "excerpt-include":
+                title_note = f" from page '{target_title}'" if target_title else ""
+                return (
+                    f"\n<!-- excerpt start{title_note} -->\n"
+                    f"{inline}"
+                    f"\n<!-- excerpt end{title_note} -->\n\n"
+                )
+            return inline
+
+        def _strip_excerpt_include_panel_titles(self, html: str) -> str:
+            """Strip the source-page-title panel from `excerpt-include` bodies.
+
+            Confluence's `excerpt-include` body.view wraps the included
+            content in a panel whose `panelHeader` is the source page title
+            unless `nopanel=true`. The `panelContent` div holds the actual
+            body. We unwrap to leave only the body.
+            """
+            soup = BeautifulSoup(html, "html.parser")
+            for el in soup.find_all(attrs={"data-macro-name": "excerpt-include"}):
+                self._unwrap_excerpt_include_panel(el)
+            return str(soup)
+
+        def _unwrap_excerpt_include_panel(self, el: Tag) -> None:
+            classes = el.get("class") or []
+            if not isinstance(classes, list) or "panel" not in classes:
+                return
+            header = el.find("div", class_="panelHeader")
+            if isinstance(header, Tag):
+                header.decompose()
+            content = el.find("div", class_="panelContent")
+            if isinstance(content, Tag):
+                content.unwrap()
 
         def _extract_include_target_title(self, macro_id: str) -> str | None:
             """Resolve the target page title for an `include` / `excerpt-include` macro.

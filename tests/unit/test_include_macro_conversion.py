@@ -97,6 +97,52 @@ def test_include_macro_inline_mode(mock_settings: MagicMock) -> None:
 
 
 @patch("confluence_markdown_exporter.confluence.settings")
+def test_excerpt_include_inline_strips_source_page_title_panel(
+    mock_settings: MagicMock,
+) -> None:
+    mock_settings.export.include_document_title = False
+    mock_settings.export.page_breadcrumbs = False
+    mock_settings.export.include_macro = "inline"
+
+    converter = Page.Converter(_make_page(EXCERPT_INCLUDE_EDITOR2))
+
+    html = (
+        '<div class="panel conf-macro output-inline" data-macro-name="excerpt-include"'
+        ' data-macro-id="macro-excerpt-1">'
+        '<div class="panelHeader"><b>Source Page</b></div>'
+        '<div class="panelContent"><table><tr><td>body cell</td></tr></table></div>'
+        "</div>"
+    )
+
+    stripped = converter._strip_excerpt_include_panel_titles(html)
+
+    assert "Source Page" not in stripped
+    assert "panelHeader" not in stripped
+    assert "panelContent" not in stripped
+    assert "body cell" in stripped
+
+
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_excerpt_include_inline_keeps_body_when_no_panel(
+    mock_settings: MagicMock,
+) -> None:
+    mock_settings.export.include_document_title = False
+    mock_settings.export.page_breadcrumbs = False
+    mock_settings.export.include_macro = "inline"
+
+    converter = Page.Converter(_make_page(EXCERPT_INCLUDE_EDITOR2))
+
+    html = (
+        '<span class="conf-macro output-inline" data-macro-name="excerpt-include"'
+        ' data-macro-id="macro-excerpt-1">actual excerpt body</span>'
+    )
+
+    stripped = converter._strip_excerpt_include_panel_titles(html)
+
+    assert "actual excerpt body" in stripped
+
+
+@patch("confluence_markdown_exporter.confluence.settings")
 def test_include_macro_transclusion_falls_back_when_target_unresolvable(
     mock_settings: MagicMock,
 ) -> None:
