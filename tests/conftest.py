@@ -1,12 +1,21 @@
 """Shared test fixtures and configuration for confluence-markdown-exporter tests."""
 
 import importlib
+import os
 import sys
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
+
+# Isolate tests from the developer's user config. The package binds APP_CONFIG_PATH
+# at import time from CME_CONFIG_PATH (or, when unset, typer.get_app_dir() which
+# resolves to ~/.config/confluence-markdown-exporter/app_data.json on Linux).
+# Without this, local settings like `page_href="wiki"` leak into tests that rely
+# on the schema defaults.
+_test_config_dir = tempfile.mkdtemp(prefix="cme-test-config-")
+os.environ["CME_CONFIG_PATH"] = str(Path(_test_config_dir) / "app_data.json")
 
 import pytest
 from pydantic import SecretStr
