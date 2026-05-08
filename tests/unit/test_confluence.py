@@ -1114,6 +1114,56 @@ class TestPageMetadataInFrontmatter:
         assert "confluence_version: 7" in result
 
 
+class TestInlineCommentsFrontMatter:
+    """Pin the YAML front matter keys written into *.comments.md sidecars."""
+
+    def test_front_matter_uses_confluence_prefix(self) -> None:
+        page = MockPage()
+        page.id = 123
+        page.title = "My Page"
+        page.space = MagicMock()
+        page.space.key = "TEAM"
+        page.base_url = "https://example.atlassian.net"
+        page.export_path = Path("TEAM/My Page.md")
+        page._marked_texts = {"ref-1": "marked excerpt"}
+        page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN.default
+        page._fetch_inline_comments = lambda: [
+            {
+                "id": "c1",
+                "extensions": {"inlineProperties": {"markerRef": "ref-1"}},
+                "history": {
+                    "createdBy": {"displayName": "Alice"},
+                    "createdDate": "2026-04-01T10:00:00Z",
+                },
+                "body": {"view": {"value": "<p>nice</p>"}},
+            }
+        ]
+        page._fetch_comment_replies = lambda _cid: []
+
+        with (
+            patch("confluence_markdown_exporter.confluence.save_file") as mock_save,
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.output_path = Path("out")
+            Page.export_inline_comments(page)
+
+        assert mock_save.called
+        content = mock_save.call_args[0][1]
+
+        # New keys with correct YAML form
+        assert "confluence_page_id: '123'" in content
+        assert 'confluence_page_title: "My Page"' in content
+        assert (
+            'confluence_webui_url: "https://example.atlassian.net'
+            '/wiki/spaces/TEAM/pages/123"' in content
+        )
+
+        # Regression guard: old keys must not reappear
+        assert "\npage_id:" not in content
+        assert "\npage_title:" not in content
+        assert "\nsource:" not in content
+
+
 class TestPagePropertiesReportDataview:
     """Page Properties Report macro can be exported as a Dataview DQL query."""
 
