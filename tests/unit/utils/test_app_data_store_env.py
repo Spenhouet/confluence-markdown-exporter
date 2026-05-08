@@ -174,6 +174,24 @@ class TestEnvVarOverrides:
             settings = get_settings()
         assert settings.export.existence_check_batch_size == 50
 
+    def test_visual_fidelity_markdown_defaults_to_false(self) -> None:
+        """Visual fidelity Markdown sidecar export is disabled by default."""
+        config = ExportConfig()
+        assert config.visual_fidelity_markdown is False
+        assert config.visual_fidelity_suffix == ".visual"
+
+    def test_visual_fidelity_markdown_env_override(self) -> None:
+        """CME_EXPORT__VISUAL_FIDELITY_MARKDOWN=true enables visual fidelity sidecars."""
+        with patch.dict(os.environ, {"CME_EXPORT__VISUAL_FIDELITY_MARKDOWN": "true"}):
+            settings = get_settings()
+        assert settings.export.visual_fidelity_markdown is True
+
+    def test_visual_fidelity_suffix_env_override(self) -> None:
+        """CME_EXPORT__VISUAL_FIDELITY_SUFFIX overrides sidecar suffix."""
+        with patch.dict(os.environ, {"CME_EXPORT__VISUAL_FIDELITY_SUFFIX": ".dingtalk"}):
+            settings = get_settings()
+        assert settings.export.visual_fidelity_suffix == ".dingtalk"
+
     def test_app_settings_is_base_settings_subclass(self) -> None:
         """AppSettings is a BaseSettings subclass."""
         from pydantic_settings import BaseSettings

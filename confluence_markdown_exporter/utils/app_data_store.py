@@ -142,6 +142,15 @@ class ApiDetails(BaseModel):
             "See your Atlassian instance documentation for how to create a PAT."
         ),
     )
+    session_cookies: SecretStr = Field(
+        default=SecretStr(""),
+        title="Session Cookies",
+        description=(
+            "Session cookies for SSO authentication (e.g. from browser). "
+            "Format: cookie1=value1; cookie2=value2. "
+            "Use this when PAT is not available and you need to use browser session."
+        ),
+    )
     cloud_id: str = Field(
         default="",
         title="Cloud ID",
@@ -155,7 +164,7 @@ class ApiDetails(BaseModel):
         ),
     )
 
-    @field_validator("username", "api_token", "pat", mode="before")
+    @field_validator("username", "api_token", "pat", "session_cookies", mode="before")
     @classmethod
     def _single_line(cls, v: object) -> object:
         raw = v.get_secret_value() if isinstance(v, SecretStr) else v
@@ -163,7 +172,7 @@ class ApiDetails(BaseModel):
             return raw.replace("\r", "").replace("\n", "")
         return v
 
-    @field_serializer("username", "api_token", "pat", when_used="json")
+    @field_serializer("username", "api_token", "pat", "session_cookies", when_used="json")
     def dump_secret(self, v: SecretStr) -> str:
         return v.get_secret_value()
 
@@ -573,6 +582,23 @@ class ExportConfig(BaseModel):
             "Each comment thread shows the annotated text as a blockquote, followed by the author, "
             "date, and comment body. Replies are listed flat below the parent comment. "
             "Disabled by default — adds one extra API call per comment thread per page."
+        ),
+    )
+    visual_fidelity_markdown: bool = Field(
+        default=False,
+        title="Export Visual Fidelity Markdown",
+        description=(
+            "Whether to write an additional visual-fidelity Markdown sidecar file next to "
+            "each exported page. The sidecar preserves nested table HTML to avoid flattening "
+            "complex Confluence table structures."
+        ),
+    )
+    visual_fidelity_suffix: str = Field(
+        default=".visual",
+        title="Visual Fidelity Markdown Suffix",
+        description=(
+            "Suffix inserted before the .md extension for visual-fidelity Markdown sidecar "
+            "files. For example, the default '.visual' writes foo.visual.md next to foo.md."
         ),
     )
     convert_status_badges: bool = Field(
