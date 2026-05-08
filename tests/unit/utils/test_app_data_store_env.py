@@ -53,6 +53,12 @@ class TestEnvVarOverrides:
             settings = get_settings()
         assert settings.export.attachments_export == "all"
 
+    def test_comments_export_env_override(self) -> None:
+        """CME_EXPORT__COMMENTS_EXPORT overrides comments_export."""
+        with patch.dict(os.environ, {"CME_EXPORT__COMMENTS_EXPORT": "all"}):
+            settings = get_settings()
+        assert settings.export.comments_export == "all"
+
     def test_confluence_url_in_frontmatter_env_override(self) -> None:
         """CME_EXPORT__CONFLUENCE_URL_IN_FRONTMATTER overrides confluence_url_in_frontmatter."""
         with patch.dict(os.environ, {"CME_EXPORT__CONFLUENCE_URL_IN_FRONTMATTER": "both"}):
@@ -276,3 +282,29 @@ class TestAttachmentsExportMigration:
             {"attachment_export_all": True, "attachments_export": "disabled"}
         )
         assert config.attachments_export == "disabled"
+
+
+class TestCommentsExportMigration:
+    """Migration of legacy inline_comments bool to comments_export literal."""
+
+    def test_legacy_true_maps_to_inline(self) -> None:
+        """inline_comments=True migrates to comments_export='inline'."""
+        config = ExportConfig.model_validate({"inline_comments": True})
+        assert config.comments_export == "inline"
+
+    def test_legacy_false_maps_to_none(self) -> None:
+        """inline_comments=False migrates to comments_export='none'."""
+        config = ExportConfig.model_validate({"inline_comments": False})
+        assert config.comments_export == "none"
+
+    def test_new_field_takes_precedence_over_old(self) -> None:
+        """When both are present, the explicit new value wins and old is dropped."""
+        config = ExportConfig.model_validate(
+            {"inline_comments": True, "comments_export": "footer"}
+        )
+        assert config.comments_export == "footer"
+
+    def test_legacy_key_does_not_appear_on_model(self) -> None:
+        """The legacy key is consumed during migration and is not set on the model."""
+        config = ExportConfig.model_validate({"inline_comments": True})
+        assert not hasattr(config, "inline_comments")
