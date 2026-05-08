@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import types
 from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -1138,14 +1139,18 @@ class TestInlineCommentsFrontMatter:
                 "body": {"view": {"value": "<p>nice</p>"}},
             }
         ]
+        page._fetch_page_comments = list
         page._fetch_comment_replies = lambda _cid: []
+        page._render_inline_comments = types.MethodType(Page._render_inline_comments, page)
+        page._render_page_comments = types.MethodType(Page._render_page_comments, page)
 
         with (
             patch("confluence_markdown_exporter.confluence.save_file") as mock_save,
             patch("confluence_markdown_exporter.confluence.settings") as s,
         ):
             s.export.output_path = Path("out")
-            Page.export_inline_comments(page)
+            s.export.comments_export = "inline"
+            Page.export_comments_sidecar(page)
 
         assert mock_save.called
         content = mock_save.call_args[0][1]
@@ -1162,6 +1167,189 @@ class TestInlineCommentsFrontMatter:
         assert "\npage_id:" not in content
         assert "\npage_title:" not in content
         assert "\nsource:" not in content
+
+
+def _make_comments_page(
+    *,
+    inline_comments: list[dict] | None = None,
+    page_comments: list[dict] | None = None,
+    replies: dict[str, list[dict]] | None = None,
+    marked_texts: dict[str, str] | None = None,
+) -> MockPage:
+    page = MockPage()
+    page.id = 123
+    page.title = "My Page"
+    page.space = MagicMock()
+    page.space.key = "TEAM"
+    page.base_url = "https://example.atlassian.net"
+    page.export_path = Path("TEAM/My Page.md")
+    page._marked_texts = marked_texts or {}
+    page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN.default
+    page._fetch_inline_comments = lambda: list(inline_comments or [])
+    page._fetch_page_comments = lambda: list(page_comments or [])
+    replies_map = replies or {}
+    page._fetch_comment_replies = lambda cid: list(replies_map.get(cid, []))
+    page._render_inline_comments = types.MethodType(Page._render_inline_comments, page)
+    page._render_page_comments = types.MethodType(Page._render_page_comments, page)
+    return page
+
+
+def _run_export_capturing_save(page: MockPage, mode: str) -> MagicMock:
+    with (
+        patch("confluence_markdown_exporter.confluence.save_file") as mock_save,
+        patch("confluence_markdown_exporter.confluence.settings") as s,
+    ):
+        s.export.output_path = Path("out")
+        s.export.comments_export = mode
+        Page.export_comments_sidecar(page)
+    return mock_save
+
+
+def _inline_comment(
+    ref: str = "ref-1",
+    body: str = "<p>nice</p>",
+    cid: str = "c1",
+    author: str = "Alice",
+) -> dict:
+    return {
+        "id": cid,
+        "extensions": {"inlineProperties": {"markerRef": ref}},
+        "history": {
+            "createdBy": {"displayName": author},
+            "createdDate": "2026-04-01T10:00:00Z",
+        },
+        "body": {"view": {"value": body}},
+    }
+
+
+def _page_comment(
+    cid: str = "p1",
+    body: str = "<p>discussion body</p>",
+    author: str = "Bob",
+    *,
+    resolved: bool = False,
+) -> dict:
+    return {
+        "id": cid,
+        "extensions": {"resolution": {"status": "resolved" if resolved else "open"}},
+        "history": {
+            "createdBy": {"displayName": author},
+            "createdDate": "2026-04-02T11:00:00Z",
+        },
+        "body": {"view": {"value": body}},
+    }
+
+
+class TestPageCommentsSidecarBody:
+    """Sidecar rendering for page-level (footer) and combined comments."""
+
+    def test_only_footer_writes_only_page_section(self) -> None:
+        page = _make_comments_page(page_comments=[_page_comment()])
+        save = _run_export_capturing_save(page, "footer")
+        assert save.called
+        content = save.call_args[0][1]
+        assert "## Page comments" in content
+        assert "## Inline comments" not in content
+        assert "discussion body" in content
+        assert "**Bob** · 2026-04-02" in content
+
+    def test_all_writes_both_sections_inline_first(self) -> None:
+        page = _make_comments_page(
+            inline_comments=[_inline_comment()],
+            page_comments=[_page_comment()],
+            marked_texts={"ref-1": "marked excerpt"},
+        )
+        save = _run_export_capturing_save(page, "all")
+        assert save.called
+        content = save.call_args[0][1]
+        assert "## Inline comments" in content
+        assert "## Page comments" in content
+        assert content.index("## Inline comments") < content.index("## Page comments")
+
+    def test_none_writes_no_file(self) -> None:
+        page = _make_comments_page(
+            inline_comments=[_inline_comment()],
+            page_comments=[_page_comment()],
+        )
+        save = _run_export_capturing_save(page, "none")
+        assert save.called is False
+
+    def test_inline_only_omits_page_section(self) -> None:
+        page = _make_comments_page(
+            inline_comments=[_inline_comment()],
+            page_comments=[_page_comment()],
+            marked_texts={"ref-1": "marked excerpt"},
+        )
+        save = _run_export_capturing_save(page, "inline")
+        assert save.called
+        content = save.call_args[0][1]
+        assert "## Inline comments" in content
+        assert "## Page comments" not in content
+
+    def test_page_comment_title_falls_back_to_comment_id(self) -> None:
+        page = _make_comments_page(
+            page_comments=[_page_comment(cid="abcdef1234567", body="")],
+        )
+        save = _run_export_capturing_save(page, "footer")
+        assert save.called
+        content = save.call_args[0][1]
+        assert "### Comment abcdef12" in content
+
+    def test_page_comment_replies_render_under_parent(self) -> None:
+        replies = {
+            "p1": [
+                {
+                    "id": "r1",
+                    "history": {
+                        "createdBy": {"displayName": "Carol"},
+                        "createdDate": "2026-04-03T11:00:00Z",
+                    },
+                    "body": {"view": {"value": "<p>reply one</p>"}},
+                },
+                {
+                    "id": "r2",
+                    "history": {
+                        "createdBy": {"displayName": "Dave"},
+                        "createdDate": "2026-04-03T12:00:00Z",
+                    },
+                    "body": {"view": {"value": "<p>reply two</p>"}},
+                },
+            ]
+        }
+        page = _make_comments_page(
+            page_comments=[_page_comment(cid="p1", body="<p>parent body</p>", author="Bob")],
+            replies=replies,
+        )
+        save = _run_export_capturing_save(page, "footer")
+        assert save.called
+        content = save.call_args[0][1]
+        assert content.index("Bob") < content.index("Carol") < content.index("Dave")
+        assert "reply one" in content
+        assert "reply two" in content
+
+    def test_fetch_page_comments_filters_resolved(self) -> None:
+        page = MockPage()
+        page.id = 123
+        page.base_url = "https://example.atlassian.net"
+
+        client = MagicMock()
+        client.get_page_comments.return_value = {
+            "results": [
+                _page_comment(cid="open1", body="<p>open one</p>"),
+                _page_comment(cid="resolved1", body="<p>resolved one</p>", resolved=True),
+                _page_comment(cid="open2", body="<p>open two</p>"),
+            ],
+            "_links": {},
+        }
+
+        with patch(
+            "confluence_markdown_exporter.confluence.get_thread_confluence",
+            return_value=client,
+        ):
+            results = Page._fetch_page_comments(page)
+
+        ids = [c["id"] for c in results]
+        assert ids == ["open1", "open2"]
 
 
 class TestPagePropertiesReportDataview:

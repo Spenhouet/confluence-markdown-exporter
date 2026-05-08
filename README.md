@@ -26,7 +26,7 @@ Exports individual pages, pages with descendants, or entire spaces via the Atlas
 - **Text highlights & font colours**: preserved with inline HTML colour styling
 - **Status badges**: converted to coloured inline highlights
 - **Info / note / tip / warning panels**: converted to Markdown alert blocks (`[!NOTE]`, `[!TIP]`, …)
-- **Inline comments**: open comments exported as sidecar files next to each page
+- **Comments**: open inline and/or page-level (footer) comments exported as sidecar files next to each page
 - **Include / excerpt-include macros**: embedded pages either inlined or exported as Obsidian transclusion links (`![[Page Title]]`)
 
 #### Page metadata
@@ -466,12 +466,50 @@ Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links
 - Default: `True`
 - ENV Var: `CME_EXPORT__ENABLE_JIRA_ENRICHMENT`
 
-##### export.inline_comments
+##### export.comments_export
 
-Fetch and export open inline comments as a sidecar `.comments.md` file placed next to the exported page file, using the same path stem. Only open (non-resolved, non-dangling) comments are included. Each comment thread shows the annotated text as a blockquote, followed by the author, date, and comment body. Replies are listed flat below the parent comment. Disabled by default. Enabling it adds one extra API call per comment thread per page.
+Which comments to export to a sidecar `.comments.md` file placed next to the exported page file, using the same path stem.
 
-- Default: `False`
-- ENV Var: `CME_EXPORT__INLINE_COMMENTS`
+| Value      | Behaviour                                                                                |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| `none`     | No sidecar (default).                                                                    |
+| `inline`   | Open inline comments only (annotated text as blockquote, then author / date / body).     |
+| `footer`   | Open page-level (footer) comments only.                                                  |
+| `all`      | Both, in a single sidecar with `## Inline comments` first, then `## Page comments`.      |
+
+Only open comments are included; resolved comments are skipped. Replies are listed flat below their parent comment. Disabled by default — enabling adds one to two extra API calls per page.
+
+Sidecar example for `comments_export = "all"`:
+
+```markdown
+---
+confluence_page_id: '123'
+confluence_page_title: "Example Page"
+confluence_webui_url: "https://example.atlassian.net/wiki/spaces/TEAM/pages/123"
+---
+
+## Inline comments
+
+### marked excerpt
+> marked excerpt
+
+**Alice** · 2026-04-01
+
+Looks good to me.
+
+## Page comments
+
+### Discussion about the rollout
+
+**Bob** · 2026-04-02
+
+Are we shipping this Friday?
+```
+
+The legacy boolean key `inline_comments` is migrated automatically: `true` becomes `"inline"`, `false` becomes `"none"`.
+
+- Default: `none`
+- ENV Var: `CME_EXPORT__COMMENTS_EXPORT`
 
 ##### export.convert_status_badges
 

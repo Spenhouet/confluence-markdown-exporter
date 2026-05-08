@@ -514,6 +514,19 @@ class ExportConfig(BaseModel):
             )
         return data
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_inline_comments(cls, data: object) -> object:
+        """Migrate legacy inline_comments bool to comments_export literal."""
+        if not isinstance(data, dict):
+            return data
+        old_val = data.pop("inline_comments", None)
+        if old_val is not None and "comments_export" not in data:
+            data["comments_export"] = (
+                "inline" if str(old_val).lower() in ("true", "1") else "none"
+            )
+        return data
+
     filename_encoding: str = Field(
         default='"<":"_",">":"_",":":"_","\\"":"_","/":"_","\\\\":"_","|":"_","?":"_","*":"_","\\u0000":"_","[":"_","]":"_","\'":"_","’":"_","´":"_","`":"_"',  # noqa: RUF001
         title="Filename Encoding",
@@ -576,16 +589,21 @@ class ExportConfig(BaseModel):
             "Requires Jira auth to be configured."
         ),
     )
-    inline_comments: bool = Field(
-        default=False,
-        title="Export Inline Comments",
+    comments_export: Literal["none", "inline", "footer", "all"] = Field(
+        default="none",
+        title="Export Comments",
         description=(
-            "Whether to fetch and export open inline comments as a sidecar "
-            "'.comments.md' file placed next to the exported page file, using the same path stem. "
-            "Only open (non-resolved, non-dangling) comments are included. "
-            "Each comment thread shows the annotated text as a blockquote, followed by the author, "
-            "date, and comment body. Replies are listed flat below the parent comment. "
-            "Disabled by default — adds one extra API call per comment thread per page."
+            "Which comments to export to a sidecar '.comments.md' file placed "
+            "next to the exported page file. "
+            "'none' — no sidecar. "
+            "'inline' — open inline comments only (annotated text shown as a "
+            "blockquote, then author/date/body). "
+            "'footer' — open page-level (footer) comments only. "
+            "'all' — both, in a single sidecar with two sections "
+            "('## Inline comments' first, then '## Page comments'). "
+            "Resolved comments are skipped. Replies are listed flat below "
+            "the parent comment. Disabled by default — adds one to two extra "
+            "API calls per page when enabled."
         ),
     )
     convert_status_badges: bool = Field(
