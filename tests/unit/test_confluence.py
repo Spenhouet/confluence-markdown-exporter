@@ -622,6 +622,89 @@ class TestSpanHighlightConversion:
         assert "hello" in result
 
 
+class TestCellHighlightConversion:
+    """Confluence `data-highlight-colour` on <td>/<th> must become <mark> wrappers."""
+
+    def test_td_hex_attribute_wraps_in_mark(self, converter: Page.Converter) -> None:
+        html = (
+            '<table><tbody><tr>'
+            '<td data-highlight-colour="#fff0b3"><p>2</p></td>'
+            '</tr></tbody></table>'
+        )
+        result = converter.convert(html)
+        assert '<mark style="background: #fff0b3;">2</mark>' in result
+
+    def test_th_hex_attribute_wraps_in_mark(self, converter: Page.Converter) -> None:
+        html = (
+            '<table><tbody><tr>'
+            '<th data-highlight-colour="#ffd5d2"><p><strong>P / S</strong></p></th>'
+            '</tr></tbody></table>'
+        )
+        result = converter.convert(html)
+        assert '<mark style="background: #ffd5d2;">**P / S**</mark>' in result
+
+    def test_default_header_gray_not_wrapped(self, converter: Page.Converter) -> None:
+        """Confluence's default <th> background (#f4f5f7) is not user-chosen — skip."""
+        html = (
+            '<table><tbody><tr>'
+            '<th data-highlight-colour="#f4f5f7"><p><strong>P / S</strong></p></th>'
+            '<td data-highlight-colour="#f4f5f7"><p><strong>P5</strong></p></td>'
+            '</tr></tbody></table>'
+        )
+        result = converter.convert(html)
+        assert "<mark" not in result
+
+    def test_transparent_attribute_not_wrapped(self, converter: Page.Converter) -> None:
+        html = (
+            '<table><tbody><tr>'
+            '<td data-highlight-colour="transparent"><p>plain</p></td>'
+            '</tr></tbody></table>'
+        )
+        result = converter.convert(html)
+        assert "<mark" not in result
+        assert "plain" in result
+
+    def test_missing_attribute_not_wrapped(self, converter: Page.Converter) -> None:
+        html = (
+            '<table><tbody><tr><td><p>plain</p></td></tr></tbody></table>'
+        )
+        result = converter.convert(html)
+        assert "<mark" not in result
+        assert "plain" in result
+
+    def test_invalid_hex_not_wrapped(self, converter: Page.Converter) -> None:
+        html = (
+            '<table><tbody><tr>'
+            '<td data-highlight-colour="not-a-color"><p>x</p></td>'
+            '</tr></tbody></table>'
+        )
+        result = converter.convert(html)
+        assert "<mark" not in result
+
+    def test_empty_cell_with_highlight_renders_nbsp(self, converter: Page.Converter) -> None:
+        html = (
+            '<table><tbody><tr>'
+            '<td data-highlight-colour="#ff8f73"></td>'
+            '</tr></tbody></table>'
+        )
+        result = converter.convert(html)
+        assert '<mark style="background: #ff8f73;">&nbsp;</mark>' in result
+
+    def test_setting_disabled_returns_plain_text(self, converter: Page.Converter) -> None:
+        html = (
+            '<table><tbody><tr>'
+            '<td data-highlight-colour="#fff0b3"><p>2</p></td>'
+            '</tr></tbody></table>'
+        )
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.convert_text_highlights = False
+            s.export.convert_font_colors = True
+            s.export.convert_status_badges = True
+            result = converter.convert(html)
+        assert "<mark" not in result
+        assert "2" in result
+
+
 class TestSpanFontColorConversion:
     """Color spans must become <font> elements when enabled."""
 

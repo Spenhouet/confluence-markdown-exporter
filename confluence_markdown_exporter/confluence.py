@@ -77,10 +77,32 @@ _MAX_UNICODE_CODEPOINT = 0x10FFFF
 _RE_RGB_BG = re.compile(r"background-color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
 _RE_RGB_COLOR = re.compile(r"(?<![a-z-])color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
 _RE_COLORID_CSS = re.compile(r"(?<![>\w])\[data-colorid=(\w+)\]\{color:(#[0-9a-fA-F]+)\}")
+_RE_HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
+
+# Confluence default header backgrounds — applied automatically to <th> cells, and
+# (in matrix-style tables) to row-label <td>s. Treated as "no user-chosen colour".
+_DEFAULT_HEADER_BGS = frozenset({"#f4f5f7", "#f2f2f2"})
 
 
 def _rgb_to_hex(r: int, g: int, b: int) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _extract_cell_highlight_hex(el: Tag) -> str | None:
+    """Return Confluence cell background hex from data-highlight-colour, or None.
+
+    Confluence Cloud sets `data-highlight-colour="#rrggbb"` (or `"transparent"`)
+    on `<td>` / `<th>` when a cell background colour is applied.
+    """
+    val = el.get("data-highlight-colour")
+    if not isinstance(val, str):
+        return None
+    val = val.strip().lower()
+    if not val or val == "transparent" or val in _DEFAULT_HEADER_BGS:
+        return None
+    if _RE_HEX_COLOR.match(val):
+        return val
+    return None
 
 
 # Background colours for Confluence status-badge lozenges (Atlassian design token pastels).
@@ -1526,6 +1548,23 @@ class Page(Document):
                 return None
             hex_color = _rgb_to_hex(int(bg_m.group(1)), int(bg_m.group(2)), int(bg_m.group(3)))
             return f'<mark style="background: {hex_color};">{text}</mark>'
+
+        def _wrap_cell_highlight(self, el: BeautifulSoup, text: str) -> str:
+            if not settings.export.convert_text_highlights:
+                return text
+            bg = _extract_cell_highlight_hex(el)
+            if bg is None:
+                return text
+            inner = text or "&nbsp;"
+            return f'<mark style="background: {bg};">{inner}</mark>'
+
+        def convert_td(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            text = super().convert_td(el, text, parent_tags)
+            return self._wrap_cell_highlight(el, text)
+
+        def convert_th(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            text = super().convert_th(el, text, parent_tags)
+            return self._wrap_cell_highlight(el, text)
 
         def _span_font_color(self, el: BeautifulSoup, style: str, text: str) -> str | None:
             color_m = _RE_RGB_COLOR.search(style)
