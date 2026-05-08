@@ -1,6 +1,7 @@
 """Shared test fixtures and configuration for confluence-markdown-exporter tests."""
 
 import importlib
+import os
 import sys
 import tempfile
 from collections.abc import Generator
@@ -8,14 +9,22 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-from pydantic import SecretStr
+# Isolate tests from the developer's user config. The package binds APP_CONFIG_PATH
+# at import time from CME_CONFIG_PATH (or, when unset, typer.get_app_dir() which
+# resolves to ~/.config/confluence-markdown-exporter/app_data.json on Linux).
+# Without this, local settings like `page_href="wiki"` leak into tests that rely
+# on the schema defaults.
+_test_config_dir = tempfile.mkdtemp(prefix="cme-test-config-")
+os.environ["CME_CONFIG_PATH"] = str(Path(_test_config_dir) / "app_data.json")
 
-from confluence_markdown_exporter.utils.app_data_store import ApiDetails
-from confluence_markdown_exporter.utils.app_data_store import AuthConfig
-from confluence_markdown_exporter.utils.app_data_store import ConfigModel
-from confluence_markdown_exporter.utils.app_data_store import ConnectionConfig
-from confluence_markdown_exporter.utils.app_data_store import ExportConfig
+import pytest  # noqa: E402
+from pydantic import SecretStr  # noqa: E402
+
+from confluence_markdown_exporter.utils.app_data_store import ApiDetails  # noqa: E402
+from confluence_markdown_exporter.utils.app_data_store import AuthConfig  # noqa: E402
+from confluence_markdown_exporter.utils.app_data_store import ConfigModel  # noqa: E402
+from confluence_markdown_exporter.utils.app_data_store import ConnectionConfig  # noqa: E402
+from confluence_markdown_exporter.utils.app_data_store import ExportConfig  # noqa: E402
 
 # Store original functions before any patching
 _original_get_confluence = None
