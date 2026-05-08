@@ -1342,6 +1342,7 @@ class Page(Document):
             self._marked_texts: dict[str, str] = {}
             self._colorid_map_cache: dict[str, str] | None = None
             self._image_captions_cache: dict[str, str] | None = None
+            self._panel_icon_map_cache: dict[str, str] | None = None
 
         @property
         def _colorid_map(self) -> dict[str, str]:
@@ -1362,6 +1363,49 @@ class Page(Document):
             if self._image_captions_cache is None:
                 self._image_captions_cache = _parse_image_captions(self.page.body_storage)
             return self._image_captions_cache
+
+        @property
+        def _panel_icon_map(self) -> dict[str, str]:
+            """Map panel macro-id to its custom icon emoji from editor2 XML."""
+            if self._panel_icon_map_cache is None:
+                cache: dict[str, str] = {}
+                if self.page.editor2:
+                    wrapped = f"<root>{self.page.editor2}</root>"
+                    soup = BeautifulSoup(wrapped, "xml")
+                    panel_names = {"panel", "info", "note", "tip", "warning"}
+                    for macro in soup.find_all("structured-macro"):
+                        if not isinstance(macro, Tag):
+                            continue
+                        if macro.get("name") not in panel_names:
+                            continue
+                        macro_id = macro.get("macro-id")
+                        if not macro_id:
+                            continue
+                        emoji = self._extract_panel_emoji(macro)
+                        if emoji:
+                            cache[str(macro_id)] = emoji
+                self._panel_icon_map_cache = cache
+            return self._panel_icon_map_cache
+
+        @staticmethod
+        def _extract_panel_emoji(macro: Tag) -> str | None:
+            params: dict[str, str] = {}
+            for p in macro.find_all("parameter", recursive=False):
+                if not isinstance(p, Tag):
+                    continue
+                name = p.get("name")
+                if name:
+                    params[str(name)] = p.get_text(strip=True)
+            if text := params.get("panelIconText"):
+                return text
+            if icon_id := params.get("panelIconId"):
+                try:
+                    cps = [int(cp, 16) for cp in icon_id.split("-")]
+                    if all(0 <= cp <= _MAX_UNICODE_CODEPOINT for cp in cps):
+                        return "".join(chr(cp) for cp in cps)
+                except (OverflowError, ValueError):
+                    pass
+            return None
 
         @property
         def markdown(self) -> str:
@@ -1494,6 +1538,9 @@ class Page(Document):
             """Convert Confluence info macros to Markdown GitHub style alerts.
 
             GitHub specific alert types: https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts
+
+            Inside table cells GitHub alerts don't render in most viewers
+            (Obsidian, etc.), so emit a leading emoji + plain text instead.
             """
             alert_type_map = {
                 "info": "IMPORTANT",
@@ -1502,8 +1549,23 @@ class Page(Document):
                 "note": "WARNING",
                 "warning": "CAUTION",
             }
+            alert_emoji_map = {
+                "NOTE": "\U0001f4dd",
+                "TIP": "\U0001f4a1",
+                "IMPORTANT": "❗",
+                "WARNING": "⚠️",
+                "CAUTION": "\U0001f6d1",
+            }
 
             alert_type = alert_type_map.get(str(el["data-macro-name"]), "NOTE")
+
+            macro_id = el.get("data-macro-id")
+            custom_emoji = self._panel_icon_map.get(str(macro_id)) if macro_id else None
+            emoji = custom_emoji or alert_emoji_map[alert_type]
+
+            tags = parent_tags if isinstance(parent_tags, list | set) else set()
+            if "td" in tags or "th" in tags:
+                return f"{emoji} {text.strip()}"
 
             blockquote = super().convert_blockquote(el, text, parent_tags)
             return f"\n> [!{alert_type}]{blockquote}"
