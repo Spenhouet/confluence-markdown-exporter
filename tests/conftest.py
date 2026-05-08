@@ -17,14 +17,14 @@ from unittest.mock import MagicMock
 _test_config_dir = tempfile.mkdtemp(prefix="cme-test-config-")
 os.environ["CME_CONFIG_PATH"] = str(Path(_test_config_dir) / "app_data.json")
 
-import pytest
-from pydantic import SecretStr
+import pytest  # noqa: E402
+from pydantic import SecretStr  # noqa: E402
 
-from confluence_markdown_exporter.utils.app_data_store import ApiDetails
-from confluence_markdown_exporter.utils.app_data_store import AuthConfig
-from confluence_markdown_exporter.utils.app_data_store import ConfigModel
-from confluence_markdown_exporter.utils.app_data_store import ConnectionConfig
-from confluence_markdown_exporter.utils.app_data_store import ExportConfig
+from confluence_markdown_exporter.utils.app_data_store import ApiDetails  # noqa: E402
+from confluence_markdown_exporter.utils.app_data_store import AuthConfig  # noqa: E402
+from confluence_markdown_exporter.utils.app_data_store import ConfigModel  # noqa: E402
+from confluence_markdown_exporter.utils.app_data_store import ConnectionConfig  # noqa: E402
+from confluence_markdown_exporter.utils.app_data_store import ExportConfig  # noqa: E402
 
 # Store original functions before any patching
 _original_get_confluence = None
