@@ -1046,9 +1046,9 @@ class Page(Document):
 
         lines: list[str] = [
             "---",
-            f'page_id: "{self.id}"',
-            f'page_title: "{self.title}"',
-            f'source: "{source_url}"',
+            f"confluence_page_id: '{self.id}'",
+            f'confluence_page_title: "{self.title}"',
+            f'confluence_webui_url: "{source_url}"',
             "---",
             "",
         ]
