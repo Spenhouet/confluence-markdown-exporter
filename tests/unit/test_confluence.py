@@ -22,6 +22,7 @@ class MockPage:
     def __init__(self) -> None:
         self.id = "test-page"
         self.title = "Test Page"
+        self.type = ""
         self.html = ""
         self.body_storage = ""
         self.web_url = ""
@@ -35,6 +36,10 @@ class MockPage:
         self.version.when = ""
         self.version.by = MagicMock()
         self.version.by.display_name = ""
+        self.history = MagicMock()
+        self.history.created = ""
+        self.history.created_by = MagicMock()
+        self.history.created_by.display_name = ""
 
     def get_attachment_by_file_id(self, file_id: str) -> None:
         return None
@@ -1050,9 +1055,17 @@ class TestConfluenceUrlInFrontmatter:
 class TestPageMetadataInFrontmatter:
     """Page metadata fields render to YAML front matter according to the setting."""
 
-    def _make_page(self, *, display_name: str = "Alex Johnson") -> MockPage:
+    def _make_page(
+        self,
+        *,
+        display_name: str = "Alex Johnson",
+        page_type: str = "page",
+        created: str = "2024-08-15T08:34:12.000+02:00",
+        created_by: str = "Sam Creator",
+    ) -> MockPage:
         page = MockPage()
         page.id = 123
+        page.type = page_type
         space = MagicMock()
         space.key = "TEAM"
         page.space = space
@@ -1062,6 +1075,11 @@ class TestPageMetadataInFrontmatter:
         version.by = MagicMock()
         version.by.display_name = display_name
         page.version = version
+        history = MagicMock()
+        history.created = created
+        history.created_by = MagicMock()
+        history.created_by.display_name = created_by
+        page.history = history
         return page
 
     def _converter(self, **kwargs: object) -> Page.Converter:
@@ -1075,11 +1093,14 @@ class TestPageMetadataInFrontmatter:
             result = converter.front_matter
         assert "confluence_page_id" not in result
         assert "confluence_space_key" not in result
+        assert "confluence_type" not in result
+        assert "confluence_created" not in result
+        assert "confluence_created_by" not in result
         assert "confluence_last_modified" not in result
         assert "confluence_last_modified_by" not in result
         assert "confluence_version" not in result
 
-    def test_enabled_writes_all_five_keys(self) -> None:
+    def test_enabled_writes_all_eight_keys(self) -> None:
         converter = self._converter()
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.confluence_url_in_frontmatter = "none"
@@ -1087,10 +1108,21 @@ class TestPageMetadataInFrontmatter:
             result = converter.front_matter
         assert "confluence_page_id: '123'" in result
         assert "confluence_space_key: TEAM" in result
+        assert "confluence_type: page" in result
+        assert "confluence_created: '2024-08-15T08:34:12.000+02:00'" in result
+        assert "confluence_created_by: Sam Creator" in result
         assert "confluence_last_modified: '2026-04-12T10:34:00.000+02:00'" in result
         assert "confluence_last_modified_by: Alex Johnson" in result
         assert "confluence_version: 7" in result
         assert "confluence_version: '7'" not in result
+
+    def test_blogpost_type_renders(self) -> None:
+        converter = self._converter(page_type="blogpost")
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "none"
+            s.export.page_metadata_in_frontmatter = True
+            result = converter.front_matter
+        assert "confluence_type: blogpost" in result
 
     def test_macro_precedence_for_page_id(self) -> None:
         converter = self._converter()
@@ -1101,6 +1133,26 @@ class TestPageMetadataInFrontmatter:
             result = converter.front_matter
         assert "confluence_page_id: macro-override" in result
         assert "confluence_page_id: '123'" not in result
+
+    @pytest.mark.parametrize(
+        ("key", "macro_value", "api_substring"),
+        [
+            ("confluence_type", "macro-type", "confluence_type: page"),
+            ("confluence_created", "macro-created", "2024-08-15T08:34:12.000+02:00"),
+            ("confluence_created_by", "macro-author", "Sam Creator"),
+        ],
+    )
+    def test_macro_precedence_for_history_fields(
+        self, key: str, macro_value: str, api_substring: str
+    ) -> None:
+        converter = self._converter()
+        converter.page_properties[key] = macro_value
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "none"
+            s.export.page_metadata_in_frontmatter = True
+            result = converter.front_matter
+        assert f"{key}: {macro_value}" in result
+        assert api_substring not in result
 
     def test_empty_display_name_skipped(self) -> None:
         converter = self._converter(display_name="")
@@ -1113,6 +1165,26 @@ class TestPageMetadataInFrontmatter:
         assert "confluence_space_key: TEAM" in result
         assert "confluence_last_modified" in result
         assert "confluence_version: 7" in result
+
+    def test_empty_creator_skipped(self) -> None:
+        converter = self._converter(created_by="")
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "none"
+            s.export.page_metadata_in_frontmatter = True
+            result = converter.front_matter
+        assert "confluence_created_by" not in result
+        assert "confluence_created: '2024-08-15T08:34:12.000+02:00'" in result
+        assert "confluence_type: page" in result
+
+    def test_empty_type_skipped(self) -> None:
+        converter = self._converter(page_type="")
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.confluence_url_in_frontmatter = "none"
+            s.export.page_metadata_in_frontmatter = True
+            result = converter.front_matter
+        assert "confluence_type" not in result
+        assert "confluence_page_id: '123'" in result
+        assert "confluence_created_by: Sam Creator" in result
 
 
 class TestInlineCommentsFrontMatter:

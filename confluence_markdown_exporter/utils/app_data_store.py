@@ -477,13 +477,16 @@ class ExportConfig(BaseModel):
         default=False,
         title="Page Metadata in Front Matter",
         description=(
-            "If True, add five Confluence page metadata fields to the YAML "
+            "If True, add eight Confluence page metadata fields to the YAML "
             "front matter of each exported page: confluence_page_id, "
-            "confluence_space_key, confluence_last_modified (ISO 8601, value "
-            "of the most recent version including minor edits), "
-            "confluence_last_modified_by (display name), confluence_version "
-            "(integer). Existing keys with the same name on the page (e.g. "
-            "via a Page Properties macro) take precedence."
+            "confluence_space_key, confluence_type (page or blogpost), "
+            "confluence_created (ISO 8601, original creation timestamp), "
+            "confluence_created_by (display name of the original author), "
+            "confluence_last_modified (ISO 8601, value of the most recent "
+            "version including minor edits), confluence_last_modified_by "
+            "(display name), confluence_version (integer). Existing keys "
+            "with the same name on the page (e.g. via a Page Properties "
+            "macro) take precedence."
         ),
     )
 

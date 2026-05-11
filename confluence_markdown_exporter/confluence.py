@@ -32,6 +32,7 @@ from bs4 import Tag
 from markdownify import ATX
 from markdownify import MarkdownConverter
 from pydantic import BaseModel
+from pydantic import Field
 from requests import HTTPError
 from requests import RequestException
 from rich.progress import BarColumn
@@ -483,6 +484,18 @@ class Version(BaseModel):
         )
 
 
+class History(BaseModel):
+    created: str
+    created_by: User
+
+    @classmethod
+    def from_json(cls, data: JsonResponse) -> "History":
+        return cls(
+            created=data.get("createdDate", ""),
+            created_by=User.from_json(data.get("createdBy", {})),
+        )
+
+
 class Organization(BaseModel):
     base_url: str
     spaces: list["Space"]
@@ -865,6 +878,7 @@ def _parse_image_captions(storage_xml: str) -> dict[str, str]:
 
 class Page(Document):
     id: int
+    type: str = ""
     web_url: str = ""
     tiny_url: str = ""
     body: str
@@ -873,6 +887,9 @@ class Page(Document):
     body_storage: str = ""
     labels: list["Label"]
     attachments: list["Attachment"]
+    history: History = Field(
+        default_factory=lambda: History(created="", created_by=User.from_json({}))
+    )
 
     @property
     def descendants(self) -> list["Descendant"]:
@@ -1278,6 +1295,7 @@ class Page(Document):
         return cls(
             base_url=base_url,
             id=data.get("id", 0),
+            type=data.get("type", ""),
             web_url=_get_web_url(data),
             tiny_url=_get_tiny_url(data),
             title=data.get("title", ""),
@@ -1297,6 +1315,7 @@ class Page(Document):
                 Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])
             ][1:],
             version=Version.from_json(data.get("version", {})),
+            history=History.from_json(data.get("history", {})),
         )
 
     @classmethod
@@ -1320,7 +1339,7 @@ class Page(Document):
         logger.debug("Fetching page id=%s from %s", page_id, base_url)
         expand = (
             "body.view,body.export_view,body.editor2,metadata.labels,"
-            "metadata.properties,ancestors,version"
+            "metadata.properties,ancestors,version,history,history.createdBy"
         )
         if settings.export.image_captions:
             expand += ",body.storage"
@@ -1538,12 +1557,16 @@ class Page(Document):
 
             page = self.page
             version = page.version
+            history = page.history
             metadata = {
                 # Stored as str to stay JS-safe-integer compatible: Confluence
                 # Cloud page IDs can exceed 2^53, which JS-based SSGs (Hugo,
                 # Astro, ...) parsing the front matter would silently truncate.
                 "confluence_page_id": str(page.id),
                 "confluence_space_key": page.space.key,
+                "confluence_type": page.type,
+                "confluence_created": history.created,
+                "confluence_created_by": history.created_by.display_name,
                 "confluence_last_modified": version.when,
                 "confluence_last_modified_by": version.by.display_name,
                 "confluence_version": version.number,
