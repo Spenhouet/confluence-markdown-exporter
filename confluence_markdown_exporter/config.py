@@ -24,6 +24,7 @@ _CONFIG_KEYS_EPILOG = (
     "| --- | ----------- |\n\n"
     "| `export.output_path` | Directory where exported files are saved |\n\n"
     "| `export.log_level` | Verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR` |\n\n"
+    "| `export.save_log_to_file` | Also write logs to `cme.log` next to the config file |\n\n"
     "| `export.skip_unchanged` | Skip pages unchanged since last export |\n\n"
     "| `export.cleanup_stale` | Delete local files for removed pages |\n\n"
     "| `export.page_path` | File path template for exported pages |\n\n"

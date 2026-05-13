@@ -311,6 +311,15 @@ class ExportConfig(BaseModel):
             "automatically."
         ),
     )
+    save_log_to_file: bool = Field(
+        default=False,
+        title="Save Log To File",
+        description=(
+            "Also write log records to a file alongside the console output. "
+            "The file is named 'cme.log' and lives next to the config file "
+            "(see 'cme config path'). Useful for capturing long DEBUG runs."
+        ),
+    )
     output_path: Path = Field(
         default=Path(),
         title="Output Path",
