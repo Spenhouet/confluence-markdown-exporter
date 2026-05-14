@@ -5,6 +5,7 @@ import threading
 from dataclasses import dataclass
 from dataclasses import field
 from os import getenv
+from pathlib import Path
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -204,11 +205,14 @@ def get_rich_console(*, stderr: bool = False) -> Console:
 console: Console = get_rich_console()
 
 
-def setup_logging(log_level: str = "INFO") -> None:
+def setup_logging(log_level: str = "INFO", log_file: Path | None = None) -> None:
     """Configure the root logger to use rich output.
 
     Args:
         log_level: One of DEBUG, INFO, WARNING, ERROR.
+        log_file: Optional path to also write log records to. The file uses
+            a plain (non-rich) format so it is grep-friendly. Parent
+            directories are created if missing.
     """
     level = getattr(logging, log_level.upper(), logging.INFO)
     handler = RichHandler(
@@ -224,6 +228,14 @@ def setup_logging(log_level: str = "INFO") -> None:
     # Remove any existing handlers so we don't double-log
     root.handlers.clear()
     root.addHandler(handler)
+    if log_file is not None:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setLevel(level)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        )
+        root.addHandler(file_handler)
 
 
 @dataclass

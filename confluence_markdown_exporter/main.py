@@ -13,6 +13,7 @@ from rich.table import Table
 
 from confluence_markdown_exporter import __version__
 from confluence_markdown_exporter import config as config_module
+from confluence_markdown_exporter.utils.app_data_store import APP_CONFIG_PATH
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.lockfile import LockfileManager
 from confluence_markdown_exporter.utils.measure_time import measure
@@ -103,7 +104,9 @@ app.add_typer(config_module.app, name="config")
 
 def _init_logging() -> None:
     """Initialize logging from config (CME_EXPORT__LOG_LEVEL env var takes precedence)."""
-    setup_logging(get_settings().export.log_level)
+    export = get_settings().export
+    log_file = APP_CONFIG_PATH.parent / "cme.log" if export.save_log_to_file else None
+    setup_logging(export.log_level, log_file=log_file)
 
 
 def _print_summary() -> None:

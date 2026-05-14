@@ -47,6 +47,16 @@ class TestEnvVarOverrides:
             settings = get_settings()
         assert settings.export.skip_unchanged is False
 
+    def test_save_log_to_file_default_false(self) -> None:
+        """save_log_to_file defaults to False so existing behavior is preserved."""
+        assert ExportConfig().save_log_to_file is False
+
+    def test_save_log_to_file_env_override(self) -> None:
+        """CME_EXPORT__SAVE_LOG_TO_FILE=true sets save_log_to_file to True."""
+        with patch.dict(os.environ, {"CME_EXPORT__SAVE_LOG_TO_FILE": "true"}):
+            settings = get_settings()
+        assert settings.export.save_log_to_file is True
+
     def test_attachments_export_env_override(self) -> None:
         """CME_EXPORT__ATTACHMENTS_EXPORT overrides attachments_export."""
         with patch.dict(os.environ, {"CME_EXPORT__ATTACHMENTS_EXPORT": "all"}):
