@@ -1338,11 +1338,9 @@ class Page(Document):
             )
         logger.debug("Fetching page id=%s from %s", page_id, base_url)
         expand = (
-            "body.view,body.export_view,body.editor2,metadata.labels,"
+            "body.view,body.export_view,body.editor2,body.storage,metadata.labels,"
             "metadata.properties,ancestors,version,history,history.createdBy"
         )
-        if settings.export.image_captions:
-            expand += ",body.storage"
         try:
             return cls.from_json(
                 _require_dict(
@@ -1446,6 +1444,8 @@ class Page(Document):
             self._colorid_map_cache: dict[str, str] | None = None
             self._image_captions_cache: dict[str, str] | None = None
             self._panel_icon_map_cache: dict[str, str] | None = None
+            self._plantuml_index: int = 0
+            self._storage_plantuml_macros_cache: list[Tag] | None = None
 
         @property
         def _colorid_map(self) -> dict[str, str]:
@@ -1460,6 +1460,22 @@ class Page(Document):
                             cache[color_id] = m.group(2)
                 self._colorid_map_cache = cache
             return self._colorid_map_cache
+
+        @property
+        def _storage_plantuml_macros(self) -> list[Tag]:
+            """Cache and return all PlantUML structured-macros from body.storage."""
+            if self._storage_plantuml_macros_cache is None:
+                macros: list[Tag] = []
+                if self.page.body_storage:
+                    wrapped = f"<root>{self.page.body_storage}</root>"
+                    soup = BeautifulSoup(wrapped, "xml")
+                    macros.extend(
+                        macro
+                        for macro in soup.find_all("structured-macro")
+                        if isinstance(macro, Tag) and macro.get("name") == "plantuml"
+                    )
+                self._storage_plantuml_macros_cache = macros
+            return self._storage_plantuml_macros_cache
 
         @property
         def _image_captions(self) -> dict[str, str]:
@@ -1788,7 +1804,7 @@ class Page(Document):
                     break
             return f'<mark style="background: {bg};">{text.strip()}</mark>'
 
-        def convert_span(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        def convert_span(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901, PLR0911
             if el.has_attr("data-macro-name"):
                 if el["data-macro-name"] == "jira":
                     return self.convert_jira_issue(el, text, parent_tags)
@@ -1796,6 +1812,8 @@ class Page(Document):
                     result = self._span_status_badge(el, text)
                     if result is not None:
                         return result
+                if el["data-macro-name"] == "plantuml":
+                    return self.convert_plantuml(el, text, parent_tags)
 
             if el.has_attr("class") and "inline-comment-marker" in el["class"]:
                 return self.convert_inline_comment_marker(el, text, parent_tags)
@@ -2357,67 +2375,73 @@ class Page(Document):
 
             return ""
 
-        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: PLR0911, C901
-            """Convert PlantUML diagrams from editor2 XML to Markdown code blocks.
-
-            PlantUML diagrams are stored in the editor2 XML as structured macros with
-            the UML definition in a JSON structure inside CDATA sections.
-            """
-            # Parse the editor2 XML to find the PlantUML macro
-            # The editor2 content is an XML fragment without a root element, so wrap it
-            wrapped_editor2 = f"<root>{self.page.editor2}</root>"
-            soup_editor2 = BeautifulSoup(wrapped_editor2, "xml")
-
-            # Get the macro-id from the current element to match it in editor2
-            macro_id = el.get("data-macro-id")
-            if not macro_id:
-                logger.warning("PlantUML macro found but no macro-id attribute")
-                return "\n<!-- PlantUML diagram (no macro-id found) -->\n\n"
-
-            # Find the corresponding macro in editor2 XML
-            # BeautifulSoup with lxml strips namespace prefixes from both
-            # element and attribute names
-            # So ac:structured-macro becomes structured-macro, ac:name becomes name, etc.
-            plantuml_macros = soup_editor2.find_all("structured-macro")
-            plantuml_macro: Tag | None = None
-            for macro in plantuml_macros:
+        def _extract_uml_from_editor2(self, macro_id: str) -> str | None:
+            """Extract PlantUML source from editor2 XML by macro-id (Cloud format)."""
+            if not self.page.editor2:
+                return None
+            wrapped = f"<root>{self.page.editor2}</root>"
+            soup = BeautifulSoup(wrapped, "xml")
+            for macro in soup.find_all("structured-macro"):
                 if not isinstance(macro, Tag):
                     continue
-                if macro.get("name") == "plantuml" and macro.get("macro-id") == macro_id:
-                    plantuml_macro = macro
-                    break
+                if macro.get("name") != "plantuml" or macro.get("macro-id") != macro_id:
+                    continue
+                plain_text_body = macro.find("plain-text-body")
+                if not isinstance(plain_text_body, Tag):
+                    continue
+                cdata = plain_text_body.get_text(strip=True)
+                if not cdata:
+                    continue
+                try:
+                    return json.loads(cdata).get("umlDefinition") or None
+                except json.JSONDecodeError:
+                    return None
+            return None
 
-            if not plantuml_macro:
-                logger.warning(f"PlantUML macro with id {macro_id} not found in editor2 XML")
-                return "\n<!-- PlantUML diagram (not found in editor2) -->\n\n"
-
-            # Extract the plain-text-body containing the JSON
-            plain_text_body = plantuml_macro.find("plain-text-body")
+        def _extract_uml_from_storage(self) -> str | None:
+            """Extract PlantUML source from body.storage by position (Server format)."""
+            storage_macros = self._storage_plantuml_macros
+            idx = self._plantuml_index
+            self._plantuml_index += 1
+            if idx >= len(storage_macros):
+                return None
+            plain_text_body = storage_macros[idx].find("plain-text-body")
             if not isinstance(plain_text_body, Tag):
-                logger.warning(f"PlantUML macro {macro_id} has no plain-text-body")
-                return "\n<!-- PlantUML diagram (no content found) -->\n\n"
+                return None
+            uml = plain_text_body.get_text(strip=True)
+            return uml or None
 
-            # Extract the JSON from CDATA
-            cdata_content = plain_text_body.get_text(strip=True)
-            if not cdata_content:
-                logger.warning(f"PlantUML macro {macro_id} has empty content")
-                return "\n<!-- PlantUML diagram (empty content) -->\n\n"
+        def convert_plantuml(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert PlantUML diagrams to Markdown code blocks.
 
-            # Parse the JSON to get the umlDefinition
-            try:
-                plantuml_data = json.loads(cdata_content)
-                uml_definition = plantuml_data.get("umlDefinition", "")
+            Supports two Confluence formats:
 
-                if not uml_definition:
-                    logger.warning(f"PlantUML macro {macro_id} has no umlDefinition")
-                    return "\n<!-- PlantUML diagram (no UML definition) -->\n\n"
+            1. **Cloud / editor2**: The editor2 XML contains structured macros with
+               the UML definition in a JSON CDATA section (``{"umlDefinition": "..."}``).
+               Each macro carries a ``macro-id`` that is also present in the view
+               HTML as ``data-macro-id``.
 
-            except json.JSONDecodeError:
-                logger.exception(f"Failed to parse PlantUML JSON for macro {macro_id}")
-                return "\n<!-- PlantUML diagram (invalid JSON) -->\n\n"
-            else:
-                # Return as a Markdown code block with plantuml syntax
-                return f"\n```plantuml\n{uml_definition}\n```\n\n"
+            2. **Server / Data Center**: ``editor2`` is often empty.  The UML source
+               lives as raw ``@startuml`` text inside ``<plain-text-body>`` CDATA
+               sections in ``body.storage``.  The view HTML renders each diagram
+               inside a ``<span data-macro-name="plantuml">`` without a ``macro-id``.
+               Diagrams are matched by position (Nth diagram in storage corresponds
+               to the Nth ``<span>`` in view HTML).
+            """
+            # Strategy 1: editor2 with macro-id (Cloud)
+            macro_id = el.get("data-macro-id")
+            if macro_id:
+                uml = self._extract_uml_from_editor2(str(macro_id))
+                if uml:
+                    return f"\n```plantuml\n{uml}\n```\n\n"
+
+            # Strategy 2: body.storage fallback (Server / Data Center)
+            uml = self._extract_uml_from_storage()
+            if uml:
+                return f"\n```plantuml\n{uml}\n```\n\n"
+
+            logger.warning("PlantUML macro could not be resolved from editor2 or body.storage")
+            return "\n<!-- PlantUML diagram (source not found) -->\n\n"
 
         def convert_include(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert Confluence `include` / `excerpt-include` macro.
