@@ -1938,6 +1938,9 @@ class Page(Document):
                 if match:
                     code_language = match.group(1)
 
+            if "@startuml" in text:
+                code_language = "plantuml"
+
             return f"\n\n```{code_language}\n{text}\n```\n\n"
 
         def convert_sub(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
