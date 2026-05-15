@@ -6,6 +6,7 @@ sidebar_position: 1
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
+import { AuthenticateTabs, ExportTabs } from '@site/src/components/quickstart';
 import Logo from '@site/static/img/logo.png';
 
 <div style={{textAlign: 'center', padding: '1rem 0 2rem'}}>
@@ -86,20 +87,12 @@ The Docker image is intended for non-interactive / CI use; see the [Docker page]
 
 </Tabs>
 
-:::info Using the Docker image?
-Steps 2 and 3 below use the local `cme` CLI. Inside the Docker image there is no interactive `cme config` menu; you supply a pre-defined config (mounted JSON file or `CME_*` environment variables) and run a single export command per container invocation. See the [Docker page](./docker.md) for the non-interactive flow.
-:::
+### 2. Authenticate
 
-### 2. Authenticate (interactive)
+<AuthenticateTabs />
 
-```bash
-cme config edit auth.confluence
-```
+### 3. Export
 
-### 3. Export a page
+<ExportTabs />
 
-```bash
-cme pages https://company.atlassian.net/wiki/spaces/SPACE/pages/123/Page+Title
-```
-
-That's it. Your Markdown lands in the configured `export.output_path` (current directory by default).
+Pick the install tab once and the subsequent steps follow. Your Markdown lands in the configured `export.output_path` (current directory by default).

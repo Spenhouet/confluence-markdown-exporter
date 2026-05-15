@@ -6,6 +6,7 @@ sidebar_position: 1
 
 import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
+import { VerifyTabs } from '@site/src/components/quickstart';
 
 # Installation
 
@@ -138,17 +139,9 @@ Pinned tags are kept available indefinitely; rolling tags (`latest`, `<major>`, 
 
 ## Verify the install
 
-```bash
-cme --help
-```
+<VerifyTabs />
 
 You should see the top-level commands: `pages`, `pages-with-descendants`, `spaces`, `orgs`, and `config`.
-
-For the Docker image, use:
-
-```bash
-docker run --rm spenhouet/confluence-markdown-exporter --help
-```
 
 ## Next steps
 
