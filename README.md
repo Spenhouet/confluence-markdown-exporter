@@ -111,7 +111,7 @@ docker pull spenhouet/confluence-markdown-exporter:latest
 docker run --rm spenhouet/confluence-markdown-exporter --help
 ```
 
-The image's working directory is `/data/output`, so exported files land in whatever you mount there.
+The image pins `export.output_path` to `/data/output` (via the `CME_EXPORT__OUTPUT_PATH` env var baked into the image), overriding whatever value the mounted config file has. Bind-mount your host export directory there and exported files appear in it.
 
 ##### Providing configuration
 
@@ -145,7 +145,7 @@ configs:
     file: ./app_data.json
 ```
 
-Scalar settings can additionally be overridden at runtime with environment variables using the `CME_` prefix and `__` as the nested delimiter (e.g. `CME_EXPORT__OUTPUT_PATH=/data/output`, `CME_CONNECTION_CONFIG__MAX_WORKERS=5`).
+Scalar settings can additionally be overridden at runtime with environment variables using the `CME_` prefix and `__` as the nested delimiter (e.g. `CME_EXPORT__LOG_LEVEL=DEBUG`, `CME_CONNECTION_CONFIG__MAX_WORKERS=5`).
 
 > [!NOTE]
 > The `auth.confluence` and `auth.jira` settings are dicts keyed by the instance base URL — that URL key cannot be expressed inside an environment variable name. If you must inject auth credentials via env vars (e.g. to keep secrets out of the JSON file), supply the whole sub-dict as a single JSON-encoded value:
