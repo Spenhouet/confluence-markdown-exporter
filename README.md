@@ -67,6 +67,58 @@ Installing a specific version
 curl -LsSf uvx.sh/confluence-markdown-exporter/5.1.0/install.sh | sh
 ```
 
+#### Alternative: install as a Python package
+
+The exporter is published on [PyPI](https://pypi.org/project/confluence-markdown-exporter/) and can be installed directly into any Python environment.
+
+With [`uv`](https://docs.astral.sh/uv/) (recommended):
+
+```bash
+# Run without installing (ephemeral)
+uvx confluence-markdown-exporter --help
+
+# Install as a persistent tool
+uv tool install confluence-markdown-exporter
+
+# Or add to a project
+uv add confluence-markdown-exporter
+```
+
+With `pip`:
+
+```bash
+pip install confluence-markdown-exporter
+```
+
+After installation the `confluence-markdown-exporter` and `cme` commands are available on your `PATH`.
+
+#### Alternative: run via Docker
+
+Prebuilt images are published to Docker Hub at [`spenhouet/confluence-markdown-exporter`](https://hub.docker.com/r/spenhouet/confluence-markdown-exporter).
+
+```bash
+# Pull the latest image
+docker pull spenhouet/confluence-markdown-exporter:latest
+
+# Show the CLI help
+docker run --rm spenhouet/confluence-markdown-exporter --help
+
+# Export with persisted config + output on the host
+docker run --rm \
+  -v "$PWD/output:/data/output" \
+  -v "$PWD/config:/data/config" \
+  spenhouet/confluence-markdown-exporter \
+  pages <page-url>
+```
+
+The image uses `/data/output` as the working directory, so exported files appear in the mounted `output` volume. The `config` volume persists the credentials and settings written by the `cme config` command between runs.
+
+Available tags:
+
+- `latest` – the most recent release
+- `<version>` (e.g. `5.1.0`) – pinned release version
+- `<major>` / `<major>.<minor>` (e.g. `5`, `5.1`) – rolling tags following the latest release within that range
+
 ### 2. Exporting
 
 Run the exporter with the desired Confluence page URL or space URL. Execute the console application by typing `confluence-markdown-exporter` and one of the commands `pages`, `pages-with-descendants`, `spaces`, `orgs` or `config`. If a command is unclear, you can always add `--help` to get additional information.
