@@ -6,7 +6,7 @@ const config: Config = {
   title: "Confluence Markdown Exporter",
   tagline:
     "Export Confluence pages to Markdown for Obsidian, Gollum, Azure DevOps, Foam, Dendron and more.",
-  favicon: "img/favicon.png",
+  favicon: "img/favicon.svg",
 
   url: "https://spenhouet.github.io",
   baseUrl: "/confluence-markdown-exporter/",
@@ -75,7 +75,7 @@ const config: Config = {
       title: "Confluence Markdown Exporter",
       logo: {
         alt: "confluence-markdown-exporter logo",
-        src: "img/logo.png",
+        src: "img/favicon.svg",
       },
       items: [
         {

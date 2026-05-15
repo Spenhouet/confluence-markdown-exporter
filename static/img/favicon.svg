@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="confluence-markdown-exporter">
+  <rect width="200" height="200" rx="36" fill="#5b6cff"/>
+  <g fill="#fff" transform="translate(38 70) scale(0.85)">
+    <path d="M0 70V0h20l20 25L60 0h20v70H60V31L40 56 20 31v39z"/>
+    <path d="M125 70L95 37h20V0h20v37h20z"/>
+  </g>
+</svg>
