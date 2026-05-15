@@ -201,6 +201,7 @@ We use GitHub Actions for automated releases:
    - Creates Git tag
    - Publishes to PyPI
    - Creates GitHub release with auto-generated notes
+   - Publishes the multi-arch Docker image to Docker Hub
 
 ## Pull Request Guidelines
 

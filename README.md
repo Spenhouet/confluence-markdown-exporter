@@ -5,7 +5,7 @@
     <em>The confluence-markdown-exporter exports Confluence pages in Markdown format. This exporter helps in migrating content from Confluence to platforms that support Markdown e.g. Obsidian, Gollum, Azure DevOps (ADO), Foam, Dendron and more.</em>
 </p>
 <p align="center">
-  <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/ci.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/ci.yml/badge.svg" alt="Test, Lint and Build"></a>
+  <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/python-build.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/python-build.yml/badge.svg" alt="Build Python package"></a>
   <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/release.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/release.yml/badge.svg" alt="Build and publish to PyPI"></a>
   <a href="https://pypi.org/project/confluence-markdown-exporter" target="_blank">
     <img src="https://img.shields.io/pypi/v/confluence-markdown-exporter?color=%2334D058&label=PyPI%20package" alt="Package version">
@@ -66,6 +66,100 @@ Installing a specific version
 ```bash
 curl -LsSf uvx.sh/confluence-markdown-exporter/5.1.0/install.sh | sh
 ```
+
+#### Alternative: install as a Python package
+
+The exporter is published on [PyPI](https://pypi.org/project/confluence-markdown-exporter/) and can be installed directly into any Python environment.
+
+With [`uv`](https://docs.astral.sh/uv/) (recommended):
+
+```bash
+# Run without installing (ephemeral)
+uvx confluence-markdown-exporter --help
+
+# Install as a persistent tool
+uv tool install confluence-markdown-exporter
+
+# Or add to a project
+uv add confluence-markdown-exporter
+```
+
+With `pip`:
+
+```bash
+pip install confluence-markdown-exporter
+```
+
+After installation the `confluence-markdown-exporter` and `cme` commands are available on your `PATH`.
+
+#### Alternative: run via Docker
+
+Prebuilt images are published to Docker Hub at [`spenhouet/confluence-markdown-exporter`](https://hub.docker.com/r/spenhouet/confluence-markdown-exporter).
+
+The Docker image is intended for **non-interactive / CI use**: you supply a pre-defined config (either as a mounted JSON file or as environment variables), and the container runs a single export command and exits. The interactive `cme config` menu is not supported in this mode — edit the JSON file directly or change the env vars instead.
+
+Available tags:
+
+- `latest` – the most recent release
+- `<version>` (e.g. `5.1.0`) – pinned release version
+- `<major>` / `<major>.<minor>` (e.g. `5`, `5.1`) – rolling tags following the latest release within that range
+
+##### Quick start
+
+```bash
+docker pull spenhouet/confluence-markdown-exporter:latest
+docker run --rm spenhouet/confluence-markdown-exporter --help
+```
+
+The image pins `export.output_path` to `/data/output` (via the `CME_EXPORT__OUTPUT_PATH` env var baked into the image), overriding whatever value the mounted config file has. Bind-mount your host export directory there and exported files appear in it.
+
+##### Providing configuration
+
+The image reads its config from `/data/config/app_data.json` (set via `CME_CONFIG_PATH`). Generate this file once on a workstation by running `cme config` locally, then check it in to your CI repository or your secret store and mount it into the container — the same pattern as a Kubernetes ConfigMap volume:
+
+```bash
+docker run --rm \
+  -v "$PWD/app_data.json:/data/config/app_data.json:ro" \
+  -v "$PWD/output:/data/output" \
+  spenhouet/confluence-markdown-exporter \
+  pages <page-url>
+```
+
+The mounted file must be readable by UID `1000` (the non-root `cme` user inside the image). For a config file managed in a CI runner this is usually already the case; if not, `chmod 644 app_data.json` is enough.
+
+In Docker Compose, the [`configs:`](https://docs.docker.com/reference/compose-file/configs/) top-level key expresses the same mount declaratively:
+
+```yaml
+services:
+  cme:
+    image: spenhouet/confluence-markdown-exporter:latest
+    command: ["pages", "<page-url>"]
+    configs:
+      - source: cme_config
+        target: /data/config/app_data.json
+    volumes:
+      - ./output:/data/output
+
+configs:
+  cme_config:
+    file: ./app_data.json
+```
+
+Scalar settings can additionally be overridden at runtime with environment variables using the `CME_` prefix and `__` as the nested delimiter (e.g. `CME_EXPORT__LOG_LEVEL=DEBUG`, `CME_CONNECTION_CONFIG__MAX_WORKERS=5`).
+
+> [!NOTE]
+> The `auth.confluence` and `auth.jira` settings are dicts keyed by the instance base URL — that URL key cannot be expressed inside an environment variable name. If you must inject auth credentials via env vars (e.g. to keep secrets out of the JSON file), supply the whole sub-dict as a single JSON-encoded value:
+>
+> ```bash
+> docker run --rm \
+>   -v "$PWD/app_data.json:/data/config/app_data.json:ro" \
+>   -e CME_AUTH__CONFLUENCE="{\"https://company.atlassian.net\":{\"username\":\"$CONFLUENCE_USER\",\"api_token\":\"$CONFLUENCE_API_TOKEN\"}}" \
+>   -v "$PWD/output:/data/output" \
+>   spenhouet/confluence-markdown-exporter \
+>   pages <page-url>
+> ```
+>
+> For most CI setups it is simpler to template the JSON file from the CI secret store before running the container.
 
 ### 2. Exporting
 
