@@ -8,7 +8,10 @@
   <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/python-build.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/python-build.yml/badge.svg" alt="Build Python package"></a>
   <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/release.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/release.yml/badge.svg" alt="Build and publish to PyPI"></a>
   <a href="https://pypi.org/project/confluence-markdown-exporter" target="_blank">
-    <img src="https://img.shields.io/pypi/v/confluence-markdown-exporter?color=%2334D058&label=PyPI%20package" alt="Package version">
+    <img src="https://img.shields.io/pypi/v/confluence-markdown-exporter?color=%2334D058&label=PyPI%20package" alt="PyPI version">
+   </a>
+  <a href="https://hub.docker.com/r/spenhouet/confluence-markdown-exporter" target="_blank">
+    <img src="https://img.shields.io/docker/v/spenhouet/confluence-markdown-exporter?sort=semver&label=Docker%20Hub&color=2496ED&logo=docker&logoColor=white" alt="Docker Hub version">
    </a>
   <a href="https://spenhouet.github.io/confluence-markdown-exporter/" target="_blank">
     <img src="https://img.shields.io/badge/docs-online-blue" alt="Documentation">
