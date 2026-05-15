@@ -95,4 +95,4 @@ The Docker image is intended for non-interactive / CI use; see the [Docker page]
 
 <ExportTabs />
 
-Pick the install tab once and the subsequent steps follow. Your Markdown lands in the configured `export.output_path` (current directory by default).
+Your Markdown lands in the configured `export.output_path` (current directory by default).

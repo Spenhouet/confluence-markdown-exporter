@@ -106,7 +106,6 @@ function QuickstartSection() {
             <ExportTabs />
 
             <p className={styles.quickstartFooter}>
-              Pick the install tab once and the subsequent steps follow.
               Detailed setup and per-target presets in the{" "}
               <Link to="/installation">installation docs</Link>.
             </p>
