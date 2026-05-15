@@ -145,16 +145,21 @@ configs:
     file: ./app_data.json
 ```
 
-Any setting can additionally be overridden at runtime with environment variables using the `CME_` prefix and `__` as the nested delimiter, which is convenient for injecting secrets from your CI's secret manager without committing them to the JSON file:
+Scalar settings can additionally be overridden at runtime with environment variables using the `CME_` prefix and `__` as the nested delimiter (e.g. `CME_EXPORT__OUTPUT_PATH=/data/output`, `CME_CONNECTION_CONFIG__MAX_WORKERS=5`).
 
-```bash
-docker run --rm \
-  -v "$PWD/app_data.json:/data/config/app_data.json:ro" \
-  -e CME_AUTH__JIRA__API_TOKEN="$JIRA_API_TOKEN" \
-  -v "$PWD/output:/data/output" \
-  spenhouet/confluence-markdown-exporter \
-  pages <page-url>
-```
+> [!NOTE]
+> The `auth.confluence` and `auth.jira` settings are dicts keyed by the instance base URL — that URL key cannot be expressed inside an environment variable name. If you must inject auth credentials via env vars (e.g. to keep secrets out of the JSON file), supply the whole sub-dict as a single JSON-encoded value:
+>
+> ```bash
+> docker run --rm \
+>   -v "$PWD/app_data.json:/data/config/app_data.json:ro" \
+>   -e CME_AUTH__CONFLUENCE="{\"https://company.atlassian.net\":{\"username\":\"$CONFLUENCE_USER\",\"api_token\":\"$CONFLUENCE_API_TOKEN\"}}" \
+>   -v "$PWD/output:/data/output" \
+>   spenhouet/confluence-markdown-exporter \
+>   pages <page-url>
+> ```
+>
+> For most CI setups it is simpler to template the JSON file from the CI secret store before running the container.
 
 ### 2. Exporting
 
