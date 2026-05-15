@@ -45,7 +45,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://uvx.sh/confluence-markdown-ex
 Installing a specific version:
 
 ```bash
-curl -LsSf uvx.sh/confluence-markdown-exporter/5.1.0/install.sh | sh
+curl -LsSf uvx.sh/confluence-markdown-exporter/5.1.1/install.sh | sh
 ```
 
 Alternative install methods (PyPI via `pip` / `uv`, prebuilt Docker image) are covered in the [installation docs](https://spenhouet.github.io/confluence-markdown-exporter/installation) and the [Docker page](https://spenhouet.github.io/confluence-markdown-exporter/docker).
