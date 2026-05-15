@@ -144,7 +144,14 @@ cme --help
 
 You should see the top-level commands: `pages`, `pages-with-descendants`, `spaces`, `orgs`, and `config`.
 
+For the Docker image, use:
+
+```bash
+docker run --rm spenhouet/confluence-markdown-exporter --help
+```
+
 ## Next steps
 
-- [Authenticate and configure your first export →](./configuration/index.md#interactive-menu)
-- [Export pages or whole spaces →](./usage.md)
+- [Authenticate and configure your first export →](./configuration/index.md#interactive-menu) (local install)
+- [Export pages or whole spaces →](./usage.md) (local install)
+- [Docker page](./docker.md): non-interactive setup (mounted config + env vars)

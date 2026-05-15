@@ -50,6 +50,8 @@ curl -LsSf uvx.sh/confluence-markdown-exporter/5.1.0/install.sh | sh
 
 Alternative install methods (PyPI via `pip` / `uv`, prebuilt Docker image) are covered in the [installation docs](https://spenhouet.github.io/confluence-markdown-exporter/installation) and the [Docker page](https://spenhouet.github.io/confluence-markdown-exporter/docker).
 
+> **Using the Docker image?** Steps 2 and 3 below use the local `cme` CLI. Inside the Docker image there is no interactive `cme config` menu; you supply a pre-defined config (mounted JSON file or `CME_*` environment variables) and run a single export command per container invocation. See the [Docker page](https://spenhouet.github.io/confluence-markdown-exporter/docker) for the non-interactive flow.
+
 ### 2. Authenticate
 
 Set Confluence credentials interactively (URL, username, API token / PAT):

@@ -6,6 +6,7 @@ import Layout from "@theme/Layout";
 import CodeBlock from "@theme/CodeBlock";
 import Tabs from "@theme/Tabs";
 import TabItem from "@theme/TabItem";
+import Admonition from "@theme/Admonition";
 import HomepageFeatures from "@site/src/components/HomepageFeatures";
 import styles from "./index.module.css";
 
@@ -94,6 +95,16 @@ function QuickstartSection() {
 
             <h3 className={styles.stepTitle}>1. Install</h3>
             <InstallTabs />
+
+            <Admonition type="info" title="Using the Docker image?">
+              Steps 2 and 3 below use the local <code>cme</code> CLI. Inside the
+              Docker image there is no interactive <code>cme config</code> menu;
+              you supply a pre-defined config (mounted JSON file or
+              <code> CME_*</code> env vars) and run a single export command
+              per container invocation. See the{" "}
+              <Link to="/docker">Docker page</Link> for the non-interactive
+              flow.
+            </Admonition>
 
             <h3 className={styles.stepTitle}>2. Authenticate</h3>
             <CodeBlock language="bash">

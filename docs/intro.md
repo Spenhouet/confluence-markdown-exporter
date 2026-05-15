@@ -86,6 +86,10 @@ The Docker image is intended for non-interactive / CI use; see the [Docker page]
 
 </Tabs>
 
+:::info Using the Docker image?
+Steps 2 and 3 below use the local `cme` CLI. Inside the Docker image there is no interactive `cme config` menu; you supply a pre-defined config (mounted JSON file or `CME_*` environment variables) and run a single export command per container invocation. See the [Docker page](./docker.md) for the non-interactive flow.
+:::
+
 ### 2. Authenticate (interactive)
 
 ```bash
