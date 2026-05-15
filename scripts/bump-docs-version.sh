@@ -7,8 +7,8 @@
 #   confluence-markdown-exporter==<version>
 #
 # Auto-discovers any file under README.md, docs/, or src/ that contains one of
-# the patterns above — no need to maintain an explicit file list when new docs
-# pages adopt version-pinning snippets.
+# the patterns above, so no explicit file list needs to be maintained when new
+# docs pages adopt version-pinning snippets.
 #
 # Usage: scripts/bump-docs-version.sh <new-version>
 set -euo pipefail
@@ -19,7 +19,7 @@ if [[ $# -ne 1 ]]; then
 fi
 NEW="$1"
 
-# Validate: tolerate "1.2.3", "1.2.3a4", "1.2.3rc1" etc. — anything pip accepts.
+# Validate: tolerate "1.2.3", "1.2.3a4", "1.2.3rc1" etc. (anything pip accepts).
 if [[ ! "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
   echo "error: '$NEW' does not look like a valid version" >&2
   exit 1

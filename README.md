@@ -5,7 +5,7 @@
     <em>The confluence-markdown-exporter exports Confluence pages in Markdown format. This exporter helps in migrating content from Confluence to platforms that support Markdown e.g. Obsidian, Gollum, Azure DevOps (ADO), Foam, Dendron and more.</em>
 </p>
 <p align="center">
-  <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/ci.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/ci.yml/badge.svg" alt="Test, Lint and Build"></a>
+  <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/python-build.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/python-build.yml/badge.svg" alt="Build Python package"></a>
   <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/release.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/release.yml/badge.svg" alt="Build and publish to PyPI"></a>
   <a href="https://pypi.org/project/confluence-markdown-exporter" target="_blank">
     <img src="https://img.shields.io/pypi/v/confluence-markdown-exporter?color=%2334D058&label=PyPI%20package" alt="Package version">
@@ -45,6 +45,8 @@ Installing a specific version:
 curl -LsSf uvx.sh/confluence-markdown-exporter/5.1.0/install.sh | sh
 ```
 
+Alternative install methods (PyPI via `pip` / `uv`, prebuilt Docker image) are covered in the [installation docs](https://spenhouet.github.io/confluence-markdown-exporter/installation) and the [Docker page](https://spenhouet.github.io/confluence-markdown-exporter/docker).
+
 ### 2. Authenticate
 
 Set Confluence credentials interactively (URL, username, API token / PAT):
@@ -77,11 +79,12 @@ Output goes to the configured `export.output_path` (current directory by default
 
 The full documentation lives at **<https://spenhouet.github.io/confluence-markdown-exporter/>** and includes:
 
-- [Installation](https://spenhouet.github.io/confluence-markdown-exporter/installation)
-- [Usage guide](https://spenhouet.github.io/confluence-markdown-exporter/usage) — pages, descendants, spaces, orgs, output layout
-- [Feature list](https://spenhouet.github.io/confluence-markdown-exporter/features) — supported Confluence content, macros, and add-ons
-- [Configuration](https://spenhouet.github.io/confluence-markdown-exporter/configuration) — config commands, ENV vars, full option reference
-- [Target-system presets](https://spenhouet.github.io/confluence-markdown-exporter/configuration/target-systems) — Obsidian, Azure DevOps, …
+- [Installation](https://spenhouet.github.io/confluence-markdown-exporter/installation) (curl / PowerShell / pip / uv)
+- [Usage guide](https://spenhouet.github.io/confluence-markdown-exporter/usage): pages, descendants, spaces, orgs, output layout
+- [Feature list](https://spenhouet.github.io/confluence-markdown-exporter/features): supported Confluence content, macros, and add-ons
+- [Configuration](https://spenhouet.github.io/confluence-markdown-exporter/configuration): config commands, ENV vars, full option reference
+- [Target-system presets](https://spenhouet.github.io/confluence-markdown-exporter/configuration/target-systems): Obsidian, Azure DevOps, …
+- [Docker](https://spenhouet.github.io/confluence-markdown-exporter/docker): prebuilt images for non-interactive / CI use
 - [CI / non-interactive use](https://spenhouet.github.io/confluence-markdown-exporter/configuration/ci)
 - [Compatibility](https://spenhouet.github.io/confluence-markdown-exporter/compatibility) and [Troubleshooting](https://spenhouet.github.io/confluence-markdown-exporter/troubleshooting)
 

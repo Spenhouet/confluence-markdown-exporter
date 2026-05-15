@@ -22,6 +22,7 @@ const sidebars: SidebarsConfig = {
         "configuration/ci",
       ],
     },
+    "docker",
     "compatibility",
     "troubleshooting",
     "contributing",
