@@ -1,0 +1,242 @@
+/**
+ * Theme overrides for Docusaurus Infima.
+ * Primary palette tuned for a modern docs look.
+ */
+
+:root {
+  --ifm-color-primary: #5b6cff;
+  --ifm-color-primary-dark: #3c50ff;
+  --ifm-color-primary-darker: #2c41ff;
+  --ifm-color-primary-darkest: #0026e6;
+  --ifm-color-primary-light: #7a88ff;
+  --ifm-color-primary-lighter: #8a96ff;
+  --ifm-color-primary-lightest: #b5bdff;
+
+  --ifm-code-font-size: 90%;
+  --ifm-font-family-base: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  --ifm-font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular,
+    "SF Mono", Consolas, "Liberation Mono", monospace;
+
+  --ifm-heading-font-weight: 700;
+  --ifm-h1-font-size: 2.5rem;
+  --ifm-h2-font-size: 1.75rem;
+  --ifm-h3-font-size: 1.25rem;
+
+  --ifm-navbar-shadow: 0 1px 0 0 rgb(0 0 0 / 5%);
+  --ifm-navbar-background-color: rgba(255, 255, 255, 0.85);
+  --ifm-navbar-link-hover-color: var(--ifm-color-primary);
+
+  --ifm-toc-border-color: transparent;
+  --ifm-table-stripe-background: rgba(0, 0, 0, 0.02);
+  --ifm-table-border-color: rgba(0, 0, 0, 0.08);
+
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #8a96ff;
+  --ifm-color-primary-dark: #6a7aff;
+  --ifm-color-primary-darker: #5b6cff;
+  --ifm-color-primary-darkest: #3c50ff;
+  --ifm-color-primary-light: #a4adff;
+  --ifm-color-primary-lighter: #b5bdff;
+  --ifm-color-primary-lightest: #d4d9ff;
+
+  --ifm-background-color: #0d1117;
+  --ifm-background-surface-color: #161b22;
+  --ifm-navbar-background-color: rgba(13, 17, 23, 0.85);
+
+  --ifm-table-stripe-background: rgba(255, 255, 255, 0.03);
+  --ifm-table-border-color: rgba(255, 255, 255, 0.08);
+
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.08);
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("https://rsms.me/inter/font-files/InterVariable.woff2") format("woff2");
+}
+
+html {
+  scroll-padding-top: var(--ifm-navbar-height);
+}
+
+.navbar {
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+.navbar__title {
+  font-weight: 700;
+}
+
+.header-github-link::before {
+  content: "";
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  background-color: var(--ifm-navbar-link-color);
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12'/%3E%3C/svg%3E");
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  vertical-align: middle;
+}
+
+.header-github-link:hover::before {
+  background-color: var(--ifm-color-primary);
+}
+
+.header-github-link {
+  font-size: 0;
+  padding: 0.5rem !important;
+}
+
+/* Hero */
+.hero {
+  background: linear-gradient(
+    135deg,
+    var(--ifm-color-primary-darkest) 0%,
+    var(--ifm-color-primary) 50%,
+    var(--ifm-color-primary-light) 100%
+  );
+  color: #fff;
+  padding: 4rem 0 5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.15), transparent 50%),
+    radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.1), transparent 50%);
+  pointer-events: none;
+}
+
+.hero > .container {
+  position: relative;
+  z-index: 1;
+}
+
+.hero__title {
+  font-size: 3rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.hero__subtitle {
+  font-size: 1.25rem;
+  opacity: 0.92;
+  max-width: 36rem;
+  margin: 1rem auto 0;
+}
+
+.hero-logo {
+  max-width: 480px;
+  width: 80%;
+  margin-bottom: 1.5rem;
+  filter: drop-shadow(0 12px 32px rgba(0, 0, 0, 0.25));
+}
+
+@media (max-width: 768px) {
+  .hero-logo {
+    max-width: 320px;
+    width: 90%;
+  }
+}
+
+.button--hero {
+  background: #fff;
+  color: var(--ifm-color-primary-darkest);
+  border: none;
+  font-weight: 600;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.button--hero:hover {
+  background: #fff;
+  color: var(--ifm-color-primary-darker);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.button--hero-secondary {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  font-weight: 600;
+}
+
+.button--hero-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: #fff;
+}
+
+/* Feature cards */
+.feature-card {
+  height: 100%;
+  padding: 1.75rem;
+  border-radius: 12px;
+  background: var(--ifm-background-surface-color);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.feature-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 12px 24px -8px rgba(91, 108, 255, 0.25);
+}
+
+.feature-card h3 {
+  margin: 0.75rem 0 0.5rem;
+  font-size: 1.15rem;
+}
+
+.feature-card p {
+  color: var(--ifm-color-emphasis-700);
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.feature-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    var(--ifm-color-primary) 0%,
+    var(--ifm-color-primary-light) 100%
+  );
+  font-size: 1.5rem;
+}
+
+/* Code blocks polish */
+.theme-code-block {
+  border-radius: 10px;
+}
+
+/* Admonition tweaks */
+.alert--info,
+.alert--note,
+.alert--tip,
+.alert--warning,
+.alert--danger {
+  border-left-width: 4px;
+}
+
+/* Table polish */
+table {
+  border-radius: 8px;
+  overflow: hidden;
+}

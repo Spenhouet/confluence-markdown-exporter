@@ -1,0 +1,55 @@
+.heroBanner {
+  text-align: center;
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+}
+
+.quickstart {
+  padding: 3rem 0 5rem;
+}
+
+.quickstartTitle {
+  text-align: center;
+  font-size: 2rem;
+  letter-spacing: -0.01em;
+  margin-bottom: 0.5rem;
+}
+
+.quickstartLead {
+  text-align: center;
+  color: var(--ifm-color-emphasis-700);
+  margin-bottom: 2rem;
+  font-size: 1.05rem;
+}
+
+.quickstartFooter {
+  text-align: center;
+  margin-top: 2rem;
+  color: var(--ifm-color-emphasis-600);
+  font-size: 0.9rem;
+}
+
+.stepTitle {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 2rem 0 0.75rem;
+  color: var(--ifm-color-emphasis-900);
+  letter-spacing: -0.005em;
+}
+
+.stepTitle:first-of-type {
+  margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+  .quickstart {
+    padding: 2rem 0;
+  }
+}

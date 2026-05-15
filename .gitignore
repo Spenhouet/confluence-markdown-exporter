@@ -30,6 +30,16 @@ _tmp/*
 !.vscode/launch.json
 !.vscode/extensions.json
 
+### Docusaurus ###
+node_modules/
+.docusaurus/
+.docusaurus-faster/
+docs-build/
+# Versioned docs are generated at build time from git tags by scripts/build-versions.mjs
+versioned_docs/
+versioned_sidebars/
+versions.json
+
 ### Python ###
 # Byte-compiled / optimized / DLL files
 __pycache__/
