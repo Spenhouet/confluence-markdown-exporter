@@ -1,9 +1,18 @@
 name: Build and publish Docker image
 
 on:
-  push:
-    branches: [main]
-    tags: ["[0-9]+.[0-9]+.[0-9]+*"]
+  workflow_call:
+    inputs:
+      version:
+        description: "Release version to publish (e.g. 5.1.0)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version to publish (e.g. 5.1.0). Must match an existing git tag."
+        required: true
+        type: string
   pull_request:
     branches: [main]
     paths:
@@ -13,14 +22,14 @@ on:
       - pyproject.toml
       - uv.lock
       - confluence_markdown_exporter/**
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build image (verification)
+    name: Build image (PR verification)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -44,7 +53,6 @@ jobs:
 
   publish:
     name: Publish image to Docker Hub
-    needs: build
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
@@ -53,8 +61,10 @@ jobs:
     env:
       IMAGE_NAME: ${{ vars.DOCKERHUB_IMAGE || 'spenhouet/confluence-markdown-exporter' }}
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.version }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -74,17 +84,16 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            type=sha,prefix=sha-,format=short
+            type=semver,pattern={{version}},value=${{ inputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
+            type=semver,pattern={{major}},value=${{ inputs.version }}
+            type=raw,value=latest
           labels: |
             org.opencontainers.image.title=confluence-markdown-exporter
             org.opencontainers.image.description=Export Confluence pages to Markdown
             org.opencontainers.image.url=https://github.com/${{ github.repository }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ inputs.version }}
             org.opencontainers.image.licenses=MIT
 
       - name: Build and push
@@ -101,7 +110,6 @@ jobs:
           provenance: true
 
       - name: Update Docker Hub description
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
         uses: peter-evans/dockerhub-description@v4
         continue-on-error: true
         with:

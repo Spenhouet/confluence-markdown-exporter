@@ -31,6 +31,8 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+    outputs:
+      version: ${{ steps.export-version.outputs.value }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -55,6 +57,10 @@ jobs:
         run: |
           NEW_VERSION=$(uv version --bump ${{ github.event.inputs.version_bump }} | awk '{print $NF}')
           echo "NEW_VERSION=${NEW_VERSION}" >> $GITHUB_ENV
+
+      - name: Export version as job output
+        id: export-version
+        run: echo "value=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Test build with new version
         run: |
@@ -107,3 +113,11 @@ jobs:
         run: |
           gh release upload "${{ env.NEW_VERSION }}" dist/** \
             --repo "$GITHUB_REPOSITORY"
+
+  publish-docker:
+    name: Publish Docker image
+    needs: release
+    uses: ./.github/workflows/docker.yml
+    with:
+      version: ${{ needs.release.outputs.version }}
+    secrets: inherit
