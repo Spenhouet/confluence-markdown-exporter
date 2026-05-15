@@ -3,33 +3,37 @@
 # ---- builder ---------------------------------------------------------------
 FROM python:3.12-slim AS builder
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1 \
-    UV_LINK_MODE=copy \
+ARG TARGETARCH
+
+COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /uvx /usr/local/bin/
+
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
-COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /usr/local/bin/uv
+# Install runtime dependencies only. This layer is cached unless uv.lock or
+# pyproject.toml change. Metadata is bind-mounted so it does not get baked
+# into the layer and invalidate it on unrelated edits.
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-$TARGETARCH \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=README.md,target=README.md \
+    uv sync --locked --no-install-project --no-editable --no-dev
 
-WORKDIR /build
-
+# Install the project itself into the venv. Invalidates on source edits.
 COPY pyproject.toml uv.lock README.md ./
 COPY confluence_markdown_exporter ./confluence_markdown_exporter
-
-RUN uv build --no-sources
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-$TARGETARCH \
+    uv sync --locked --no-editable --no-dev
 
 # ---- runtime ---------------------------------------------------------------
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1 \
+    PATH="/app/.venv/bin:$PATH" \
     HOME=/data/config \
     XDG_CONFIG_HOME=/data/config \
     CME_CONFIG_PATH=/data/config/app_data.json \
@@ -40,10 +44,9 @@ RUN groupadd --system --gid 1000 cme \
     && mkdir -p /data/output /data/config \
     && chown -R cme:cme /data
 
-COPY --from=builder /build/dist/*.whl /tmp/
-
-RUN pip install --no-cache-dir /tmp/*.whl \
-    && rm /tmp/*.whl
+# Copy only the venv, not the source. `--no-editable` made the install
+# self-contained so the source tree is not needed at runtime.
+COPY --from=builder /app/.venv /app/.venv
 
 USER cme
 WORKDIR /data/output
