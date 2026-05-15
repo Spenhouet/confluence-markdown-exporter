@@ -5,44 +5,35 @@ FROM python:3.12-slim AS builder
 
 ARG TARGETARCH
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    UV_LINK_MODE=copy \
+COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /uvx /usr/local/bin/
+
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never
 
-# Keep apt archives in BuildKit caches so repeated builds skip the download.
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=apt-cache-$TARGETARCH \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked,id=apt-lib-$TARGETARCH \
-    rm -f /etc/apt/apt.conf.d/docker-clean \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends build-essential
+WORKDIR /app
 
-COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /usr/local/bin/uv
-
-WORKDIR /build
-
-# Resolve deps from the lockfile and emit requirements.txt for the runtime
-# stage. This layer is cached unless uv.lock / pyproject.toml change, which
-# decouples dependency installation from source-code edits.
-COPY pyproject.toml uv.lock README.md ./
+# Install runtime dependencies only. This layer is cached unless uv.lock or
+# pyproject.toml change. Metadata is bind-mounted so it does not get baked
+# into the layer and invalidate it on unrelated edits.
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-$TARGETARCH \
-    uv export --frozen --no-emit-project --no-dev --format requirements.txt \
-        -o /build/requirements.txt
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=README.md,target=README.md \
+    uv sync --locked --no-install-project --no-editable --no-dev
 
-# Build the project wheel. Only this layer needs to invalidate on source edits.
+# Install the project itself into the venv. Invalidates on source edits.
+COPY pyproject.toml uv.lock README.md ./
 COPY confluence_markdown_exporter ./confluence_markdown_exporter
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-$TARGETARCH \
-    uv build --no-sources
+    uv sync --locked --no-editable --no-dev
 
 # ---- runtime ---------------------------------------------------------------
 FROM python:3.12-slim AS runtime
 
-ARG TARGETARCH
-
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PATH="/app/.venv/bin:$PATH" \
     HOME=/data/config \
     XDG_CONFIG_HOME=/data/config \
     CME_CONFIG_PATH=/data/config/app_data.json \
@@ -53,19 +44,9 @@ RUN groupadd --system --gid 1000 cme \
     && mkdir -p /data/output /data/config \
     && chown -R cme:cme /data
 
-# Install runtime dependencies in a dedicated layer. This layer only
-# invalidates when the resolved requirements.txt changes (i.e. uv.lock /
-# pyproject.toml updates), not on every source edit.
-COPY --from=builder /build/requirements.txt /tmp/requirements.txt
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-$TARGETARCH \
-    pip install -r /tmp/requirements.txt \
-    && rm /tmp/requirements.txt
-
-# Install the project wheel without re-resolving deps. Fast, source-bound.
-COPY --from=builder /build/dist/*.whl /tmp/
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-$TARGETARCH \
-    pip install --no-deps /tmp/*.whl \
-    && rm /tmp/*.whl
+# Copy only the venv, not the source. `--no-editable` made the install
+# self-contained so the source tree is not needed at runtime.
+COPY --from=builder /app/.venv /app/.venv
 
 USER cme
 WORKDIR /data/output
