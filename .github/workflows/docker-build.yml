@@ -10,6 +10,18 @@ on:
       - pyproject.toml
       - uv.lock
       - confluence_markdown_exporter/**
+  # Also build on push to main so the GHA cache is primed on the default
+  # branch. Tag-triggered publish runs fall back to the default branch's
+  # cache, which would otherwise stay cold until the first release.
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - .github/workflows/docker-build.yml
+      - pyproject.toml
+      - uv.lock
+      - confluence_markdown_exporter/**
 
 permissions:
   contents: read
