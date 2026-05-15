@@ -96,13 +96,7 @@ After installation the `confluence-markdown-exporter` and `cme` commands are ava
 
 Prebuilt images are published to Docker Hub at [`spenhouet/confluence-markdown-exporter`](https://hub.docker.com/r/spenhouet/confluence-markdown-exporter).
 
-```bash
-# Pull the latest image
-docker pull spenhouet/confluence-markdown-exporter:latest
-
-# Show the CLI help
-docker run --rm spenhouet/confluence-markdown-exporter --help
-```
+The Docker image is intended for **non-interactive / CI use**: you supply a pre-defined config (either as a mounted JSON file or as environment variables), and the container runs a single export command and exits. The interactive `cme config` menu is not supported in this mode — edit the JSON file directly or change the env vars instead.
 
 Available tags:
 
@@ -110,34 +104,18 @@ Available tags:
 - `<version>` (e.g. `5.1.0`) – pinned release version
 - `<major>` / `<major>.<minor>` (e.g. `5`, `5.1`) – rolling tags following the latest release within that range
 
-##### Output
-
-The image uses `/data/output` as the working directory, so exported files appear in whatever you mount there:
+##### Quick start
 
 ```bash
-docker run --rm \
-  -v "$PWD/output:/data/output" \
-  spenhouet/confluence-markdown-exporter \
-  pages <page-url>
+docker pull spenhouet/confluence-markdown-exporter:latest
+docker run --rm spenhouet/confluence-markdown-exporter --help
 ```
 
-##### Configuration
+The image's working directory is `/data/output`, so exported files land in whatever you mount there.
 
-The image reads its config from `/data/config/app_data.json` (set via `CME_CONFIG_PATH`). You have three ways to provide it, pick whichever fits your workflow:
+##### Providing configuration
 
-**1. Environment variables only** – override any setting with the `CME_` prefix and `__` as the nested delimiter. No file needed. Useful for one-off runs and CI:
-
-```bash
-docker run --rm \
-  -e CME_AUTH__CONFLUENCE__URL="https://company.atlassian.net/wiki" \
-  -e CME_AUTH__CONFLUENCE__USERNAME="me@example.com" \
-  -e CME_AUTH__CONFLUENCE__API_TOKEN="$CONFLUENCE_API_TOKEN" \
-  -v "$PWD/output:/data/output" \
-  spenhouet/confluence-markdown-exporter \
-  pages <page-url>
-```
-
-**2. Bind-mount a single JSON file** (Docker analogue of a Kubernetes ConfigMap mount) – good when you want to keep the full config under version control or in a secrets store:
+The image reads its config from `/data/config/app_data.json` (set via `CME_CONFIG_PATH`). Generate this file once on a workstation by running `cme config` locally, then check it in to your CI repository or your secret store and mount it into the container — the same pattern as a Kubernetes ConfigMap volume:
 
 ```bash
 docker run --rm \
@@ -147,7 +125,9 @@ docker run --rm \
   pages <page-url>
 ```
 
-In Docker Compose this is the [`configs:`](https://docs.docker.com/reference/compose-file/configs/) top-level key:
+The mounted file must be readable by UID `1000` (the non-root `cme` user inside the image). For a config file managed in a CI runner this is usually already the case; if not, `chmod 644 app_data.json` is enough.
+
+In Docker Compose, the [`configs:`](https://docs.docker.com/reference/compose-file/configs/) top-level key expresses the same mount declaratively:
 
 ```yaml
 services:
@@ -165,18 +145,12 @@ configs:
     file: ./app_data.json
 ```
 
-**3. Bind-mount the whole config directory** – useful when you want the container to write the file (e.g. via `cme config`) and have it survive between runs:
+Any setting can additionally be overridden at runtime with environment variables using the `CME_` prefix and `__` as the nested delimiter, which is convenient for injecting secrets from your CI's secret manager without committing them to the JSON file:
 
 ```bash
-# First run: interactive setup writes app_data.json into the mounted dir
-docker run --rm -it \
-  -v "$PWD/config:/data/config" \
-  spenhouet/confluence-markdown-exporter \
-  config
-
-# Subsequent runs reuse the persisted config
 docker run --rm \
-  -v "$PWD/config:/data/config" \
+  -v "$PWD/app_data.json:/data/config/app_data.json:ro" \
+  -e CME_AUTH__JIRA__API_TOKEN="$JIRA_API_TOKEN" \
   -v "$PWD/output:/data/output" \
   spenhouet/confluence-markdown-exporter \
   pages <page-url>
