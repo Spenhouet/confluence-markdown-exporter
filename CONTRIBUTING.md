@@ -205,27 +205,33 @@ We use GitHub Actions for automated releases:
 
 ### Docker Image Publishing
 
-The `Build and publish Docker image` workflow (`.github/workflows/docker.yml`) builds the image for `linux/amd64` and `linux/arm64` using the official Docker actions (`docker/setup-buildx-action`, `docker/login-action`, `docker/metadata-action`, `docker/build-push-action`).
+The `Build and publish Docker image` workflow (`.github/workflows/docker.yml`) is split into two jobs:
 
-It runs on:
+- `build` – runs on every trigger (including pull requests) using the official Docker actions (`docker/setup-qemu-action`, `docker/setup-buildx-action`, `docker/build-push-action`) to build the image for `linux/amd64` and `linux/arm64`. **No push, no secrets accessed.** This validates Dockerfile changes from contributors.
+- `publish` – runs only on `push` and `workflow_dispatch` events (skipped for pull requests), depends on `build`, and is bound to the `dockerhub` GitHub environment which holds the credentials. Adds `docker/login-action` and `docker/metadata-action`, then pushes with `docker/build-push-action`.
+
+Trigger summary:
 
 - pushes to `main` (publishes `main` and `sha-<short>` tags)
 - pushes of version tags such as `5.1.0` (publishes `5.1.0`, `5.1`, `5`, and `latest`)
-- pull requests touching the image or its inputs (builds for verification only, does **not** push)
+- pull requests touching the image or its inputs (build job only — does **not** push and does **not** require Docker Hub secrets)
 - manual `workflow_dispatch`
 
 #### One-time Docker Hub setup (maintainer)
 
-To enable publishing you need to configure the following in the GitHub repository **once**:
+Docker Hub credentials live on a dedicated GitHub **environment** named `dockerhub` (analogous to how PyPI publishing uses the `release` environment). Repository-level secrets are *not* used. Set this up once:
 
-1. **Create the Docker Hub repository** at <https://hub.docker.com/repositories> — by default the workflow pushes to `spenhouet/confluence-markdown-exporter`. If you use a different namespace or name, set the repository variable `DOCKERHUB_IMAGE` (see step 4).
+1. **Create the Docker Hub repository** at <https://hub.docker.com/repositories> — by default the workflow pushes to `spenhouet/confluence-markdown-exporter`. If you use a different namespace or name, set the repository variable `DOCKERHUB_IMAGE` (see step 5).
 2. **Create a Docker Hub access token** at <https://app.docker.com/settings/personal-access-tokens> with `Read, Write, Delete` scope. Treat it like a password.
-3. **Add repository secrets** (Settings → Secrets and variables → Actions → New repository secret):
+3. **Create the `dockerhub` environment** in GitHub: Settings → Environments → *New environment* → name it `dockerhub`. Optionally configure:
+   - **Deployment branches and tags** → *Selected branches and tags* → add `main` and the tag pattern `*.*.*` so the environment can only be entered from those refs.
+   - **Required reviewers** if you want a manual approval gate before any image is pushed (not required for an automated flow).
+4. **Add environment secrets** (within the `dockerhub` environment you just created → *Add environment secret*):
    - `DOCKERHUB_USERNAME` – your Docker Hub account name (the namespace owner, not an email).
    - `DOCKERHUB_TOKEN` – the access token from step 2.
-4. **(Optional) Override the image name** by adding a repository *variable* (not a secret) named `DOCKERHUB_IMAGE` with the fully qualified image name, e.g. `myorg/confluence-markdown-exporter`.
+5. **(Optional) Override the image name** by adding a repository *variable* (Settings → Secrets and variables → Actions → *Variables* tab) named `DOCKERHUB_IMAGE` with the fully qualified image name, e.g. `myorg/confluence-markdown-exporter`. An environment-level variable would also work; the repository scope is just simpler since the image name is not a secret.
 
-No other configuration is required — once the secrets are present, the next push to `main` or version tag will publish the image.
+Once the environment and its secrets exist, the next push to `main` or version tag will publish the image. Each publish appears under the repository's **Deployments → dockerhub** view, mirroring the PyPI release deployment history.
 
 ## Pull Request Guidelines
 
