@@ -31,7 +31,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
     HOME=/data/config \
-    XDG_CONFIG_HOME=/data/config
+    XDG_CONFIG_HOME=/data/config \
+    CME_CONFIG_PATH=/data/config/app_data.json
 
 RUN groupadd --system --gid 1000 cme \
     && useradd  --system --uid 1000 --gid cme --home-dir /data/config --shell /usr/sbin/nologin cme \
