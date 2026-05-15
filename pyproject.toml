@@ -36,7 +36,7 @@ dev = [
 
 [project.urls]
 Homepage = "https://github.com/Spenhouet/confluence-markdown-exporter"
-Documentation = "https://github.com/Spenhouet/confluence-markdown-exporter/blob/main/README.md"
+Documentation = "https://spenhouet.github.io/confluence-markdown-exporter/"
 Source = "https://github.com/Spenhouet/confluence-markdown-exporter"
 Tracker = "https://github.com/Spenhouet/confluence-markdown-exporter/issues"
 

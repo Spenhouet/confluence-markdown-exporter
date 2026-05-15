@@ -1,0 +1,25 @@
+.features {
+  padding: 4rem 0;
+  width: 100%;
+}
+
+.featureCol {
+  margin-bottom: 1.5rem;
+  text-decoration: none !important;
+}
+
+.featureCol:hover {
+  text-decoration: none !important;
+}
+
+.featureCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+@media (max-width: 768px) {
+  .features {
+    padding: 2rem 0;
+  }
+}
