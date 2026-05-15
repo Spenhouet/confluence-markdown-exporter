@@ -5,6 +5,7 @@
 #   uvx.sh/confluence-markdown-exporter/<version>/install.sh
 #   uvx.sh/confluence-markdown-exporter/<version>/install.ps1
 #   confluence-markdown-exporter==<version>
+#   spenhouet/confluence-markdown-exporter:<version>    (Docker pin; :latest left alone)
 #
 # Auto-discovers any file under README.md, docs/, or src/ that contains one of
 # the patterns above, so no explicit file list needs to be maintained when new
@@ -25,7 +26,7 @@ if [[ ! "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)*$ ]]; then
   exit 1
 fi
 
-PATTERN='(uvx\.sh/confluence-markdown-exporter/[^/[:space:]]+/install\.(sh|ps1)|confluence-markdown-exporter==[0-9])'
+PATTERN='(uvx\.sh/confluence-markdown-exporter/[^/[:space:]]+/install\.(sh|ps1)|confluence-markdown-exporter==[0-9]|spenhouet/confluence-markdown-exporter:[0-9])'
 
 mapfile -t files < <(
   # Search README.md, docs/, src/ if they exist. Suppress "No such file" noise.
@@ -49,6 +50,7 @@ for f in "${files[@]}"; do
     -e "s|uvx\.sh/confluence-markdown-exporter/[^/[:space:]]*/install\.sh|uvx.sh/confluence-markdown-exporter/${NEW}/install.sh|g" \
     -e "s|uvx\.sh/confluence-markdown-exporter/[^/[:space:]]*/install\.ps1|uvx.sh/confluence-markdown-exporter/${NEW}/install.ps1|g" \
     -e "s|confluence-markdown-exporter==[0-9A-Za-z.\\-]*|confluence-markdown-exporter==${NEW}|g" \
+    -e "s|spenhouet/confluence-markdown-exporter:[0-9][0-9A-Za-z.\\-]*|spenhouet/confluence-markdown-exporter:${NEW}|g" \
     "$f"
   echo "updated: $f"
 done

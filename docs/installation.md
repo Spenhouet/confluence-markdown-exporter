@@ -67,6 +67,17 @@ uvx confluence-markdown-exporter --help
 
 </TabItem>
 
+<TabItem value="docker" label="Docker">
+
+```bash
+docker pull spenhouet/confluence-markdown-exporter:latest
+docker run --rm spenhouet/confluence-markdown-exporter --help
+```
+
+The Docker image is intended for **non-interactive / CI use**: you supply a pre-defined config (mounted JSON file or env vars) and the container runs a single export command and exits. The interactive `cme config` menu is not available inside the container. Full setup (mounted config, Compose example, env-var auth) is on the [Docker page](./docker.md).
+
+</TabItem>
+
 </Tabs>
 
 ## Pinning a specific version
@@ -110,6 +121,16 @@ pip install confluence-markdown-exporter==5.1.0
 ```bash
 uv tool install confluence-markdown-exporter==5.1.0
 ```
+
+</TabItem>
+
+<TabItem value="docker" label="Docker">
+
+```bash
+docker pull spenhouet/confluence-markdown-exporter:5.1.0
+```
+
+Pinned tags are kept available indefinitely; rolling tags (`latest`, `<major>`, `<major>.<minor>`) advance with each release. See [Docker → Available tags](./docker.md#available-tags).
 
 </TabItem>
 

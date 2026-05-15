@@ -73,6 +73,17 @@ uvx confluence-markdown-exporter --help
 
 </TabItem>
 
+<TabItem value="docker" label="Docker">
+
+```bash
+docker pull spenhouet/confluence-markdown-exporter:latest
+docker run --rm spenhouet/confluence-markdown-exporter --help
+```
+
+The Docker image is intended for non-interactive / CI use; see the [Docker page](./docker.md) for config-file mounts and environment variables.
+
+</TabItem>
+
 </Tabs>
 
 ### 2. Authenticate (interactive)

@@ -51,6 +51,9 @@ uv tool install confluence-markdown-exporter
 
 # …or run it once without installing:
 uvx confluence-markdown-exporter --help`,
+  docker: `# Pull and run the prebuilt image (non-interactive / CI use).
+docker pull spenhouet/confluence-markdown-exporter:latest
+docker run --rm spenhouet/confluence-markdown-exporter --help`,
 };
 
 function InstallTabs() {
@@ -70,6 +73,9 @@ function InstallTabs() {
       </TabItem>
       <TabItem value="uv" label="uv">
         <CodeBlock language="bash">{INSTALL_SNIPPETS.uv}</CodeBlock>
+      </TabItem>
+      <TabItem value="docker" label="Docker">
+        <CodeBlock language="bash">{INSTALL_SNIPPETS.docker}</CodeBlock>
       </TabItem>
     </Tabs>
   );
