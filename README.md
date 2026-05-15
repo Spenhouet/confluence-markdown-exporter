@@ -5,7 +5,7 @@
     <em>The confluence-markdown-exporter exports Confluence pages in Markdown format. This exporter helps in migrating content from Confluence to platforms that support Markdown e.g. Obsidian, Gollum, Azure DevOps (ADO), Foam, Dendron and more.</em>
 </p>
 <p align="center">
-  <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/ci.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/ci.yml/badge.svg" alt="Test, Lint and Build"></a>
+  <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/python-build.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/python-build.yml/badge.svg" alt="Build Python package"></a>
   <a href="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/release.yml"><img src="https://github.com/Spenhouet/confluence-markdown-exporter/actions/workflows/release.yml/badge.svg" alt="Build and publish to PyPI"></a>
   <a href="https://pypi.org/project/confluence-markdown-exporter" target="_blank">
     <img src="https://img.shields.io/pypi/v/confluence-markdown-exporter?color=%2334D058&label=PyPI%20package" alt="Package version">
