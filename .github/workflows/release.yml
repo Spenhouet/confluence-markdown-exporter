@@ -117,7 +117,7 @@ jobs:
   publish-docker:
     name: Publish Docker image
     needs: release
-    uses: ./.github/workflows/docker.yml
+    uses: ./.github/workflows/docker-publish.yml
     with:
       version: ${{ needs.release.outputs.version }}
     secrets: inherit

@@ -1,4 +1,4 @@
-name: Build and publish Docker image
+name: Publish Docker image
 
 on:
   workflow_call:
@@ -13,47 +13,13 @@ on:
         description: "Release version to publish (e.g. 5.1.0). Must match an existing git tag."
         required: true
         type: string
-  pull_request:
-    branches: [main]
-    paths:
-      - Dockerfile
-      - .dockerignore
-      - .github/workflows/docker.yml
-      - pyproject.toml
-      - uv.lock
-      - confluence_markdown_exporter/**
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build image (PR verification)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build (no push)
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   publish:
     name: Publish image to Docker Hub
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: dockerhub
