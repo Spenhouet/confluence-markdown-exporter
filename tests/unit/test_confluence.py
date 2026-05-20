@@ -175,6 +175,39 @@ def _make_page(
     )
 
 
+class TestAttachmentLinkConversion:
+    """Plain Confluence download links should resolve to exported attachment paths."""
+
+    def test_video_download_link_uses_exported_attachment_path(self) -> None:
+        att = _make_attachment(
+            "88888",
+            "f5a14888-2775-4394-b5a4-ac0ffc0c39f5",
+            title="Video Agenzia Entrate (2).mp4",
+            media_type="video/mp4",
+        )
+        page = _make_page(body="", body_export="", attachments=[att])
+        html = (
+            '<a href="/wiki/download/attachments/347766919/'
+            'Video%20Agenzia%20Entrate%20(2).mp4?version=3&api=v2&width=760">'
+            "Video Agenzia Entrate (2).mp4</a>"
+        )
+
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_href = "relative"
+            s.export.attachment_path = (
+                "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
+            )
+            s.export.page_href = "relative"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(page)
+            result = conv.convert(html).strip()
+
+        assert result == (
+            "[Video Agenzia Entrate (2).mp4]"
+            "(attachments/f5a14888-2775-4394-b5a4-ac0ffc0c39f5.mp4)"
+        )
+
+
 class TestAttachmentsForExport:
     """_attachments_for_export selects the right attachments."""
 
