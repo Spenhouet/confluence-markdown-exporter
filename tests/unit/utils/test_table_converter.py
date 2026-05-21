@@ -107,6 +107,54 @@ class TestTableConverter:
         # Should have no escaped pipes
         assert "\\|" not in result
 
+    def test_nested_table_default_mode_keeps_existing_flattened_output(self) -> None:
+        """Default table conversion keeps existing recursive row collection behaviour."""
+        html = """
+        <table>
+            <tr><td>Outer</td></tr>
+            <tr>
+                <td>
+                    <p>Inner:</p>
+                    <table>
+                        <tr><td>x</td><td>y</td></tr>
+                        <tr><td>1</td><td>2</td></tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+        """
+        converter = TableConverter()
+        result = converter.convert(html)
+
+        assert "Inner:" in result
+        assert "| x" in result
+        assert "| 1" in result
+
+    def test_nested_table_visual_fidelity_preserves_inner_table_html(self) -> None:
+        """Visual fidelity mode preserves nested table HTML instead of flattening rows."""
+        html = """
+        <table>
+            <tr><td>Outer</td></tr>
+            <tr>
+                <td>
+                    <p>Inner:</p>
+                    <table>
+                        <tr><td>x</td><td>y</td></tr>
+                        <tr><td>1</td><td>2</td></tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+        """
+        converter = TableConverter(preserve_nested_tables=True)
+        result = converter.convert(html)
+
+        assert "Inner:" in result
+        assert "<table>" in result
+        assert "<td>x</td>" in result
+        assert not any(line.strip().startswith("| x") for line in result.splitlines())
+        assert not any(line.strip().startswith("| 1") for line in result.splitlines())
+
     def test_convert_p_bool_parent_tags_no_crash(self) -> None:
         """convert_p must not crash when markdownify passes bool instead of set."""
         converter = TableConverter()
@@ -226,4 +274,3 @@ class TestTableConverter:
         assert el is not None
         result = converter.convert_p(el, "text.", {"td", "_inline"})  # type: ignore[arg-type]
         assert result.endswith("<br/>")
-
