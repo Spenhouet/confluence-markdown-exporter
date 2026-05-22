@@ -2009,6 +2009,8 @@ class Page(Document):
                 # convert_attachment_link may return None if the attachment meta is incomplete
                 return link or f"[{text}]({el.get('href')})"
             href_str = str(el.get("href", ""))
+            if href_str and (attachment := self._attachment_from_download_href(href_str)):
+                return self._format_attachment_link(attachment)
             if href_str:
                 parsed_href = urlparse(href_str)
                 base_host = urlparse(getattr(self.page, "base_url", "") or "").hostname
@@ -2059,6 +2061,24 @@ class Page(Document):
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
             return f"[{page.title}]({page_path.replace(' ', '%20')})"
 
+        def _format_attachment_link(self, attachment: Attachment) -> str:
+            if settings.export.attachment_href == "wiki":
+                return f"[[{attachment.export_path.name}|{attachment.title}]]"
+
+            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
+            return f"[{attachment.title}]({path.replace(' ', '%20')})"
+
+        def _attachment_from_download_href(self, href: str) -> Attachment | None:
+            parsed = urlparse(href)
+            path_parts = [unquote(part) for part in parsed.path.split("/") if part]
+            try:
+                filename = path_parts[path_parts.index("attachments") + 2]
+            except (ValueError, IndexError):
+                return None
+
+            matches = self.page.get_attachments_by_title(filename)
+            return matches[0] if matches else None
+
         def convert_attachment_link(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
@@ -2074,16 +2094,14 @@ class Page(Document):
                 attachment = self.page.get_attachment_by_file_id(str(fid))
             if not attachment and (aid := el.get("data-linked-resource-id")):
                 attachment = self.page.get_attachment_by_id(str(aid))
+            if not attachment and (href := el.get("href")):
+                attachment = self._attachment_from_download_href(str(href))
 
             if attachment is None:
                 href = el.get("href") or text
                 return f"[{text}]({href})"
 
-            if settings.export.attachment_href == "wiki":
-                return f"[[{attachment.export_path.name}|{attachment.title}]]"
-
-            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
-            return f"[{attachment.title}]({path.replace(' ', '%20')})"
+            return self._format_attachment_link(attachment)
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
