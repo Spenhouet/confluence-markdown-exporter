@@ -67,8 +67,8 @@ from confluence_markdown_exporter.utils.rich_console import ExportStats
 from confluence_markdown_exporter.utils.rich_console import console
 from confluence_markdown_exporter.utils.rich_console import get_stats
 from confluence_markdown_exporter.utils.rich_console import reset_stats
-from confluence_markdown_exporter.utils.table_converter import TableConverter
 from confluence_markdown_exporter.utils.table_converter import _MAX_TABLE_LINE_LEN
+from confluence_markdown_exporter.utils.table_converter import TableConverter
 from confluence_markdown_exporter.utils.table_converter import normalize_table_cell_text
 from confluence_markdown_exporter.utils.table_converter import to_markdown_table
 
