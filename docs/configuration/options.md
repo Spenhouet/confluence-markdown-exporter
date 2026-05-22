@@ -287,20 +287,6 @@ The legacy boolean key `inline_comments` is migrated automatically: `true` becom
 - Default: `none`
 - ENV Var: `CME_EXPORT__COMMENTS_EXPORT`
 
-### export.visual_fidelity_markdown
-
-Whether to write an additional visual-fidelity Markdown sidecar file next to each exported page. The sidecar preserves nested table HTML to avoid flattening complex Confluence table structures.
-
-- Default: `False`
-- ENV Var: `CME_EXPORT__VISUAL_FIDELITY_MARKDOWN`
-
-### export.visual_fidelity_suffix
-
-Suffix inserted before the `.md` extension for visual-fidelity Markdown sidecar files. For example, the default `.visual` writes `foo.visual.md` next to `foo.md`.
-
-- Default: `.visual`
-- ENV Var: `CME_EXPORT__VISUAL_FIDELITY_SUFFIX`
-
 ### export.convert_status_badges
 
 Whether to convert Confluence status badge macros to HTML `<mark>` elements coloured with the badge's background colour. Each lozenge variant maps to an Atlassian design-system pastel:

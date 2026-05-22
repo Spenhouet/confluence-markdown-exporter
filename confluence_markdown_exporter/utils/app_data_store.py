@@ -618,23 +618,6 @@ class ExportConfig(BaseModel):
             "API calls per page when enabled."
         ),
     )
-    visual_fidelity_markdown: bool = Field(
-        default=False,
-        title="Export Visual Fidelity Markdown",
-        description=(
-            "Whether to write an additional visual-fidelity Markdown sidecar file next to "
-            "each exported page. The sidecar preserves nested table HTML to avoid flattening "
-            "complex Confluence table structures."
-        ),
-    )
-    visual_fidelity_suffix: str = Field(
-        default=".visual",
-        title="Visual Fidelity Markdown Suffix",
-        description=(
-            "Suffix inserted before the .md extension for visual-fidelity Markdown sidecar "
-            "files. For example, the default '.visual' writes foo.visual.md next to foo.md."
-        ),
-    )
     convert_status_badges: bool = Field(
         default=True,
         title="Convert Status Badges",

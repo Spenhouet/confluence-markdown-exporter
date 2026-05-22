@@ -176,7 +176,7 @@ def _make_page(
     )
 
 
-def _export_settings(tmp_path: Path, *, visual_fidelity_markdown: bool) -> SimpleNamespace:
+def _export_settings(tmp_path: Path) -> SimpleNamespace:
     return SimpleNamespace(
         export=SimpleNamespace(
             output_path=tmp_path,
@@ -186,8 +186,6 @@ def _export_settings(tmp_path: Path, *, visual_fidelity_markdown: bool) -> Simpl
             confluence_url_in_frontmatter="none",
             page_properties_format="frontmatter_and_table",
             page_metadata_in_frontmatter=False,
-            visual_fidelity_markdown=visual_fidelity_markdown,
-            visual_fidelity_suffix=".visual",
             convert_status_badges=True,
             convert_text_highlights=True,
             convert_font_colors=True,
@@ -206,17 +204,9 @@ def _export_settings(tmp_path: Path, *, visual_fidelity_markdown: bool) -> Simpl
 class TestMarkdownExport:
     """Markdown file export behaviour."""
 
-    def test_visual_fidelity_disabled_writes_only_main_markdown(self, tmp_path: Path) -> None:
-        page = _make_page("<p>Hello</p>", "", [])
-
-        settings = _export_settings(tmp_path, visual_fidelity_markdown=False)
-        with patch("confluence_markdown_exporter.confluence.settings", settings):
-            page.export_markdown()
-
-        assert (tmp_path / "Test Page.md").read_text(encoding="utf-8")
-        assert not (tmp_path / "Test Page.visual.md").exists()
-
-    def test_visual_fidelity_enabled_writes_sidecar_markdown(self, tmp_path: Path) -> None:
+    def test_nested_tables_are_always_preserved_as_html_in_main_markdown(
+        self, tmp_path: Path
+    ) -> None:
         page = _make_page(
             """
             <table>
@@ -228,25 +218,14 @@ class TestMarkdownExport:
             [],
         )
 
-        settings = _export_settings(tmp_path, visual_fidelity_markdown=True)
+        settings = _export_settings(tmp_path)
         with patch("confluence_markdown_exporter.confluence.settings", settings):
             page.export_markdown()
 
         main = tmp_path / "Test Page.md"
-        sidecar = tmp_path / "Test Page.visual.md"
         assert main.exists()
-        assert sidecar.exists()
-        assert "<table>" in sidecar.read_text(encoding="utf-8")
+        assert "<table>" in main.read_text(encoding="utf-8")
 
-    def test_visual_fidelity_suffix_controls_sidecar_name(self, tmp_path: Path) -> None:
-        page = _make_page("<p>Hello</p>", "", [])
-        settings = _export_settings(tmp_path, visual_fidelity_markdown=True)
-        settings.export.visual_fidelity_suffix = ".dingtalk"
-
-        with patch("confluence_markdown_exporter.confluence.settings", settings):
-            page.export_markdown()
-
-        assert (tmp_path / "Test Page.dingtalk.md").exists()
 
 
 class TestAttachmentsForExport:
