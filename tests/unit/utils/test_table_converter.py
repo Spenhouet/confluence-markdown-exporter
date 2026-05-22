@@ -107,8 +107,8 @@ class TestTableConverter:
         # Should have no escaped pipes
         assert "\\|" not in result
 
-    def test_nested_table_default_mode_keeps_existing_flattened_output(self) -> None:
-        """Default table conversion keeps existing recursive row collection behaviour."""
+    def test_nested_table_visual_fidelity_preserves_inner_table_html(self) -> None:
+        """TableConverter always preserves nested table HTML instead of flattening rows."""
         html = """
         <table>
             <tr><td>Outer</td></tr>
@@ -124,29 +124,6 @@ class TestTableConverter:
         </table>
         """
         converter = TableConverter()
-        result = converter.convert(html)
-
-        assert "Inner:" in result
-        assert "| x" in result
-        assert "| 1" in result
-
-    def test_nested_table_visual_fidelity_preserves_inner_table_html(self) -> None:
-        """Visual fidelity mode preserves nested table HTML instead of flattening rows."""
-        html = """
-        <table>
-            <tr><td>Outer</td></tr>
-            <tr>
-                <td>
-                    <p>Inner:</p>
-                    <table>
-                        <tr><td>x</td><td>y</td></tr>
-                        <tr><td>1</td><td>2</td></tr>
-                    </table>
-                </td>
-            </tr>
-        </table>
-        """
-        converter = TableConverter(preserve_nested_tables=True)
         result = converter.convert(html)
 
         assert "Inner:" in result
