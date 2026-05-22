@@ -67,9 +67,18 @@ class TableConverter(MarkdownConverter):
     """Custom MarkdownConverter for converting HTML tables to markdown tables."""
 
     def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+        if "table" in parent_tags:
+            return str(el)
+
+        row_tags: list[Tag] = []
+        for child in el.find_all(["thead", "tbody", "tfoot", "tr"], recursive=False):
+            if child.name == "tr":
+                row_tags.append(cast("Tag", child))
+            else:
+                row_tags.extend(cast("list[Tag]", child.find_all("tr", recursive=False)))
         rows = [
-            cast("list[Tag]", tr.find_all(["td", "th"]))
-            for tr in cast("list[Tag]", el.find_all("tr"))
+            cast("list[Tag]", tr.find_all(["td", "th"], recursive=False))
+            for tr in row_tags
             if tr
         ]
 
@@ -77,7 +86,10 @@ class TableConverter(MarkdownConverter):
             return ""
 
         padded_rows = pad(rows)
-        converted = [[self.convert(str(cell)) for cell in row] for row in padded_rows]
+        converted = [
+            [self.process_tag(cell, parent_tags={"table"}) for cell in row]
+            for row in padded_rows
+        ]
 
         has_header = all(cell.name == "th" for cell in rows[0])
         if has_header:

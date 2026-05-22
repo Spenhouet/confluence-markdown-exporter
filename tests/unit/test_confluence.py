@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import types
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -173,6 +174,58 @@ def _make_page(
         labels=[],
         attachments=attachments,
     )
+
+
+def _export_settings(tmp_path: Path) -> SimpleNamespace:
+    return SimpleNamespace(
+        export=SimpleNamespace(
+            output_path=tmp_path,
+            page_path="{page_title}.md",
+            include_document_title=False,
+            page_breadcrumbs=False,
+            confluence_url_in_frontmatter="none",
+            page_properties_format="frontmatter_and_table",
+            page_metadata_in_frontmatter=False,
+            convert_status_badges=True,
+            convert_text_highlights=True,
+            convert_font_colors=True,
+            image_captions=False,
+            include_toc=True,
+            attachment_href="relative",
+            page_href="relative",
+            comments_export="none",
+            attachments_export="referenced",
+            include_macro="inline",
+            page_properties_report_format="frozen",
+        )
+    )
+
+
+class TestMarkdownExport:
+    """Markdown file export behaviour."""
+
+    def test_nested_tables_are_always_preserved_as_html_in_main_markdown(
+        self, tmp_path: Path
+    ) -> None:
+        page = _make_page(
+            """
+            <table>
+                <tr><td>Outer</td></tr>
+                <tr><td><table><tr><td>Inner</td></tr></table></td></tr>
+            </table>
+            """,
+            "",
+            [],
+        )
+
+        settings = _export_settings(tmp_path)
+        with patch("confluence_markdown_exporter.confluence.settings", settings):
+            page.export_markdown()
+
+        main = tmp_path / "Test Page.md"
+        assert main.exists()
+        assert "<table>" in main.read_text(encoding="utf-8")
+
 
 
 class TestAttachmentsForExport:
