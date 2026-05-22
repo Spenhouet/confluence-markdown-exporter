@@ -1007,6 +1007,7 @@ class Page(Document):
         )
         self._marked_texts: dict[str, str] = conv._marked_texts
 
+
     _COMMENT_TITLE_MAX_LEN = 60
 
     def _fetch_inline_comments(self) -> list[dict]:
