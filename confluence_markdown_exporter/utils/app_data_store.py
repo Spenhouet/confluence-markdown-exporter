@@ -411,11 +411,7 @@ class ExportConfig(BaseModel):
         Templates that relied on that (i.e. no explicit {attachment_extension})
         are silently updated so file extensions are preserved.
         """
-        if (
-            isinstance(v, str)
-            and "{attachment_title}" in v
-            and "{attachment_extension}" not in v
-        ):
+        if isinstance(v, str) and "{attachment_title}" in v and "{attachment_extension}" not in v:
             return v.replace("{attachment_title}", "{attachment_title}{attachment_extension}")
         return v
 
@@ -448,6 +444,17 @@ class ExportConfig(BaseModel):
         default=True,
         title="Page Breadcrumbs",
         description="Whether to include breadcrumb links at the top of the page.",
+    )
+    table_column_width: Literal["aligned", "mixed", "compact"] = Field(
+        default="mixed",
+        title="Table Column Width Formatting",
+        description=(
+            "Controls the visual alignment of Markdown table columns.\n"
+            "  aligned: always align columns with space padding.\n"
+            "  mixed: auto-detect and keep simple tables aligned, but automatically format\n"
+            "    nested or extremely wide tables compactly to avoid space bloat (default).\n"
+            "  compact: never align columns, yielding minimal and clean markdown code."
+        ),
     )
     page_properties_format: Literal[
         "frontmatter",
@@ -543,9 +550,7 @@ class ExportConfig(BaseModel):
             return data
         old_val = data.pop("inline_comments", None)
         if old_val is not None and "comments_export" not in data:
-            data["comments_export"] = (
-                "inline" if str(old_val).lower() in ("true", "1") else "none"
-            )
+            data["comments_export"] = "inline" if str(old_val).lower() in ("true", "1") else "none"
         return data
 
     filename_encoding: str = Field(
@@ -632,7 +637,7 @@ class ExportConfig(BaseModel):
         title="Convert Status Badges",
         description=(
             "Whether to convert Confluence status badge macros "
-            "(<span class=\"status-macro ...\"/>) "
+            '(<span class="status-macro ..."/>) '
             "to HTML <mark> elements coloured with the badge's background colour. "
             "When disabled, only the badge label text is kept."
         ),
@@ -642,7 +647,7 @@ class ExportConfig(BaseModel):
         title="Convert Text Highlights",
         description=(
             "Whether to convert Confluence text highlights "
-            "(<span style=\"background-color: rgb(...);\"/>) "
+            '(<span style="background-color: rgb(...);"/>) '
             "to HTML <mark> elements with a hex color. "
             "When disabled, the highlight span is stripped and only the text is kept."
         ),
@@ -652,7 +657,7 @@ class ExportConfig(BaseModel):
         title="Convert Font Colors",
         description=(
             "Whether to convert Confluence font colors "
-            "(<span data-colorid=\"...\"/> or <span style=\"color: rgb(...);\"/>) "
+            '(<span data-colorid="..."/> or <span style="color: rgb(...);"/>) '
             "to HTML <font> elements with a hex color. "
             "When disabled, the color span is stripped and only the text is kept."
         ),

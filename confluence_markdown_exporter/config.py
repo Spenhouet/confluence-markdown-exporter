@@ -36,6 +36,8 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.include_macro` | How to render `include`/`excerpt-include` macros:"
     " `inline` (default) or `transclusion` (Obsidian `![[Page Title]]` embed) |\n\n"
     "| `export.page_breadcrumbs` | Include breadcrumb links at top of page |\n\n"
+    "| `export.table_column_width` | Visual alignment of table columns: "
+    "`aligned`, `mixed` (default), or `compact` |\n\n"
     "| `export.confluence_url_in_frontmatter` | Include Confluence page URL in YAML "
     "front matter: `none`, `webui`, `tinyui`, `both` |\n\n"
     "| `export.page_metadata_in_frontmatter` | Add Confluence page metadata "
@@ -207,8 +209,7 @@ def list_config(
         "- `cme config get export.output_path`\n\n"
         "- `cme config get connection_config.max_workers`\n\n"
         "- `cme config get connection_config` — prints the whole section as YAML\n\n"
-        "- `cme config get export` — prints all export settings\n\n"
-        + _CONFIG_KEYS_EPILOG
+        "- `cme config get export` — prints all export settings\n\n" + _CONFIG_KEYS_EPILOG
     ),
 )
 def get(
@@ -256,8 +257,7 @@ def get(
         "- `cme config set connection_config.max_workers=5`\n\n"
         "- `cme config set connection_config.verify_ssl=false`\n\n"
         "- `cme config set export.log_level=INFO export.output_path=./out`"
-        " — multiple keys at once\n\n"
-        + _CONFIG_KEYS_EPILOG
+        " — multiple keys at once\n\n" + _CONFIG_KEYS_EPILOG
     ),
 )
 def set_config(
