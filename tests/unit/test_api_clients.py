@@ -219,6 +219,34 @@ class TestApiClientFactory:
         with pytest.raises(ConnectionError, match="Confluence connection failed"):
             factory.create_confluence(SAMPLE_CONFLUENCE_URL, sample_api_details)
 
+    @patch("confluence_markdown_exporter.api_clients.requests.Session")
+    @patch("confluence_markdown_exporter.api_clients.ConfluenceApiSdk")
+    def test_create_confluence_with_session_cookies_success(
+        self, mock_confluence_sdk: MagicMock, mock_session_class: MagicMock
+    ) -> None:
+        """Test successful Confluence client creation using session cookies."""
+        mock_instance = MagicMock()
+        mock_instance.get_all_spaces.return_value = [{"key": "TEST"}]
+        mock_confluence_sdk.return_value = mock_instance
+
+        mock_session = MagicMock()
+        mock_session_class.return_value = mock_session
+
+        sdk_config = AtlassianSdkConnectionConfig()
+        factory = ApiClientFactory(sdk_config)
+
+        auth_details = ApiDetails(session_cookies=SecretStr("sid=12345; foo=bar"))
+
+        result = factory.create_confluence(SAMPLE_CONFLUENCE_URL, auth_details)
+
+        assert result == mock_instance
+        mock_session.cookies.update.assert_called_once_with({"sid": "12345", "foo": "bar"})
+        mock_confluence_sdk.assert_called_once_with(
+            url=SAMPLE_CONFLUENCE_URL,
+            session=mock_session,
+            **sdk_config.model_dump(),
+        )
+
     @patch("confluence_markdown_exporter.api_clients.JiraApiSdk")
     def test_create_jira_success(
         self, mock_jira_sdk: MagicMock, sample_api_details: ApiDetails
