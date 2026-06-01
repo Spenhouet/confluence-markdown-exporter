@@ -2032,7 +2032,7 @@ class Page(Document):
             if (href := href_str).startswith("#"):
                 if settings.export.page_href == "wiki":
                     return f"[[#{text}]]"
-                return f"[{text}](#{github_heading_slug(href[1:])})"
+                return f"[{text}](#{github_heading_slug(text)})"
 
             return super().convert_a(el, text, parent_tags)
 
