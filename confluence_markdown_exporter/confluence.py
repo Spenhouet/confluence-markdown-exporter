@@ -1659,40 +1659,48 @@ class Page(Document):
             return "\n\n" + tabulate(table_data, headers=["", ""], tablefmt="pipe") + "\n"
 
         def convert_alert(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
-            """Convert Confluence info macros to Markdown GitHub style alerts.
+            """Convert Confluence info macros to MkDocs Material Admonitions."""
 
-            GitHub specific alert types: https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#alerts
-
-            Inside table cells GitHub alerts don't render in most viewers
-            (Obsidian, etc.), so emit a leading emoji + plain text instead.
-            """
             alert_type_map = {
-                "info": "IMPORTANT",
-                "panel": "NOTE",
-                "tip": "TIP",
-                "note": "WARNING",
-                "warning": "CAUTION",
-            }
-            alert_emoji_map = {
-                "NOTE": "\U0001f4dd",
-                "TIP": "\U0001f4a1",
-                "IMPORTANT": "❗",
-                "WARNING": "⚠️",
-                "CAUTION": "\U0001f6d1",
+                "info": "info",
+                "panel": "note",
+                "tip": "tip",
+                "note": "note",
+                "warning": "warning",
             }
 
-            alert_type = alert_type_map.get(str(el["data-macro-name"]), "NOTE")
+            alert_emoji_map = {
+                "note": "📝",
+                "tip": "💡",
+                "info": "ℹ️",
+                "success": "✅",
+                "question": "❓",
+                "warning": "⚠️",
+                "failure": "❌",
+                "danger": "⛔",
+                "bug": "🐞",
+                "example": "📌",
+                "quote": "💬",
+            }
+
+            raw_type = str(el.get("data-macro-name"))
+            alert_type = alert_type_map.get(raw_type, "note")
 
             macro_id = el.get("data-macro-id")
             custom_emoji = self._panel_icon_map.get(str(macro_id)) if macro_id else None
             emoji = custom_emoji or alert_emoji_map[alert_type]
 
-            tags = parent_tags if isinstance(parent_tags, list | set) else set()
-            if "td" in tags or "th" in tags:
-                return f"{emoji} {text.strip()}"
+            tags = set(parent_tags) if isinstance(parent_tags, (list, set)) else set()
 
-            blockquote = super().convert_blockquote(el, text, parent_tags)
-            return f"\n> [!{alert_type}]{blockquote}"
+            content = text.strip()
+
+            if "td" in tags or "th" in tags: 
+                return f'**{emoji} {content}**' # Dont render admonition in table cells, just prepend the emoji to the text and make it bold (MkDocs Material doesn't support admonitions (without html) in tables)
+
+            indented_content = "\n".join("    " + line if line.strip() else "" for line in content.splitlines())
+
+            return f'!!! {alert_type}\n{indented_content}\n'
+
 
         def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             # Handle Confluence macros
@@ -1878,14 +1886,20 @@ class Page(Document):
         def convert_column_layout(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
-            cells = el.find_all("div", {"class": "cell"})
+            cells = el.find_all("div", {"class": "cell"}, recursive=False)
 
-            if len(cells) < 2:  # noqa: PLR2004
-                return super().convert_div(el, text, parent_tags)
+            if len(cells) > 2:
+                print(f"Test-Warning: {len(cells)} Columns converted at once") # TODO remove after testing
 
-            html = f"<table><tr>{''.join([f'<td>{cell!s}</td>' for cell in cells])}</tr></table>"
+            converted_cells = [
+                self.process_tag(cell, parent_tags) for cell in cells
+            ]
 
-            return self.convert_table(BeautifulSoup(html, "html.parser"), text, parent_tags)
+            # left = left.replace("\n", "<br>")
+            # right = right.replace("\n", "<br>")
+
+            
+            return "\n---\n".join(converted_cells)
 
         def convert_jira_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             jira_tables = BeautifulSoup(self.page.body_export, "html.parser").find_all(
@@ -2032,7 +2046,7 @@ class Page(Document):
             if (href := href_str).startswith("#"):
                 if settings.export.page_href == "wiki":
                     return f"[[#{text}]]"
-                return f"[{text}](#{github_heading_slug(text)})"
+                return f"[{text}](#{github_heading_slug(text)})" #TODO make new strategy configurable within config. to support both behaviors  
 
             return super().convert_a(el, text, parent_tags)
 
@@ -2658,6 +2672,7 @@ class Page(Document):
                 return self.convert_page_properties_report(el, text, parent_tags)
 
             return super().convert_table(el, text, parent_tags)
+
 
         def convert_page_properties_report(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
