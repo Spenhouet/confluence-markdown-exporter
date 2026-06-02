@@ -1695,12 +1695,13 @@ class Page(Document):
             content = text.strip()
 
             if "td" in tags or "th" in tags: 
-                return f'**{emoji} {content}**' # Dont render admonition in table cells, just prepend the emoji to the text and make it bold (MkDocs Material doesn't support admonitions (without html) in tables)
+                indented_content = "\n".join("    " + line if line.strip() else "" for line in content.splitlines())
 
-            indented_content = "\n".join("    " + line if line.strip() else "" for line in content.splitlines())
+                return f'<div class="admonition {alert_type}"> <p class="admonition-title" style="font-weight: normal;"> {indented_content} </p></div>'
+            
+            indented_content = "<br/>".join("    " + line if line.strip() else "" for line in content.splitlines())
 
-            return f'!!! {alert_type}\n{indented_content}\n'
-
+            return f'<br/><div class="admonition {alert_type}"> <p class="admonition-title" style="font-weight: normal;"> {indented_content} </p></div><br/>'
 
         def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             # Handle Confluence macros
