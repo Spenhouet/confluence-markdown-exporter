@@ -74,6 +74,7 @@ StrPath: TypeAlias = str | PathLike[str]
 
 logger = logging.getLogger(__name__)
 _MAX_UNICODE_CODEPOINT = 0x10FFFF
+_PAGES_WITH_EXPORTED_CHILDREN: set[int] = set()
 
 _RE_RGB_BG = re.compile(r"background-color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
 _RE_RGB_COLOR = re.compile(r"(?<![a-z-])color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
@@ -114,6 +115,26 @@ _LOZENGE_COLORS: dict[str, str] = {
     "aui-lozenge-error": "#ffd5d2",  # red
     "aui-lozenge-progress": "#dfd8fd",  # purple / violet
 }
+
+
+def _build_parent_page_id_set(pages: list["Page | Descendant"]) -> set[int]:
+    """Return page IDs that have at least one exported child page.
+
+    A page is considered a parent when any other page in the export batch lists
+    it in its ancestor chain.
+    """
+    return {int(ancestor.id) for page in pages for ancestor in page.ancestors}
+
+
+def _to_index_path(path: Path) -> Path:
+    """Convert a file path like ``Section.md`` to ``Section/index.md``.
+
+    If the path already points to an index file, it is returned unchanged.
+    """
+    if path.stem == "index":
+        return path
+    suffix = path.suffix or ".md"
+    return path.with_suffix("") / f"index{suffix}"
 
 
 def _require_dict(response: object, context: str) -> JsonResponse:
@@ -829,7 +850,13 @@ class Descendant(Document):
     @property
     def export_path(self) -> Path:
         filepath_template = Template(settings.export.page_path.replace("{", "${"))
-        return Path(filepath_template.safe_substitute(self._template_vars))
+        path = Path(filepath_template.safe_substitute(self._template_vars))
+        if (
+            getattr(settings.export, "page_indexes_for_parents", False)
+            and int(self.id) in _PAGES_WITH_EXPORTED_CHILDREN
+        ):
+            return _to_index_path(path)
+        return path
 
     @classmethod
     def from_json(cls, data: JsonResponse, base_url: str) -> "Descendant":
@@ -937,7 +964,13 @@ class Page(Document):
     @property
     def export_path(self) -> Path:
         filepath_template = Template(settings.export.page_path.replace("{", "${"))
-        return Path(filepath_template.safe_substitute(self._template_vars))
+        path = Path(filepath_template.safe_substitute(self._template_vars))
+        if (
+            getattr(settings.export, "page_indexes_for_parents", False)
+            and int(self.id) in _PAGES_WITH_EXPORTED_CHILDREN
+        ):
+            return _to_index_path(path)
+        return path
 
     @property
     def html(self) -> str:
@@ -1006,7 +1039,6 @@ class Page(Document):
             conv.markdown,
         )
         self._marked_texts: dict[str, str] = conv._marked_texts
-
 
     _COMMENT_TITLE_MAX_LEN = 60
 
@@ -1660,7 +1692,6 @@ class Page(Document):
 
         def convert_alert(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert Confluence info macros to MkDocs Material Admonitions."""
-
             alert_type_map = {
                 "info": "info",
                 "panel": "note",
@@ -1694,12 +1725,16 @@ class Page(Document):
 
             content = text.strip()
 
-            if "td" in tags or "th" in tags: 
-                indented_content = "\n".join("    " + line if line.strip() else "" for line in content.splitlines())
+            if "td" in tags or "th" in tags:
+                indented_content = "\n".join(
+                    "    " + line if line.strip() else "" for line in content.splitlines()
+                )
 
                 return f'<div class="admonition {alert_type}"> <p class="admonition-title" style="font-weight: normal;"> {indented_content} </p></div>'
-            
-            indented_content = "<br/>".join("    " + line if line.strip() else "" for line in content.splitlines())
+
+            indented_content = "<br/>".join(
+                "    " + line if line.strip() else "" for line in content.splitlines()
+            )
 
             return f'<br/><div class="admonition {alert_type}"> <p class="admonition-title" style="font-weight: normal;"> {indented_content} </p></div><br/>'
 
@@ -1890,16 +1925,15 @@ class Page(Document):
             cells = el.find_all("div", {"class": "cell"}, recursive=False)
 
             if len(cells) > 2:
-                print(f"Test-Warning: {len(cells)} Columns converted at once") # TODO remove after testing
+                print(
+                    f"Test-Warning: {len(cells)} Columns converted at once"
+                )  # TODO remove after testing
 
-            converted_cells = [
-                self.process_tag(cell, parent_tags) for cell in cells
-            ]
+            converted_cells = [self.process_tag(cell, parent_tags) for cell in cells]
 
             # left = left.replace("\n", "<br>")
             # right = right.replace("\n", "<br>")
 
-            
             return "\n---\n".join(converted_cells)
 
         def convert_jira_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
@@ -2047,7 +2081,7 @@ class Page(Document):
             if (href := href_str).startswith("#"):
                 if settings.export.page_href == "wiki":
                     return f"[[#{text}]]"
-                return f"[{text}](#{github_heading_slug(text)})" #TODO make new strategy configurable within config. to support both behaviors  
+                return f"[{text}](#{github_heading_slug(text)})"  # TODO make new strategy configurable within config. to support both behaviors
 
             return super().convert_a(el, text, parent_tags)
 
@@ -2674,7 +2708,6 @@ class Page(Document):
 
             return super().convert_table(el, text, parent_tags)
 
-
         def convert_page_properties_report(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
@@ -2710,7 +2743,7 @@ class Page(Document):
 
             parent_match = re.search(r'parent\s*=\s*"?(\d+)"?', cql, re.IGNORECASE)
             current_content_match = re.search(
-                r'(?:ancestor|parent)\s*=\s*currentContent\s*\(\s*\)', cql, re.IGNORECASE
+                r"(?:ancestor|parent)\s*=\s*currentContent\s*\(\s*\)", cql, re.IGNORECASE
             )
 
             from_clause: str | None = None
@@ -2905,6 +2938,8 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
     LockfileManager.mark_seen([p.id for p in pages])
     for p in pages:
         PageTitleRegistry.register(int(p.id), p.title)
+    _PAGES_WITH_EXPORTED_CHILDREN.clear()
+    _PAGES_WITH_EXPORTED_CHILDREN.update(_build_parent_page_id_set(pages))
     pages_to_export = [page for page in pages if LockfileManager.should_export(page)]
 
     skipped_count = len(pages) - len(pages_to_export)

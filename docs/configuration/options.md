@@ -45,6 +45,18 @@ Path template for exported pages.
 - Default: `{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md`
 - ENV Var: `CME_EXPORT__PAGE_PATH`
 
+### export.page_indexes_for_parents
+
+When enabled, pages that have exported child pages are written as folder indexes:
+
+- parent pages: `.../Page Title/index.md`
+- leaf pages: unchanged (`.../Leaf Page.md`, based on `export.page_path`)
+
+Useful for MkDocs setups using `navigation.indexes`.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__PAGE_INDEXES_FOR_PARENTS`
+
 ### export.attachment_href
 
 How to generate links to attachments in Markdown. Options: `relative` (default), `absolute`, or `wiki`.
