@@ -144,10 +144,11 @@ def github_heading_slug(text: str) -> str:
     Matches the github-slugger algorithm used by GitHub to render heading anchors,
     so that generated TOC links resolve correctly in GitHub-rendered Markdown.
     """
-    text = text.lower().strip()
-    text = re.sub(r"[^\w\s-]", "", text)  # drop punctuation; keep letters, digits, spaces, hyphens
-    text = re.sub(r"[\s_]+", "-", text)   # whitespace/underscores → hyphens
-    return re.sub(r"-{2,}", "-", text)    # collapse runs of hyphens (e.g. "- word" → "-word")
+    return re.sub(
+        r"[\s]+",
+        "-",
+        re.sub(r"[^\w\s-]", "", text.lower().strip()),
+    )  # drop punctuation; keep letters, digits, spaces, hyphens
 
 
 def escape_character_class(s: str) -> str:
