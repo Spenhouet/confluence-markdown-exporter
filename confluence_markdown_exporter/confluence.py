@@ -1726,17 +1726,13 @@ class Page(Document):
             content = text.strip()
 
             if "td" in tags or "th" in tags:
-                indented_content = "\n".join(
-                    "    " + line if line.strip() else "" for line in content.splitlines()
-                )
+                return f"**{emoji} {content}**"  # Dont render admonition in table cells, just prepend the emoji to the text and make it bold (MkDocs Material doesn't support admonitions (without html) in tables)
 
-                return f'<div class="admonition {alert_type}"> <p class="admonition-title" style="font-weight: normal;"> {indented_content} </p></div>'
-
-            indented_content = "<br/>".join(
+            indented_content = "\n".join(
                 "    " + line if line.strip() else "" for line in content.splitlines()
             )
 
-            return f'<br/><div class="admonition {alert_type}"> <p class="admonition-title" style="font-weight: normal;"> {indented_content} </p></div><br/>'
+            return f"\n\n!!! {alert_type}\n{indented_content}\n\n"
 
         def convert_div(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             # Handle Confluence macros
@@ -2078,10 +2074,11 @@ class Page(Document):
                     if match := parse_confluence_path(parsed_href.path):
                         if match.page_id:
                             return self.convert_page_link(match.page_id)
-            if (href := href_str).startswith("#"):
+            if href_str.startswith("#"):
                 if settings.export.page_href == "wiki":
                     return f"[[#{text}]]"
-                return f"[{text}](#{github_heading_slug(text)})"  # TODO make new strategy configurable within config. to support both behaviors
+
+                return f"[{text}](#{github_heading_slug(text)})"
 
             return super().convert_a(el, text, parent_tags)
 
