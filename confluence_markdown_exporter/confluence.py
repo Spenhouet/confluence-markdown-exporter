@@ -1694,7 +1694,7 @@ class Page(Document):
             """Convert Confluence info macros to MkDocs Material Admonitions."""
             alert_type_map = {
                 "info": "info",
-                "panel": "note",
+                "panel": "example",
                 "tip": "tip",
                 "note": "note",
                 "warning": "warning",
