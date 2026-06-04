@@ -6,6 +6,8 @@ from bs4 import Tag
 from markdownify import MarkdownConverter
 from tabulate import tabulate
 
+from confluence_markdown_exporter.utils.export import github_heading_slug
+
 _LEADING_BR_OR_WS = re.compile(r"^(?:\s|<br\s*/?>)+")
 _TRAILING_BR_OR_WS = re.compile(r"(?:\s|<br\s*/?>)+$")
 
@@ -77,9 +79,7 @@ class TableConverter(MarkdownConverter):
             else:
                 row_tags.extend(cast("list[Tag]", child.find_all("tr", recursive=False)))
         rows = [
-            cast("list[Tag]", tr.find_all(["td", "th"], recursive=False))
-            for tr in row_tags
-            if tr
+            cast("list[Tag]", tr.find_all(["td", "th"], recursive=False)) for tr in row_tags if tr
         ]
 
         if not rows:
@@ -87,8 +87,7 @@ class TableConverter(MarkdownConverter):
 
         padded_rows = pad(rows)
         converted = [
-            [self.process_tag(cell, parent_tags={"table"}) for cell in row]
-            for row in padded_rows
+            [self.process_tag(cell, parent_tags={"table"}) for cell in row] for row in padded_rows
         ]
 
         has_header = all(cell.name == "th" for cell in rows[0])
@@ -171,3 +170,23 @@ class TableConverter(MarkdownConverter):
         if "td" in tags:
             md = md.replace("\n", "") + "<br/>"
         return md
+
+    def convert_h1(
+        self, el: BeautifulSoup, text: str, parent_tags: "TableConverter.ParentTags | bool"
+    ) -> str:
+        tags = self._normalize_parent_tags(parent_tags)
+        heading = text.strip()
+        if "td" in tags or "th" in tags or "table" in tags:
+            if not heading:
+                return ""
+            return f'<a id="{github_heading_slug(heading)}"></a> **{heading}**<br>'
+
+        convert_hN_fn = getattr(MarkdownConverter, "convert_hN", None) or getattr(
+            MarkdownConverter, "convert_hn", None
+        )
+        if callable(convert_hN_fn):
+            return cast("str", convert_hN_fn(self, 1, el, text, tags))
+
+        if not heading:
+            return ""
+        return f"\n\n# {heading}\n\n"

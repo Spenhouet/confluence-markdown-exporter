@@ -281,8 +281,8 @@ class TestGithubHeadingSlug:
     """Test cases for github_heading_slug function."""
 
     def test_leading_hyphen_preserved(self) -> None:
-        """Heading starting with hyphen keeps it — the reported bug."""
-        assert github_heading_slug("- Final State") == "-final-state"
+        """Heading starting with hyphen preserves both the literal and spacing hyphen."""
+        assert github_heading_slug("- Final State") == "--final-state"
 
     def test_plain_heading(self) -> None:
         assert github_heading_slug("Final State") == "final-state"
@@ -295,6 +295,9 @@ class TestGithubHeadingSlug:
 
     def test_multiple_spaces_collapsed(self) -> None:
         assert github_heading_slug("Hello  World") == "hello-world"
+
+    def test_spaced_hyphen_keeps_double_hyphen(self) -> None:
+        assert github_heading_slug("Erd- und Oberbau") == "erd--und-oberbau"
 
     def test_trailing_hyphen(self) -> None:
         assert github_heading_slug("Hello -") == "hello-"
