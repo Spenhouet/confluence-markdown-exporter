@@ -122,6 +122,21 @@ _PARSE_CONFLUENCE_PATH_CASES = [
         "/spaces/SPACEKEY/pages/123456789/Page+Title",
         ConfluenceRef(space_key="SPACEKEY", page_id=123456789, page_title="Page Title"),
     ),
+    # Personal space keys are derived from usernames and contain a dot
+    # (~first.last). Follow-up to #204, which added "~" but not ".".
+    (
+        "https://company.atlassian.net/wiki/spaces/~jane.doe",
+        ConfluenceRef(space_key="~jane.doe"),
+    ),
+    (
+        "/spaces/~jane.doe/pages/123456789/Page+Title",
+        ConfluenceRef(space_key="~jane.doe", page_id=123456789, page_title="Page Title"),
+    ),
+    (
+        "/spaces/~jane.doe/overview",
+        ConfluenceRef(space_key="~jane.doe"),
+    ),
+
 ]
 
 
