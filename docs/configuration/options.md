@@ -101,6 +101,19 @@ Whether to include breadcrumb links at the top of the page.
 - Default: `True`
 - ENV Var: `CME_EXPORT__PAGE_BREADCRUMBS`
 
+### export.table_column_width
+
+Controls the visual alignment and space padding of Markdown table columns.
+
+| Value | Behaviour |
+| ----- | --------- |
+| `aligned` | Always align table columns using spaces (legacy behavior). |
+| `mixed` | Smart hybrid mode: keeps simple tables aligned, but automatically formats nested or extremely wide tables compactly (default). |
+| `compact` | Never align column widths, outputting clean, tight, GFM-compliant pipe tables. |
+
+- Default: `mixed`
+- ENV Var: `CME_EXPORT__TABLE_COLUMN_WIDTH`
+
 ### export.page_properties_format
 
 Controls how Confluence Page Properties macros (key-value tables) are rendered. Duplicate property keys are automatically disambiguated by appending a counter (e.g. `status`, `status_2`, `status_3`).

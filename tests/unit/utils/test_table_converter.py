@@ -251,3 +251,65 @@ class TestTableConverter:
         assert el is not None
         result = converter.convert_p(el, "text.", {"td", "_inline"})  # type: ignore[arg-type]
         assert result.endswith("<br/>")
+
+    def test_table_column_width_aligned(self) -> None:
+        """Test that aligned mode always uses tabulate."""
+        html = "<table><tr><th>H1</th><th>H2</th></tr><tr><td>A</td><td>B</td></tr></table>"
+        # Since it's aligned, the column should be aligned using spaces via tabulate.
+        converter = TableConverter(table_column_width="aligned")
+        result = converter.convert(html)
+        assert "  " in result
+        assert "| H1   | H2   |" in result
+
+    def test_table_column_width_compact(self) -> None:
+        """Test that compact mode never pads with spaces."""
+        html = "<table><tr><th>H1</th><th>H2</th></tr><tr><td>A</td><td>B</td></tr></table>"
+        converter = TableConverter(table_column_width="compact")
+        result = converter.convert(html)
+        assert "  " not in result
+        assert "| H1 | H2 |" in result
+        assert "| A | B |" in result
+
+    def test_table_column_width_compact_escapes_pipes(self) -> None:
+        """Compact mode must escape literal pipe characters inside cell text."""
+        html = "<table><tr><th>H1</th></tr><tr><td>a|b</td></tr></table>"
+        converter = TableConverter(table_column_width="compact")
+        result = converter.convert(html)
+        assert "| a\\|b |" in result
+
+    def test_table_column_width_mixed_normal(self) -> None:
+        """Test that mixed mode keeps small tables aligned."""
+        html = "<table><tr><th>H1</th><th>H2</th></tr><tr><td>A</td><td>B</td></tr></table>"
+        converter = TableConverter(table_column_width="mixed")
+        result = converter.convert(html)
+        assert "  " in result
+        assert "| H1   | H2   |" in result
+
+    def test_table_column_width_mixed_nested(self) -> None:
+        """Test that mixed mode automatically uses compact mode for nested tables."""
+        html = """
+        <table>
+            <tr><th>Header</th></tr>
+            <tr>
+                <td>
+                    <table>
+                        <tr><td>Inner</td></tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+        """
+        converter = TableConverter(table_column_width="mixed")
+        result = converter.convert(html)
+        # The outer table contains a nested table, so it should be compact (no space padding).
+        assert "  " not in result
+
+    def test_table_column_width_mixed_long(self) -> None:
+        """Test that mixed mode falls back to compact mode for wide tables."""
+        # Create a table that is wider than 120 characters when aligned.
+        long_text = "x" * 125
+        html = f"<table><tr><th>Header</th></tr><tr><td>{long_text}</td></tr></table>"
+        converter = TableConverter(table_column_width="mixed")
+        result = converter.convert(html)
+        # Should be formatted compactly
+        assert "  " not in result
