@@ -67,7 +67,10 @@ from confluence_markdown_exporter.utils.rich_console import ExportStats
 from confluence_markdown_exporter.utils.rich_console import console
 from confluence_markdown_exporter.utils.rich_console import get_stats
 from confluence_markdown_exporter.utils.rich_console import reset_stats
+from confluence_markdown_exporter.utils.table_converter import _MAX_TABLE_LINE_LEN
 from confluence_markdown_exporter.utils.table_converter import TableConverter
+from confluence_markdown_exporter.utils.table_converter import normalize_table_cell_text
+from confluence_markdown_exporter.utils.table_converter import to_markdown_table
 
 JsonResponse: TypeAlias = dict
 StrPath: TypeAlias = str | PathLike[str]
@@ -87,6 +90,32 @@ _DEFAULT_HEADER_BGS = frozenset({"#f4f5f7", "#f2f2f2"})
 
 def _rgb_to_hex(r: int, g: int, b: int) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _render_meta_bind_view_fields(props: dict[str, str], mode: str) -> str:
+    """Render metadata as Meta Bind VIEW fields in a two-column markdown table."""
+    table_data = [
+        [f"**{k}**", f"`VIEW[{{{sanitize_key(k)}}}][text(renderMarkdown)]`"] for k in props
+    ]
+    headers = ["", ""]
+
+    if mode == "compact":
+        rendered = to_markdown_table(table_data, headers=headers, escape_cells=True)
+    elif mode == "aligned":
+        # Escape pipe characters before passing to tabulate
+        escaped_data = [[normalize_table_cell_text(cell) for cell in row] for row in table_data]
+        rendered = tabulate(escaped_data, headers=headers, tablefmt="pipe")
+    else:
+        # mixed mode (default)
+        # Escape pipe characters before passing to tabulate
+        escaped_data = [[normalize_table_cell_text(cell) for cell in row] for row in table_data]
+        aligned = tabulate(escaped_data, headers=headers, tablefmt="pipe")
+        max_line_len = max(len(line) for line in aligned.splitlines()) if aligned else 0
+        if max_line_len > _MAX_TABLE_LINE_LEN:
+            rendered = to_markdown_table(table_data, headers=headers, escape_cells=True)
+        else:
+            rendered = aligned
+    return f"\n{rendered}\n"
 
 
 def _extract_cell_highlight_hex(el: Tag) -> str | None:
@@ -1007,7 +1036,6 @@ class Page(Document):
         )
         self._marked_texts: dict[str, str] = conv._marked_texts
 
-
     _COMMENT_TITLE_MAX_LEN = 60
 
     def _fetch_inline_comments(self) -> list[dict]:
@@ -1653,10 +1681,9 @@ class Page(Document):
                 return f"\n{lines}\n"
 
             # meta-bind-view-fields: two-column table with VIEW fields in value column
-            table_data = [
-                (f"**{k}**", f"`VIEW[{{{sanitize_key(k)}}}][text(renderMarkdown)]`") for k in props
-            ]
-            return "\n\n" + tabulate(table_data, headers=["", ""], tablefmt="pipe") + "\n"
+            mode = settings.export.table_column_width
+            rendered = _render_meta_bind_view_fields(props, mode)
+            return f"\n{rendered}"
 
         def convert_alert(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert Confluence info macros to Markdown GitHub style alerts.
@@ -2694,7 +2721,7 @@ class Page(Document):
 
             parent_match = re.search(r'parent\s*=\s*"?(\d+)"?', cql, re.IGNORECASE)
             current_content_match = re.search(
-                r'(?:ancestor|parent)\s*=\s*currentContent\s*\(\s*\)', cql, re.IGNORECASE
+                r"(?:ancestor|parent)\s*=\s*currentContent\s*\(\s*\)", cql, re.IGNORECASE
             )
 
             from_clause: str | None = None
