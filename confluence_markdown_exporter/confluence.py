@@ -1912,7 +1912,10 @@ class Page(Document):
             vertically. This preserves images, lists, tables and the TOC, which
             a single-row table would otherwise flatten or drop.
             """
-            cells = el.find_all("div", {"class": "cell"})
+            # recursive=False so a nested column layout's cells are not also
+            # collected here; they are rendered when process_tag recurses into
+            # the parent cell. Cells are always direct children of columnLayout.
+            cells = el.find_all("div", {"class": "cell"}, recursive=False)
             if not cells:
                 return super().convert_div(el, text, parent_tags)
 
