@@ -1853,3 +1853,55 @@ class TestAbsoluteUrlPageLinks:
 
         PageTitleRegistry.reset()
         assert result == "[[Legacy Page]]"
+
+
+class TestColumnLayoutConversion:
+    """Confluence multi-column layouts must not be stripped from the output.
+
+    Regression test for issue #262: ``convert_column_layout`` previously wrapped
+    the cells in a table and passed the whole BeautifulSoup *document* to
+    ``convert_table``, which finds rows with ``recursive=False`` and therefore
+    matched none, silently dropping the entire layout. Layouts are now rendered
+    by stacking each cell's content vertically.
+    """
+
+    TWO_COLUMN_HTML = (
+        '<div class="contentLayout2">'
+        '<div class="columnLayout two-right-sidebar" data-layout="two-right-sidebar">'
+        '<div class="cell normal"><div class="innerCell">'
+        "<p>Left column intro.</p>"
+        "<ul><li><p>First</p></li><li><p>Second</p></li></ul>"
+        "</div></div>"
+        '<div class="cell aside"><div class="innerCell">'
+        "<p>Right column text.</p>"
+        "</div></div>"
+        "</div></div>"
+    )
+
+    def test_two_column_layout_content_preserved(self, converter: Page.Converter) -> None:
+        result = converter.convert(self.TWO_COLUMN_HTML)
+        assert result.strip(), "column layout must not be stripped to empty"
+        for expected in ("Left column intro.", "First", "Second", "Right column text."):
+            assert expected in result
+
+    def test_two_column_layout_not_rendered_as_table(self, converter: Page.Converter) -> None:
+        result = converter.convert(self.TWO_COLUMN_HTML)
+        assert "| --- |" not in result
+        assert "|---|" not in result
+
+    def test_two_column_layout_renders_list_as_markdown_list(
+        self, converter: Page.Converter
+    ) -> None:
+        result = converter.convert(self.TWO_COLUMN_HTML)
+        assert "- First" in result
+        assert "- Second" in result
+
+    def test_single_cell_layout_content_preserved(self, converter: Page.Converter) -> None:
+        html = (
+            '<div class="columnLayout fixed-width" data-layout="fixed-width">'
+            '<div class="cell normal"><div class="innerCell">'
+            "<p>Only column.</p>"
+            "</div></div></div>"
+        )
+        result = converter.convert(html)
+        assert "Only column." in result
