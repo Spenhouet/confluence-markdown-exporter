@@ -1905,14 +1905,23 @@ class Page(Document):
         def convert_column_layout(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
-            cells = el.find_all("div", {"class": "cell"})
+            """Render a Confluence column layout by stacking its cells vertically.
 
-            if len(cells) < 2:  # noqa: PLR2004
+            Markdown has no native columns, so each cell's content is converted
+            through its normal block-level handlers and the cells are joined
+            vertically. This preserves images, lists, tables and the TOC, which
+            a single-row table would otherwise flatten or drop.
+            """
+            cells = el.find_all("div", {"class": "cell"})
+            if not cells:
                 return super().convert_div(el, text, parent_tags)
 
-            html = f"<table><tr>{''.join([f'<td>{cell!s}</td>' for cell in cells])}</tr></table>"
+            parts = [self.process_tag(cell, parent_tags).strip() for cell in cells]
+            parts = [part for part in parts if part]
+            if not parts:
+                return ""
 
-            return self.convert_table(BeautifulSoup(html, "html.parser"), text, parent_tags)
+            return "\n\n" + "\n\n".join(parts) + "\n\n"
 
         def convert_jira_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             jira_tables = BeautifulSoup(self.page.body_export, "html.parser").find_all(
