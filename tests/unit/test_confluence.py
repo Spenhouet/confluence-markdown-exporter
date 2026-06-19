@@ -1905,3 +1905,23 @@ class TestColumnLayoutConversion:
         )
         result = converter.convert(html)
         assert "Only column." in result
+
+    def test_nested_column_layout_not_duplicated(self, converter: Page.Converter) -> None:
+        """A column layout nested inside a cell must render its content once."""
+        html = (
+            '<div class="columnLayout two-equal">'
+            '<div class="cell normal"><div class="innerCell">'
+            "<p>Outer A</p>"
+            '<div class="columnLayout two-equal">'
+            '<div class="cell normal"><div class="innerCell"><p>Inner X</p></div></div>'
+            '<div class="cell normal"><div class="innerCell"><p>Inner Y</p></div></div>'
+            "</div>"
+            "</div></div>"
+            '<div class="cell normal"><div class="innerCell"><p>Outer B</p></div></div>'
+            "</div>"
+        )
+        result = converter.convert(html)
+        assert result.count("Inner X") == 1
+        assert result.count("Inner Y") == 1
+        assert result.count("Outer A") == 1
+        assert result.count("Outer B") == 1
