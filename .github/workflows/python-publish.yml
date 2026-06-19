@@ -28,7 +28,7 @@ jobs:
       url: https://pypi.org/p/confluence-markdown-exporter
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.version }}
 
