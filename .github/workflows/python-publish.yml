@@ -44,7 +44,7 @@ jobs:
         run: uv build --no-sources
 
       - name: Generate artifact attestations
-        uses: actions/attest-build-provenance@v4.1.0
+        uses: actions/attest-build-provenance@v4.1.1
         with:
           subject-path: "dist/*"
 
