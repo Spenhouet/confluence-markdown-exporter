@@ -479,7 +479,8 @@ class ExportConfig(BaseModel):
         title="Page Properties Report Format",
         description=(
             "How to render Confluence Page Properties Report macros.\n"
-            "  frozen: export the rendered table as a static markdown table (default)\n"
+            "  frozen: export all report rows as a static markdown table (default); falls\n"
+            "    back to the rendered table snapshot if the rows cannot be fetched\n"
             "  dataview: translate the CQL query to an Obsidian Dataview DQL code block;\n"
             "    requires the Dataview plugin and all referenced child pages to be exported\n"
             "    with their page properties as frontmatter; falls back to frozen on failure"

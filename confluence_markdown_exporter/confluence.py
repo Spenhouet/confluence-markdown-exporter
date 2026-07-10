@@ -4,6 +4,7 @@ https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
 import functools
+import html
 import json
 import logging
 import mimetypes
@@ -77,6 +78,9 @@ StrPath: TypeAlias = str | PathLike[str]
 
 logger = logging.getLogger(__name__)
 _MAX_UNICODE_CODEPOINT = 0x10FFFF
+
+# Rows requested per call when fetching all Page Properties Report entries.
+_REPORT_FETCH_PAGE_SIZE = 50
 
 _RE_RGB_BG = re.compile(r"background-color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
 _RE_RGB_COLOR = re.compile(r"(?<![a-z-])color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
@@ -2710,11 +2714,89 @@ class Page(Document):
                 if dql is not None:
                     return f"\n```dataview\n{dql}\n```\n"
 
-            soup = BeautifulSoup(self.page.body_export, "html.parser")
-            table = soup.find("table", {"data-cql": data_cql})
-            if not table:
+            table: Tag | None = self._fetch_page_properties_report_table(el)
+            if table is None:
+                # Fall back to the server-rendered snapshot, which only contains
+                # the first page of results (the macro's configured page size).
+                soup = BeautifulSoup(self.page.body_export, "html.parser")
+                table = cast("Tag | None", soup.find("table", {"data-cql": data_cql}))
+            if table is None:
                 return ""
             return super().convert_table(table, "", parent_tags)  # type: ignore -
+
+        def _fetch_page_properties_report_table(self, el: BeautifulSoup) -> Tag | None:
+            """Fetch all report rows via the masterdetail REST endpoint.
+
+            The rendered table in ``body.export_view`` only contains the first
+            page of results, so all rows are re-fetched through the endpoint the
+            macro's own pagination uses. Returns None if the endpoint is
+            unavailable or returns no rows, so the caller can fall back to the
+            rendered snapshot.
+            """
+            url = "rest/masterdetail/1.0/detailssummary/lines"
+            params: dict[str, Any] = {
+                "cql": str(el.get("data-cql", "")),
+                "spaceKey": str(el.get("data-current-space-key", "")),
+                "headings": str(el.get("data-headings", "")),
+                "sortBy": str(el.get("data-sort-by", "")),
+                "reverseSort": str(el.get("data-reverse-sort", "false")),
+                "pageSize": _REPORT_FETCH_PAGE_SIZE,
+                "pageIndex": 0,
+            }
+            lines: list[dict[str, Any]] = []
+            try:
+                client = get_thread_confluence(self.page.base_url)
+                response = cast("dict", client.get(url, params=params))
+                lines.extend(response.get("detailLines", []))
+                total_pages = int(response.get("totalPages", 1))
+                for page_index in range(1, total_pages):
+                    response = cast(
+                        "dict", client.get(url, params={**params, "pageIndex": page_index})
+                    )
+                    page_lines = response.get("detailLines", [])
+                    if not page_lines:
+                        break
+                    lines.extend(page_lines)
+            except HTTPError as e:
+                logger.warning(
+                    f"Failed to fetch Page Properties Report rows for page "
+                    f"'{self.page.title}' (ID: {self.page.id}): {e}. "
+                    f"Falling back to the rendered table snapshot."
+                )
+                return None
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    f"Unexpected error fetching Page Properties Report rows for page "
+                    f"ID {self.page.id}. Falling back to the rendered table snapshot.",
+                    exc_info=True,
+                )
+                return None
+            if not lines:
+                return None
+            return self._build_report_table(el, lines)
+
+        def _build_report_table(self, el: BeautifulSoup, lines: list[dict[str, Any]]) -> Tag | None:
+            """Assemble a full HTML table from masterdetail detail lines."""
+            first_col = str(el.get("data-first-column-heading") or "Title")
+            headings = [h.strip() for h in str(el.get("data-headings", "")).split(",") if h.strip()]
+            header = "".join(f"<th>{html.escape(h)}</th>" for h in [first_col, *headings])
+            rows: list[str] = []
+            for line in lines:
+                title = html.escape(str(line.get("title", "")))
+                href = html.escape(str(line.get("relativeLink", "")), quote=True)
+                page_id = html.escape(str(line.get("id", "")))
+                link = (
+                    f'<a href="{href}" data-linked-resource-type="page" '
+                    f'data-linked-resource-id="{page_id}">{title}</a>'
+                )
+                # Detail cells are server-rendered HTML fragments; insert verbatim.
+                cells = "".join(f"<td>{detail}</td>" for detail in line.get("details", []))
+                rows.append(f"<tr><td>{link}</td>{cells}</tr>")
+            table_html = (
+                f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+            )
+            table = BeautifulSoup(table_html, "html.parser").find("table")
+            return table if isinstance(table, Tag) else None
 
         def _cql_to_dataview(self, el: BeautifulSoup, cql: str) -> str | None:
             """Translate a Confluence CQL query to an Obsidian Dataview DQL query.

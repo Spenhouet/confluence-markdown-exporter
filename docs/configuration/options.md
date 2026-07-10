@@ -139,7 +139,7 @@ Controls how Confluence Page Properties Report macros (dynamic cross-page proper
 
 | Value      | Description                                                                                                                                                                                                                                                                                                |
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `frozen`   | Export the rendered table as a static markdown table snapshot (default)                                                                                                                                                                                                                                    |
+| `frozen`   | Export all report rows as a static markdown table (default); rows are fetched through the same API the macro's pagination uses, so the table is not limited to the macro's configured page size; falls back to the rendered table snapshot if the rows cannot be fetched                                   |
 | `dataview` | Translate the CQL query to an [Obsidian Dataview](https://blacksmithgu.github.io/obsidian-dataview/) DQL code block; requires the Dataview plugin and all referenced child pages to be exported with their page properties as front matter; falls back to a frozen table if the query cannot be translated |
 
 - Default: `frozen`
