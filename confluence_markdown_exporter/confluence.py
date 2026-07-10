@@ -2757,6 +2757,9 @@ class Page(Document):
                     if not page_lines:
                         break
                     lines.extend(page_lines)
+                if not lines:
+                    return None
+                return self._build_report_table(el, lines)
             except HTTPError as e:
                 logger.warning(
                     f"Failed to fetch Page Properties Report rows for page "
@@ -2771,9 +2774,6 @@ class Page(Document):
                     exc_info=True,
                 )
                 return None
-            if not lines:
-                return None
-            return self._build_report_table(el, lines)
 
         def _build_report_table(self, el: BeautifulSoup, lines: list[dict[str, Any]]) -> Tag | None:
             """Assemble a full HTML table from masterdetail detail lines."""
@@ -2790,7 +2790,7 @@ class Page(Document):
                     f'data-linked-resource-id="{page_id}">{title}</a>'
                 )
                 # Detail cells are server-rendered HTML fragments; insert verbatim.
-                cells = "".join(f"<td>{detail}</td>" for detail in line.get("details", []))
+                cells = "".join(f"<td>{detail}</td>" for detail in line.get("details") or [])
                 rows.append(f"<tr><td>{link}</td>{cells}</tr>")
             table_html = (
                 f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(rows)}</tbody></table>"
