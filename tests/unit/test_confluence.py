@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+from requests import HTTPError
 
 from confluence_markdown_exporter.confluence import Attachment
 from confluence_markdown_exporter.confluence import Page
@@ -1539,6 +1540,7 @@ class TestPagePropertiesReportDataview:
 
             self.id = 42
             self.title = "Test Page"
+            self.base_url = "https://confluence.example.com"
             self.html = ""
             self.labels: list = []
             self.ancestors: list = []
@@ -1601,14 +1603,170 @@ class TestPagePropertiesReportDataview:
             result = converter.convert(self._REPORT_HTML)
         assert "SORT title ASC" in result
 
-    def test_frozen_table_when_format_is_frozen(self) -> None:
+    def test_frozen_table_falls_back_to_snapshot_when_endpoint_unavailable(self) -> None:
         page = self._MockPageWithExport(body_export=self._BODY_EXPORT)
         converter = Page.Converter(page)
-        with patch("confluence_markdown_exporter.confluence.settings") as s:
+        client = MagicMock()
+        client.get.side_effect = HTTPError("404 Client Error")
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.get_thread_confluence",
+                return_value=client,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
             s.export.page_properties_report_format = "frozen"
             result = converter.convert(self._REPORT_HTML)
         assert "```dataview" not in result
         assert "Page A" in result
+
+
+class TestPagePropertiesReportFrozenFetchesAllRows:
+    """Frozen report tables are rebuilt with all rows from the masterdetail API."""
+
+    _REPORT_HTML = TestPagePropertiesReportDataview._REPORT_HTML
+    _BODY_EXPORT = TestPagePropertiesReportDataview._BODY_EXPORT
+
+    @staticmethod
+    def _detail_line(page_id: int, title: str, details: list[str]) -> dict:
+        return {
+            "id": page_id,
+            "title": title,
+            "relativeLink": f"/display/TS/{title.replace(' ', '+')}",
+            "details": details,
+        }
+
+    @staticmethod
+    def _make_linked_page(page_id: int, title: str) -> Page:
+        space = Space(
+            base_url="https://confluence.example.com",
+            key="TS",
+            name="Test Space",
+            description="",
+            homepage=0,
+        )
+        version = Version(
+            number=1,
+            by=User(
+                account_id="u1",
+                display_name="User",
+                username="user",
+                public_name="",
+                email="",
+            ),
+            when="2024-01-01T00:00:00Z",
+            friendly_when="Jan 1",
+        )
+        return Page(
+            base_url="https://confluence.example.com",
+            id=page_id,
+            title=title,
+            space=space,
+            ancestors=[],
+            version=version,
+            body="",
+            body_export="",
+            editor2="",
+            body_storage="",
+            labels=[],
+            attachments=[],
+        )
+
+    def _convert_frozen(self, client: MagicMock) -> str:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        page = TestPagePropertiesReportDataview._MockPageWithExport(body_export=self._BODY_EXPORT)
+        converter = Page.Converter(page)
+        linked_titles = {101: "Page A", 102: "Page B", 103: "Page C"}
+
+        def _from_id(page_id: int, _base_url: str = "") -> Page:
+            return self._make_linked_page(int(page_id), linked_titles[int(page_id)])
+
+        try:
+            with (
+                patch(
+                    "confluence_markdown_exporter.confluence.get_thread_confluence",
+                    return_value=client,
+                ),
+                patch(
+                    "confluence_markdown_exporter.confluence.Page.from_id",
+                    side_effect=_from_id,
+                ),
+                patch("confluence_markdown_exporter.confluence.settings") as s,
+            ):
+                s.export.page_properties_report_format = "frozen"
+                s.export.page_href = "wiki"
+                return converter.convert(self._REPORT_HTML)
+        finally:
+            PageTitleRegistry.reset()
+
+    def test_all_rows_fetched_across_pages(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = [
+            {
+                "total": 3,
+                "totalPages": 2,
+                "currentPage": 0,
+                "detailLines": [
+                    self._detail_line(101, "Page A", ["<p>v1.0</p>", "<p>Yes</p>"]),
+                    self._detail_line(102, "Page B", ["<p>v2.0</p>", "<p>No</p>"]),
+                ],
+            },
+            {
+                "total": 3,
+                "totalPages": 2,
+                "currentPage": 1,
+                "detailLines": [
+                    self._detail_line(103, "Page C", ["<p>v3.0</p>", "<p>Yes</p>"]),
+                ],
+            },
+        ]
+
+        result = self._convert_frozen(client)
+
+        assert "Page A" in result
+        assert "Page B" in result
+        assert "Page C" in result
+        assert "Tool Version" in result
+        assert "Approved for Use" in result
+        assert "v2.0" in result
+        assert "v3.0" in result
+        assert client.get.call_count == 2
+        first_params = client.get.call_args_list[0].kwargs["params"]
+        second_params = client.get.call_args_list[1].kwargs["params"]
+        assert first_params["pageIndex"] == 0
+        assert second_params["pageIndex"] == 1
+        assert first_params["cql"] == 'label = "tool-validation" and parent = "42"'
+
+    def test_single_page_report_makes_one_request(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = [
+            {
+                "total": 1,
+                "totalPages": 1,
+                "currentPage": 0,
+                "detailLines": [
+                    self._detail_line(101, "Page A", ["<p>v1.0</p>", "<p>Yes</p>"]),
+                ],
+            },
+        ]
+
+        result = self._convert_frozen(client)
+
+        assert "Page A" in result
+        assert client.get.call_count == 1
+
+    def test_fallback_to_snapshot_when_no_detail_lines(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = [
+            {"total": 0, "totalPages": 0, "currentPage": 0, "detailLines": []},
+        ]
+
+        result = self._convert_frozen(client)
+
+        assert "Page A" in result
+        assert client.get.call_count == 1
 
 
 class TestAttachmentTemplateVars:
