@@ -1627,6 +1627,18 @@ class TestPagePropertiesReportFrozenFetchesAllRows:
     _REPORT_HTML = TestPagePropertiesReportDataview._REPORT_HTML
     _BODY_EXPORT = TestPagePropertiesReportDataview._BODY_EXPORT
 
+    _REPORT_HTML_NO_HEADINGS = (
+        '<table class="aui metadata-summary-macro null"'
+        ' data-cql=\'label = "tool-validation" and parent = "42"\''
+        ' data-current-content-id="42"'
+        ' data-current-space-key="TS"'
+        ' data-first-column-heading="Title"'
+        ' data-headings=""'
+        ' data-sort-by="Title"'
+        ' data-reverse-sort="false">'
+        "</table>"
+    )
+
     @staticmethod
     def _detail_line(page_id: int, title: str, details: list[str]) -> dict:
         return {
@@ -1672,7 +1684,7 @@ class TestPagePropertiesReportFrozenFetchesAllRows:
             attachments=[],
         )
 
-    def _convert_frozen(self, client: MagicMock) -> str:
+    def _convert_frozen(self, client: MagicMock, report_html: str | None = None) -> str:
         from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
 
         PageTitleRegistry.reset()
@@ -1697,7 +1709,7 @@ class TestPagePropertiesReportFrozenFetchesAllRows:
             ):
                 s.export.page_properties_report_format = "frozen"
                 s.export.page_href = "wiki"
-                return converter.convert(self._REPORT_HTML)
+                return converter.convert(report_html or self._REPORT_HTML)
         finally:
             PageTitleRegistry.reset()
 
@@ -1794,6 +1806,77 @@ class TestPagePropertiesReportFrozenFetchesAllRows:
         result = self._convert_frozen(client)
 
         assert "Page B" in result
+
+    def test_fallback_when_headings_attribute_is_empty(self) -> None:
+        client = MagicMock()
+
+        result = self._convert_frozen(client, report_html=self._REPORT_HTML_NO_HEADINGS)
+
+        assert "Page A" in result
+        client.get.assert_not_called()
+
+    def test_row_without_page_id_renders_plain_title(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = [
+            {
+                "total": 1,
+                "totalPages": 1,
+                "currentPage": 0,
+                "detailLines": [
+                    {
+                        "id": None,
+                        "title": "No Id Page",
+                        "relativeLink": "",
+                        "details": ["<p>v9</p>"],
+                    },
+                ],
+            },
+        ]
+
+        result = self._convert_frozen(client)
+
+        assert "No Id Page" in result
+        assert "v9" in result
+
+    def test_fallback_when_later_page_is_empty(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = [
+            {
+                "total": 3,
+                "totalPages": 2,
+                "currentPage": 0,
+                "detailLines": [
+                    self._detail_line(101, "Page A", ["<p>v1.0</p>", "<p>Yes</p>"]),
+                    self._detail_line(102, "Page B", ["<p>v2.0</p>", "<p>No</p>"]),
+                ],
+            },
+            {"total": 3, "totalPages": 2, "currentPage": 1, "detailLines": []},
+        ]
+
+        result = self._convert_frozen(client)
+
+        assert "Page A" in result
+        assert "Page B" not in result
+
+    def test_fallback_when_second_page_request_fails(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = [
+            {
+                "total": 3,
+                "totalPages": 2,
+                "currentPage": 0,
+                "detailLines": [
+                    self._detail_line(101, "Page A", ["<p>v1.0</p>", "<p>Yes</p>"]),
+                    self._detail_line(102, "Page B", ["<p>v2.0</p>", "<p>No</p>"]),
+                ],
+            },
+            HTTPError("500 Server Error"),
+        ]
+
+        result = self._convert_frozen(client)
+
+        assert "Page A" in result
+        assert "Page B" not in result
 
 
 class TestAttachmentTemplateVars:
