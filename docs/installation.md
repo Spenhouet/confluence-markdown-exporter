@@ -88,7 +88,7 @@ The Docker image is intended for **non-interactive / CI use**: you supply a pre-
 <TabItem value="linux" label="Linux">
 
 ```bash
-curl -LsSf uvx.sh/confluence-markdown-exporter/5.2.1/install.sh | sh
+curl -LsSf uvx.sh/confluence-markdown-exporter/5.3.0/install.sh | sh
 ```
 
 </TabItem>
@@ -96,7 +96,7 @@ curl -LsSf uvx.sh/confluence-markdown-exporter/5.2.1/install.sh | sh
 <TabItem value="macos" label="macOS">
 
 ```bash
-curl -LsSf uvx.sh/confluence-markdown-exporter/5.2.1/install.sh | sh
+curl -LsSf uvx.sh/confluence-markdown-exporter/5.3.0/install.sh | sh
 ```
 
 </TabItem>
@@ -104,7 +104,7 @@ curl -LsSf uvx.sh/confluence-markdown-exporter/5.2.1/install.sh | sh
 <TabItem value="windows" label="Windows">
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://uvx.sh/confluence-markdown-exporter/5.2.1/install.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://uvx.sh/confluence-markdown-exporter/5.3.0/install.ps1 | iex"
 ```
 
 </TabItem>
@@ -112,7 +112,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://uvx.sh/confluence-markdown-ex
 <TabItem value="pip" label="pip">
 
 ```bash
-pip install confluence-markdown-exporter==5.2.1
+pip install confluence-markdown-exporter==5.3.0
 ```
 
 </TabItem>
@@ -120,7 +120,7 @@ pip install confluence-markdown-exporter==5.2.1
 <TabItem value="uv" label="uv">
 
 ```bash
-uv tool install confluence-markdown-exporter==5.2.1
+uv tool install confluence-markdown-exporter==5.3.0
 ```
 
 </TabItem>
@@ -128,7 +128,7 @@ uv tool install confluence-markdown-exporter==5.2.1
 <TabItem value="docker" label="Docker">
 
 ```bash
-docker pull spenhouet/confluence-markdown-exporter:5.2.1
+docker pull spenhouet/confluence-markdown-exporter:5.3.0
 ```
 
 Pinned tags are kept available indefinitely; rolling tags (`latest`, `<major>`, `<major>.<minor>`) advance with each release. See [Docker → Available tags](./docker.md#available-tags).
