@@ -1768,6 +1768,33 @@ class TestPagePropertiesReportFrozenFetchesAllRows:
         assert "Page A" in result
         assert client.get.call_count == 1
 
+    def test_fallback_to_snapshot_when_response_is_malformed(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = [
+            {"total": 1, "totalPages": 1, "currentPage": 0, "detailLines": ["not-a-dict"]},
+        ]
+
+        result = self._convert_frozen(client)
+
+        assert "Page A" in result
+
+    def test_row_with_null_details_is_kept(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = [
+            {
+                "total": 1,
+                "totalPages": 1,
+                "currentPage": 0,
+                "detailLines": [
+                    {"id": 102, "title": "Page B", "relativeLink": "/x", "details": None},
+                ],
+            },
+        ]
+
+        result = self._convert_frozen(client)
+
+        assert "Page B" in result
+
 
 class TestAttachmentTemplateVars:
     """`attachment_file_id` falls back to the content id when fileId is empty."""
