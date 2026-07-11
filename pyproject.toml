@@ -157,7 +157,7 @@ pydocstyle.convention = "google" # docstring convention. Options: "google", "num
 pylint.max-args = 10 # max no of args in a function
 
 [tool.ruff.lint.isort]
-known-first-party = ["airamed", "main"]
+known-first-party = ["main"]
 force-single-line = true # force each import to be in its own line
 
 [tool.ruff.format]
