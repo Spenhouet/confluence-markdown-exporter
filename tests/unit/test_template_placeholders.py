@@ -35,9 +35,7 @@ class TestTemplatePlaceholderEscaping:
         assert result == "Replace \\<medical device\\> here."
 
     def test_allcaps_placeholder_escaped(self, converter: Page.Converter) -> None:
-        result = converter._escape_template_placeholders(
-            "Page: Literature Search Report: <TOPIC>"
-        )
+        result = converter._escape_template_placeholders("Page: Literature Search Report: <TOPIC>")
         assert result == "Page: Literature Search Report: \\<TOPIC\\>"
 
     def test_complex_placeholder_escaped(self, converter: Page.Converter) -> None:
@@ -97,10 +95,8 @@ class TestTemplatePlaceholderEscaping:
         assert "\\<medical device\\>" in lines[4]
 
     def test_https_autolink_preserved(self, converter: Page.Converter) -> None:
-        result = converter._escape_template_placeholders(
-            "URL: <https://api.airamed.de/v1/udi>."
-        )
-        assert result == "URL: <https://api.airamed.de/v1/udi>."
+        result = converter._escape_template_placeholders("URL: <https://api.company.de/v1/test>.")
+        assert result == "URL: <https://api.company.de/v1/test>."
 
     def test_http_autolink_preserved(self, converter: Page.Converter) -> None:
         result = converter._escape_template_placeholders("see <http://example.com/path?q=1>")
