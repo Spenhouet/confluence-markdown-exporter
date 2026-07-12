@@ -1,0 +1,107 @@
+site_name: Confluence Markdown Exporter
+site_description: >-
+  Export Confluence pages to Markdown for Obsidian, Gollum, Azure DevOps, Foam,
+  Dendron and more.
+site_url: https://spenhouet.github.io/confluence-markdown-exporter/
+site_author: Sebastian Penhouet
+copyright: Copyright &copy; 2026 Sebastian Penhouet
+
+repo_url: https://github.com/Spenhouet/confluence-markdown-exporter
+repo_name: Spenhouet/confluence-markdown-exporter
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  custom_dir: overrides
+  logo: img/favicon.svg
+  favicon: img/favicon.svg
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path:
+        - .
+      check_paths: true
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Spenhouet/confluence-markdown-exporter
+      name: Source on GitHub
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/confluence-markdown-exporter/
+      name: Package on PyPI
+    - icon: fontawesome/brands/docker
+      link: https://hub.docker.com/r/spenhouet/confluence-markdown-exporter
+      name: Image on Docker Hub
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  - Introduction: intro.md
+  - Quickstart:
+      - Installation: installation.md
+      - Usage: usage.md
+  - Features: features.md
+  - Configuration:
+      - configuration/index.md
+      - Options: configuration/options.md
+      - Authentication: configuration/authentication.md
+      - Target systems: configuration/target-systems.md
+      - CI: configuration/ci.md
+  - Docker: docker.md
+  - Compatibility: compatibility.md
+  - Troubleshooting: troubleshooting.md
+  - Contributing: contributing.md

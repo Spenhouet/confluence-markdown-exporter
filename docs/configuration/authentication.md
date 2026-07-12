@@ -1,14 +1,12 @@
 ---
-id: authentication
 title: Authentication
-sidebar_position: 3
 ---
 
 # Authentication
 
-:::note
-Auth credentials use URL-keyed nested dicts (e.g. `auth.confluence["https://company.atlassian.net"]`) and cannot be mapped to flat ENV var names. Use `cme config edit auth.confluence` or `cme config set` for auth configuration.
-:::
+!!! note
+
+    Auth credentials use URL-keyed nested dicts (e.g. `auth.confluence["https://company.atlassian.net"]`) and cannot be mapped to flat ENV var names. Use `cme config edit auth.confluence` or `cme config set` for auth configuration.
 
 The fastest way to set credentials is the interactive menu:
 

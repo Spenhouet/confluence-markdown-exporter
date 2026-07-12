@@ -1,7 +1,5 @@
 ---
-id: contributing
 title: Contributing
-sidebar_position: 7
 ---
 
 # Contributing
@@ -19,22 +17,13 @@ Use the [GitHub issue tracker](https://github.com/Spenhouet/confluence-markdown-
 
 ## Docs site
 
-The documentation site is built with [Docusaurus](https://docusaurus.io/) and deployed to GitHub Pages.
+The documentation site is authored as [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/)
+and built with [Zensical](https://zensical.org/), then deployed to GitHub Pages.
 
-- Sources live under `docs/` in the repository as plain Markdown / MDX.
-- Local preview: `npm ci && npm start` (serves `http://localhost:3000/confluence-markdown-exporter/`).
-- Production build with all versions: `npm run build:versioned` then `npm run serve`.
-
-### Versioning
-
-Versioning is **driven by git release tags**. There are no `versioned_docs/` folders committed to the repo. At build time, `scripts/build-versions.mjs`:
-
-1. Lists git tags matching `^\d+\.\d+\.\d+$` (the project's release pattern).
-2. Filters to tags whose tree already contains a Docusaurus `docs/` + `sidebars.ts`.
-3. Snapshots each eligible tag into `versioned_docs/version-<tag>/` by checking out that tag's docs and running `docusaurus docs:version`.
-4. Builds with the newest tag set as the default version; HEAD becomes the `Next 🚧` (unreleased) version.
-
-That means: cutting a new release tag automatically produces a new docs version on the next site build. Old versions cannot be edited after-the-fact; they are sourced directly from their git tag.
+- Sources live under `docs/` as plain Markdown; the site config is `mkdocs.yml`.
+- Install the docs toolchain: `uv sync --group docs`.
+- Local preview: `uv run zensical serve` (serves `http://127.0.0.1:8000`).
+- Production build: `uv run zensical build --strict` (outputs to `site/`).
 
 ## License
 

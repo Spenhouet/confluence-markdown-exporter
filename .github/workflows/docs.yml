@@ -5,16 +5,10 @@ on:
     branches: [main]
     paths:
       - "docs/**"
-      - "versioned_docs/**"
-      - "versioned_sidebars/**"
-      - "versions.json"
-      - "src/**"
-      - "static/**"
-      - "docusaurus.config.ts"
-      - "sidebars.ts"
-      - "tsconfig.json"
-      - "package.json"
-      - "package-lock.json"
+      - "overrides/**"
+      - "mkdocs.yml"
+      - "pyproject.toml"
+      - "uv.lock"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -33,25 +27,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
         with:
-          fetch-depth: 0
+          enable-cache: true
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
+      - name: Install docs dependencies
+        run: uv sync --locked --group docs
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build site (with versioned docs from git tags)
-        run: npm run build:versioned
+      - name: Build site with Zensical
+        run: uv run zensical build --strict
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: build
+          path: site
 
   deploy:
     name: Deploy to GitHub Pages

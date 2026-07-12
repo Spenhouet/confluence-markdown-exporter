@@ -1,8 +1,5 @@
 ---
-id: options
 title: Configuration options
-sidebar_label: Options reference
-sidebar_position: 2
 ---
 
 # Configuration options
@@ -126,9 +123,9 @@ Controls how Confluence Page Properties macros (key-value tables) are rendered. 
 | `dataview-inline-field` | Replace the table with [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) `Key:: Value` inline fields                             |
 | `meta-bind-view-fields` | Write YAML front matter and a table using [Meta Bind](https://www.moritzjung.dev/obsidian-meta-bind-plugin-docs/) `VIEW[{key}][text]` fields |
 
-:::info Migration
-The legacy `page_properties_as_front_matter=true/false` is still accepted and maps to `frontmatter` / `table` respectively.
-:::
+!!! info "Migration"
+
+    The legacy `page_properties_as_front_matter=true/false` is still accepted and maps to `frontmatter` / `table` respectively.
 
 - Default: `frontmatter_and_table`
 - ENV Var: `CME_EXPORT__PAGE_PROPERTIES_FORMAT`
