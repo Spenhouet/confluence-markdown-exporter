@@ -1,7 +1,5 @@
 ---
-id: troubleshooting
 title: Troubleshooting
-sidebar_position: 6
 ---
 
 # Troubleshooting

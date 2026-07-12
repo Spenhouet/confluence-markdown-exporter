@@ -1,8 +1,6 @@
 ---
-id: index
 title: Configuration
 slug: /configuration/
-sidebar_position: 1
 ---
 
 # Configuration
@@ -62,9 +60,9 @@ cme config set export.skip_unchanged=false
 
 Sets one or more `key=value` pairs directly. Values are parsed as JSON where possible (so `true`, `false`, and numbers work as expected), falling back to a plain string.
 
-:::note
-For auth keys that contain a URL (e.g. `auth.confluence.https://...`), use `cme config edit auth.confluence` instead, which handles URL-based keys correctly.
-:::
+!!! note
+
+    For auth keys that contain a URL (e.g. `auth.confluence.https://...`), use `cme config edit auth.confluence` instead, which handles URL-based keys correctly.
 
 ### Edit a specific key interactively
 
@@ -98,9 +96,9 @@ All options can be set via the config file (using `cme config set`) or overridde
 
 ENV vars **take precedence** over stored config and are **not** persisted. ENV var names use the `CME_` prefix and `__` (double underscore) as the nested delimiter, matching the key in uppercase. Example: `export.log_level` → `CME_EXPORT__LOG_LEVEL`.
 
-:::note
-Auth credentials use URL-keyed nested dicts (e.g. `auth.confluence["https://company.atlassian.net"]`) and cannot be mapped to flat ENV var names. Use `cme config edit auth.confluence` or `cme config set` for auth configuration.
-:::
+!!! note
+
+    Auth credentials use URL-keyed nested dicts (e.g. `auth.confluence["https://company.atlassian.net"]`) and cannot be mapped to flat ENV var names. Use `cme config edit auth.confluence` or `cme config set` for auth configuration.
 
 ## Custom config file location
 

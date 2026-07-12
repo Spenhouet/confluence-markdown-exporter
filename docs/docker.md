@@ -1,7 +1,5 @@
 ---
-id: docker
 title: Docker
-sidebar_position: 5
 ---
 
 # Docker
@@ -10,9 +8,9 @@ Prebuilt images are published to Docker Hub at [`spenhouet/confluence-markdown-e
 
 The Docker image is intended for **non-interactive / CI use**: you supply a pre-defined config (either as a mounted JSON file or as environment variables), and the container runs a single export command and exits.
 
-:::note
-The interactive `cme config` menu is **not** supported in this mode. Edit the JSON config file directly or change the env vars instead.
-:::
+!!! note
+
+    The interactive `cme config` menu is **not** supported in this mode. Edit the JSON config file directly or change the env vars instead.
 
 ## Available tags
 
@@ -79,9 +77,9 @@ See the full [options reference](./configuration/options.md) for every supported
 
 ## Auth credentials in environment variables
 
-:::warning
-The `auth.confluence` and `auth.jira` settings are dicts keyed by the instance base URL. That URL key cannot be expressed inside an environment variable name.
-:::
+!!! warning
+
+    The `auth.confluence` and `auth.jira` settings are dicts keyed by the instance base URL. That URL key cannot be expressed inside an environment variable name.
 
 If you must inject auth credentials via env vars (e.g. to keep secrets out of the JSON file), supply the whole sub-dict as a single JSON-encoded value:
 

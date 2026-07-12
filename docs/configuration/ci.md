@@ -1,8 +1,5 @@
 ---
-id: ci
 title: Running in CI
-sidebar_label: CI / non-interactive
-sidebar_position: 5
 ---
 
 # Running in CI / non-interactive environments

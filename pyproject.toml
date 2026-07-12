@@ -33,6 +33,12 @@ dev = [
     "pytest>=8.4.1",
     "ruff>=0.11.13",
 ]
+# Docs toolchain. The site is authored as Material for MkDocs and built with
+# Zensical (the Material team's successor to MkDocs).
+docs = [
+    "mkdocs-material>=9.5",
+    "zensical>=0.0.50",
+]
 
 [project.urls]
 Homepage = "https://github.com/Spenhouet/confluence-markdown-exporter"

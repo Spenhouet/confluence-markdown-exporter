@@ -1,7 +1,5 @@
 ---
-id: compatibility
 title: Compatibility
-sidebar_position: 5
 ---
 
 # Compatibility

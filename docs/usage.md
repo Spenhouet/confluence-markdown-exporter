@@ -1,7 +1,5 @@
 ---
-id: usage
 title: Usage
-sidebar_position: 2
 ---
 
 # Usage
