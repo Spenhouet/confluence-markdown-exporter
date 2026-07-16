@@ -46,13 +46,7 @@ def _lock_with_pages(
     space_key: str = _TEST_SPACE_KEY,
 ) -> ConfluenceLock:
     """Build a ConfluenceLock with pages nested under the given org/space."""
-    return ConfluenceLock(
-        orgs={
-            base_url: OrgEntry(
-                spaces={space_key: SpaceEntry(pages=pages)}
-            )
-        }
-    )
+    return ConfluenceLock(orgs={base_url: OrgEntry(spaces={space_key: SpaceEntry(pages=pages)})})
 
 
 def _lock_data(
@@ -65,13 +59,7 @@ def _lock_data(
     return {
         "lockfile_version": 2,
         "last_export": "2025-01-01T00:00:00+00:00",
-        "orgs": {
-            base_url: {
-                "spaces": {
-                    space_key: {"pages": pages}
-                }
-            }
-        },
+        "orgs": {base_url: {"spaces": {space_key: {"pages": pages}}}},
     }
 
 
@@ -136,10 +124,12 @@ class TestLockfileManagerInit:
             mock_get_settings.return_value.export.output_path = Path(tmp)
             mock_get_settings.return_value.export.lockfile_name = LOCKFILE_FILENAME
             lockfile_path = Path(tmp) / LOCKFILE_FILENAME
-            data = _lock_data({
-                "100": {"title": "A", "version": 1, "export_path": "a.md"},
-                "200": {"title": "B", "version": 2, "export_path": "b.md"},
-            })
+            data = _lock_data(
+                {
+                    "100": {"title": "A", "version": 1, "export_path": "a.md"},
+                    "200": {"title": "B", "version": 2, "export_path": "b.md"},
+                }
+            )
             lockfile_path.write_text(json.dumps(data), encoding="utf-8")
 
             LockfileManager.init()
@@ -203,9 +193,11 @@ class TestLockfileManagerRecordPage:
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / LOCKFILE_FILENAME
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = _lock_with_pages({
-                "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
-            })
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
+                }
+            )
 
             page = _make_mock_page(page_id=100, version_number=2, export_path="space/Page A.md")
             LockfileManager.record_page(page)
@@ -252,36 +244,44 @@ class TestLockfileManagerShouldExport:
 
     def test_page_not_in_lockfile_should_export(self) -> None:
         """A page not present in the lockfile should be exported."""
-        LockfileManager._lock = _lock_with_pages({
-            "999": PageEntry(title="Other", version=1, export_path="other.md"),
-        })
+        LockfileManager._lock = _lock_with_pages(
+            {
+                "999": PageEntry(title="Other", version=1, export_path="other.md"),
+            }
+        )
 
         page = _make_mock_page(page_id=123, version_number=1, export_path="space/New.md")
         assert LockfileManager.should_export(page) is True
 
     def test_page_in_lockfile_same_version_same_path_should_not_export(self) -> None:
         """A page with same version and same path should NOT be exported."""
-        LockfileManager._lock = _lock_with_pages({
-            "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
-        })
+        LockfileManager._lock = _lock_with_pages(
+            {
+                "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
+            }
+        )
 
         page = _make_mock_page(page_id=123, version_number=5, export_path="space/Page A.md")
         assert LockfileManager.should_export(page) is False
 
     def test_page_in_lockfile_different_version_should_export(self) -> None:
         """A page whose version has changed should be exported."""
-        LockfileManager._lock = _lock_with_pages({
-            "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
-        })
+        LockfileManager._lock = _lock_with_pages(
+            {
+                "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
+            }
+        )
 
         page = _make_mock_page(page_id=123, version_number=6, export_path="space/Page A.md")
         assert LockfileManager.should_export(page) is True
 
     def test_page_in_lockfile_different_export_path_should_export(self) -> None:
         """A page whose export path has changed (file moved) should be exported."""
-        LockfileManager._lock = _lock_with_pages({
-            "123": PageEntry(title="Page A", version=5, export_path="old/Page A.md"),
-        })
+        LockfileManager._lock = _lock_with_pages(
+            {
+                "123": PageEntry(title="Page A", version=5, export_path="old/Page A.md"),
+            }
+        )
 
         page = _make_mock_page(page_id=123, version_number=5, export_path="new/Page A.md")
         assert LockfileManager.should_export(page) is True
@@ -298,9 +298,11 @@ class TestLockfileManagerShouldExport:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp)
             LockfileManager._output_path = output
-            LockfileManager._lock = _lock_with_pages({
-                "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
-            })
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
+                }
+            )
 
             # File does NOT exist on disk
             page = _make_mock_page(page_id=123, version_number=5, export_path="space/Page A.md")
@@ -315,9 +317,11 @@ class TestLockfileManagerShouldExport:
             md_file.write_text("content")
 
             LockfileManager._output_path = output
-            LockfileManager._lock = _lock_with_pages({
-                "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
-            })
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "123": PageEntry(title="Page A", version=5, export_path="space/Page A.md"),
+                }
+            )
 
             page = _make_mock_page(page_id=123, version_number=5, export_path="space/Page A.md")
             assert LockfileManager.should_export(page) is False
@@ -338,54 +342,12 @@ class TestLockfileManagerMarkSeen:
         assert LockfileManager._seen_page_ids == {"100", "200"}
 
 
-class TestLockfileManagerCleanup:
-    """Test cases for LockfileManager.cleanup."""
+class TestLockfileManagerCleanupMovedPages:
+    """Test cases for LockfileManager.cleanup_moved_pages."""
 
-    def test_cleanup_noop_when_not_initialized(self) -> None:
-        """Cleanup does nothing when not initialized."""
-        LockfileManager.remove_pages(set())  # Should not raise
-
-    def test_cleanup_deletes_file_for_removed_page(self) -> None:
-        """Pages deleted from Confluence have their files removed."""
-        with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp)
-            md_file = output / "space" / "Removed.md"
-            md_file.parent.mkdir(parents=True)
-            md_file.write_text("content")
-
-            lockfile_path = output / LOCKFILE_FILENAME
-            LockfileManager._output_path = output
-            LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = _lock_with_pages({
-                "100": PageEntry(title="Removed", version=1, export_path="space/Removed.md"),
-            })
-            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
-            LockfileManager._seen_page_ids = set()  # page 100 not seen
-
-            LockfileManager.remove_pages({"100"})
-
-            assert not md_file.exists()
-
-    def test_cleanup_removes_entry_from_lockfile(self) -> None:
-        """Deleted pages are removed from the lockfile."""
-        with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp)
-            lockfile_path = output / LOCKFILE_FILENAME
-            LockfileManager._output_path = output
-            LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = _lock_with_pages({
-                "100": PageEntry(title="Removed", version=1, export_path="space/Removed.md"),
-                "200": PageEntry(title="Kept", version=1, export_path="space/Kept.md"),
-            })
-            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
-            LockfileManager._seen_page_ids = {"200"}
-
-            LockfileManager.remove_pages({"100"})
-
-            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
-            pages = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
-            assert "100" not in pages
-            assert "200" in pages
+    def test_cleanup_moved_pages_noop_when_not_initialized(self) -> None:
+        """cleanup_moved_pages does nothing when not initialized."""
+        LockfileManager.cleanup_moved_pages()  # Should not raise
 
     def test_cleanup_deletes_old_file_for_moved_page(self) -> None:
         """When a page's export_path changes, the old file is deleted."""
@@ -401,14 +363,133 @@ class TestLockfileManagerCleanup:
             LockfileManager._all_entries_snapshot = {
                 "100": PageEntry(title="Page", version=1, export_path="old/Page.md"),
             }
-            LockfileManager._lock = _lock_with_pages({
-                "100": PageEntry(title="Page", version=2, export_path="new/Page.md"),
-            })
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Page", version=2, export_path="new/Page.md"),
+                }
+            )
             LockfileManager._seen_page_ids = {"100"}
 
-            LockfileManager.remove_pages(set())
+            LockfileManager.cleanup_moved_pages()
 
             assert not old_file.exists()
+
+    def test_cleanup_moved_pages_continues_after_unlink_error(self) -> None:
+        """An OSError deleting one moved page's old file does not abort the rest of the run."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._all_entries_snapshot = {
+                "100": PageEntry(title="Broken", version=1, export_path="old/Broken.md"),
+                "200": PageEntry(title="Fine", version=1, export_path="old/Fine.md"),
+            }
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Broken", version=2, export_path="new/Broken.md"),
+                    "200": PageEntry(title="Fine", version=2, export_path="new/Fine.md"),
+                }
+            )
+            LockfileManager._seen_page_ids = {"100", "200"}
+
+            fine_old_file = output / "old" / "Fine.md"
+            fine_old_file.parent.mkdir(parents=True)
+            fine_old_file.write_text("content")
+
+            real_unlink = Path.unlink
+
+            def flaky_unlink(self: Path, *, missing_ok: bool = False) -> None:
+                if self.name == "Broken.md":
+                    msg = "locked"
+                    raise PermissionError(msg)
+                real_unlink(self, missing_ok=missing_ok)
+
+            with patch("pathlib.Path.unlink", flaky_unlink):
+                LockfileManager.cleanup_moved_pages()  # Should not raise
+
+            assert not fine_old_file.exists()
+
+    def test_cleanup_moved_pages_leaves_file_when_path_unchanged(self) -> None:
+        """When a seen page's export_path is unchanged, its file is left alone."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            md_file = output / "space" / "Unchanged.md"
+            md_file.parent.mkdir(parents=True)
+            md_file.write_text("content")
+
+            lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._all_entries_snapshot = {
+                "100": PageEntry(title="Unchanged", version=1, export_path="space/Unchanged.md"),
+            }
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(
+                        title="Unchanged", version=2, export_path="space/Unchanged.md"
+                    ),
+                }
+            )
+            LockfileManager._seen_page_ids = {"100"}
+
+            LockfileManager.cleanup_moved_pages()
+
+            assert md_file.exists()
+
+
+class TestLockfileManagerRemoveDeletedPages:
+    """Test cases for LockfileManager.remove_deleted_pages."""
+
+    def test_remove_deleted_pages_noop_when_not_initialized(self) -> None:
+        """remove_deleted_pages does nothing when not initialized."""
+        LockfileManager.remove_deleted_pages(set())  # Should not raise
+
+    def test_cleanup_deletes_file_for_removed_page(self) -> None:
+        """Pages deleted from Confluence have their files removed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            md_file = output / "space" / "Removed.md"
+            md_file.parent.mkdir(parents=True)
+            md_file.write_text("content")
+
+            lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Removed", version=1, export_path="space/Removed.md"),
+                }
+            )
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
+            LockfileManager._seen_page_ids = set()  # page 100 not seen
+
+            LockfileManager.remove_deleted_pages({"100"})
+
+            assert not md_file.exists()
+
+    def test_cleanup_removes_entry_from_lockfile(self) -> None:
+        """Deleted pages are removed from the lockfile."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Removed", version=1, export_path="space/Removed.md"),
+                    "200": PageEntry(title="Kept", version=1, export_path="space/Kept.md"),
+                }
+            )
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
+            LockfileManager._seen_page_ids = {"200"}
+
+            LockfileManager.remove_deleted_pages({"100"})
+
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            pages = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            assert "100" not in pages
+            assert "200" in pages
 
     def test_cleanup_keeps_page_existing_on_confluence(self) -> None:
         """Unseen pages that still exist on Confluence are kept."""
@@ -421,13 +502,15 @@ class TestLockfileManagerCleanup:
             lockfile_path = output / LOCKFILE_FILENAME
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = _lock_with_pages({
-                "100": PageEntry(title="Still", version=1, export_path="space/Still.md"),
-            })
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Still", version=1, export_path="space/Still.md"),
+                }
+            )
             LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
             LockfileManager._seen_page_ids = set()
 
-            LockfileManager.remove_pages(set())
+            LockfileManager.remove_deleted_pages(set())
 
             assert md_file.exists()
             assert LockfileManager._lock.get_page("100") is not None
@@ -439,13 +522,15 @@ class TestLockfileManagerCleanup:
             lockfile_path = output / LOCKFILE_FILENAME
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = _lock_with_pages({
-                "100": PageEntry(title="Seen", version=1, export_path="a.md"),
-            })
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Seen", version=1, export_path="a.md"),
+                }
+            )
             LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
             LockfileManager._seen_page_ids = {"100"}
 
-            LockfileManager.remove_pages(set())
+            LockfileManager.remove_deleted_pages(set())
             # fetch_deleted_page_ids is never called — all pages were seen
 
     def test_cleanup_handles_already_deleted_file(self) -> None:
@@ -455,13 +540,52 @@ class TestLockfileManagerCleanup:
             lockfile_path = output / LOCKFILE_FILENAME
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = _lock_with_pages({
-                "100": PageEntry(title="Gone", version=1, export_path="space/Gone.md"),
-            })
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Gone", version=1, export_path="space/Gone.md"),
+                }
+            )
             LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
             LockfileManager._seen_page_ids = set()
 
-            LockfileManager.remove_pages({"100"})  # Should not raise
+            LockfileManager.remove_deleted_pages({"100"})  # Should not raise
+
+    def test_remove_deleted_pages_continues_after_unlink_error(self) -> None:
+        """An OSError deleting one page's file does not abort removal of the rest."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Broken", version=1, export_path="space/Broken.md"),
+                    "200": PageEntry(title="Fine", version=1, export_path="space/Fine.md"),
+                }
+            )
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
+            LockfileManager._seen_page_ids = set()
+
+            fine_file = output / "space" / "Fine.md"
+            fine_file.parent.mkdir(parents=True)
+            fine_file.write_text("content")
+
+            real_unlink = Path.unlink
+
+            def flaky_unlink(self: Path, *, missing_ok: bool = False) -> None:
+                if self.name == "Broken.md":
+                    msg = "locked"
+                    raise PermissionError(msg)
+                real_unlink(self, missing_ok=missing_ok)
+
+            with patch("pathlib.Path.unlink", flaky_unlink):
+                LockfileManager.remove_deleted_pages({"100", "200"})  # Should not raise
+
+            assert not fine_file.exists()
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            pages = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            assert "100" in pages  # deletion failed, entry retained
+            assert "200" not in pages
 
     def test_cleanup_api_failure_keeps_pages(self) -> None:
         """When API check fails, pages are kept (safe default)."""
@@ -474,14 +598,16 @@ class TestLockfileManagerCleanup:
             lockfile_path = output / LOCKFILE_FILENAME
             LockfileManager._output_path = output
             LockfileManager._lockfile_path = lockfile_path
-            LockfileManager._lock = _lock_with_pages({
-                "100": PageEntry(title="Safe", version=1, export_path="space/Safe.md"),
-            })
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Safe", version=1, export_path="space/Safe.md"),
+                }
+            )
             LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
             LockfileManager._seen_page_ids = set()
 
             # Pass empty set: safe default — don't delete anything on API failure
-            LockfileManager.remove_pages(set())
+            LockfileManager.remove_deleted_pages(set())
 
             assert md_file.exists()
             assert LockfileManager._lock.get_page("100") is not None
@@ -535,9 +661,7 @@ class TestFetchDeletedPageIds:
 
     @patch("confluence_markdown_exporter.confluence.settings")
     @patch("confluence_markdown_exporter.confluence.get_thread_confluence")
-    def test_batches_large_sets(
-        self, mock_get_client: MagicMock, mock_settings: MagicMock
-    ) -> None:
+    def test_batches_large_sets(self, mock_get_client: MagicMock, mock_settings: MagicMock) -> None:
         """300 IDs are split into 2 v2-API batches of 250."""
         mock_settings.connection_config.use_v2_api = True
         mock_settings.export.existence_check_batch_size = 250
@@ -553,6 +677,116 @@ class TestFetchDeletedPageIds:
         assert mock_client.get.call_count == 2
 
 
+class TestSyncRemovedPages:
+    """Test cases for sync_removed_pages orchestrating LockfileManager cleanup."""
+
+    @patch("confluence_markdown_exporter.confluence.settings")
+    @patch("confluence_markdown_exporter.confluence.fetch_deleted_page_ids")
+    def test_cleans_up_moved_page_without_any_deletions(
+        self, mock_fetch_deleted: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        """Regression test for issue #278: moved-page cleanup runs even with no deletions."""
+        mock_settings.export.cleanup_stale = True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            old_file = output / "old" / "Page.md"
+            old_file.parent.mkdir(parents=True)
+            old_file.write_text("old content")
+
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._all_entries_snapshot = {
+                "100": PageEntry(title="Page", version=1, export_path="old/Page.md"),
+            }
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Page", version=2, export_path="new/Page.md"),
+                }
+            )
+            LockfileManager._seen_page_ids = {"100"}  # the only tracked page; unseen_ids() is empty
+
+            from confluence_markdown_exporter.confluence import sync_removed_pages
+
+            sync_removed_pages(_TEST_BASE_URL)
+
+            assert not old_file.exists()
+            mock_fetch_deleted.assert_not_called()
+
+    @patch("confluence_markdown_exporter.confluence.settings")
+    @patch("confluence_markdown_exporter.confluence.fetch_deleted_page_ids")
+    def test_cleanup_stale_disabled_skips_everything(
+        self, mock_fetch_deleted: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        """When cleanup_stale is disabled, neither moved-page cleanup nor the deletion check run."""
+        mock_settings.export.cleanup_stale = False
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            old_file = output / "old" / "Page.md"
+            old_file.parent.mkdir(parents=True)
+            old_file.write_text("old content")
+
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._all_entries_snapshot = {
+                "100": PageEntry(title="Page", version=1, export_path="old/Page.md"),
+            }
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Page", version=2, export_path="new/Page.md"),
+                }
+            )
+            LockfileManager._seen_page_ids = {"100"}
+
+            from confluence_markdown_exporter.confluence import sync_removed_pages
+
+            sync_removed_pages(_TEST_BASE_URL)
+
+            assert old_file.exists()
+            mock_fetch_deleted.assert_not_called()
+
+    @patch("confluence_markdown_exporter.confluence.settings")
+    @patch("confluence_markdown_exporter.confluence.fetch_deleted_page_ids")
+    def test_moved_page_cleanup_and_deletion_both_run_when_unseen_nonempty(
+        self, mock_fetch_deleted: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        """When a page was actually deleted this run, both cleanup passes run in the same call."""
+        mock_settings.export.cleanup_stale = True
+        mock_fetch_deleted.return_value = {"200"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            old_file = output / "old" / "Moved.md"
+            old_file.parent.mkdir(parents=True)
+            old_file.write_text("old content")
+            deleted_file = output / "space" / "Deleted.md"
+            deleted_file.parent.mkdir(parents=True)
+            deleted_file.write_text("content")
+
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._all_entries_snapshot = {
+                "100": PageEntry(title="Moved", version=1, export_path="old/Moved.md"),
+                "200": PageEntry(title="Deleted", version=1, export_path="space/Deleted.md"),
+            }
+            LockfileManager._lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Moved", version=2, export_path="new/Moved.md"),
+                    "200": PageEntry(title="Deleted", version=1, export_path="space/Deleted.md"),
+                }
+            )
+            LockfileManager._seen_page_ids = {"100"}  # 100 (moved) seen; 200 (deleted) not seen
+
+            from confluence_markdown_exporter.confluence import sync_removed_pages
+
+            sync_removed_pages(_TEST_BASE_URL)
+
+            assert not old_file.exists()
+            assert not deleted_file.exists()
+            mock_fetch_deleted.assert_called_once()
+
+
 class TestConfluenceLockSave:
     """Test cases for ConfluenceLock.save."""
 
@@ -560,9 +794,11 @@ class TestConfluenceLockSave:
         """After save, the file contains valid, complete JSON."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = _lock_with_pages({
-                "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
-            })
+            lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
+                }
+            )
 
             lock.save(lockfile_path)
 
@@ -577,9 +813,11 @@ class TestConfluenceLockSave:
         """On Windows, PermissionError from replace falls back to unlink + rename."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = _lock_with_pages({
-                "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
-            })
+            lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
+                }
+            )
 
             with patch(
                 "confluence_markdown_exporter.utils.lockfile.Path.replace",
@@ -598,9 +836,11 @@ class TestConfluenceLockSave:
         """When writing fails, no .tmp files are left behind."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = _lock_with_pages({
-                "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
-            })
+            lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Page A", version=1, export_path="space/Page A.md"),
+                }
+            )
 
             with (
                 patch(
@@ -618,14 +858,18 @@ class TestConfluenceLockSave:
         """When writing fails, the original lockfile is not corrupted."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            original_data = _lock_data({
-                "100": {"title": "Page A", "version": 1, "export_path": "space/Page A.md"},
-            })
+            original_data = _lock_data(
+                {
+                    "100": {"title": "Page A", "version": 1, "export_path": "space/Page A.md"},
+                }
+            )
             lockfile_path.write_text(json.dumps(original_data), encoding="utf-8")
 
-            lock = _lock_with_pages({
-                "200": PageEntry(title="Page B", version=1, export_path="space/Page B.md"),
-            })
+            lock = _lock_with_pages(
+                {
+                    "200": PageEntry(title="Page B", version=1, export_path="space/Page B.md"),
+                }
+            )
 
             with (
                 patch(
@@ -646,10 +890,12 @@ class TestConfluenceLockSave:
         """Save removes entries specified in delete_ids."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = _lock_with_pages({
-                "100": PageEntry(title="A", version=1, export_path="a.md"),
-                "200": PageEntry(title="B", version=1, export_path="b.md"),
-            })
+            lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="A", version=1, export_path="a.md"),
+                    "200": PageEntry(title="B", version=1, export_path="b.md"),
+                }
+            )
 
             lock.save(lockfile_path, delete_ids={"100"})
 
@@ -666,11 +912,13 @@ class TestConfluenceLockSaveSortsKeys:
         """Pages in the saved lockfile should be sorted by page ID."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = _lock_with_pages({
-                "999": PageEntry(title="Page C", version=1, export_path="c.md"),
-                "123": PageEntry(title="Page A", version=2, export_path="a.md"),
-                "456": PageEntry(title="Page B", version=1, export_path="b.md"),
-            })
+            lock = _lock_with_pages(
+                {
+                    "999": PageEntry(title="Page C", version=1, export_path="c.md"),
+                    "123": PageEntry(title="Page A", version=2, export_path="a.md"),
+                    "456": PageEntry(title="Page B", version=1, export_path="b.md"),
+                }
+            )
 
             lock.save(lockfile_path)
 
@@ -684,9 +932,11 @@ class TestConfluenceLockSaveSortsKeys:
         """Top-level keys should follow the model field order."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = _lock_with_pages({
-                "100": PageEntry(title="Page A", version=1, export_path="a.md"),
-            })
+            lock = _lock_with_pages(
+                {
+                    "100": PageEntry(title="Page A", version=1, export_path="a.md"),
+                }
+            )
 
             lock.save(lockfile_path)
 
@@ -747,16 +997,18 @@ class TestAttachmentEntryTracking:
         """Attachment entries survive a JSON save/load cycle."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            lock = _lock_with_pages({
-                "100": PageEntry(
-                    title="Page A",
-                    version=1,
-                    export_path="a.md",
-                    attachments={
-                        "att1": AttachmentEntry(version=2, path="space/attachments/file.png"),
-                    },
-                ),
-            })
+            lock = _lock_with_pages(
+                {
+                    "100": PageEntry(
+                        title="Page A",
+                        version=1,
+                        export_path="a.md",
+                        attachments={
+                            "att1": AttachmentEntry(version=2, path="space/attachments/file.png"),
+                        },
+                    ),
+                }
+            )
 
             lock.save(lockfile_path)
 
@@ -770,9 +1022,11 @@ class TestAttachmentEntryTracking:
         """Old lock files without 'attachments' field load without error."""
         with tempfile.TemporaryDirectory() as tmp:
             lockfile_path = Path(tmp) / "confluence-lock.json"
-            old_format = _lock_data({
-                "100": {"title": "Page A", "version": 3, "export_path": "a.md"},
-            })
+            old_format = _lock_data(
+                {
+                    "100": {"title": "Page A", "version": 3, "export_path": "a.md"},
+                }
+            )
             lockfile_path.write_text(json.dumps(old_format), encoding="utf-8")
 
             lock = ConfluenceLock.load(lockfile_path)
@@ -802,16 +1056,18 @@ class TestAttachmentEntryTracking:
 
     def test_get_page_attachment_entries_returns_entries(self) -> None:
         """get_page_attachment_entries returns the stored attachment dict for a page."""
-        LockfileManager._lock = _lock_with_pages({
-            "100": PageEntry(
-                title="Page",
-                version=1,
-                export_path="a.md",
-                attachments={
-                    "att1": AttachmentEntry(version=2, path="space/attachments/x.png"),
-                },
-            ),
-        })
+        LockfileManager._lock = _lock_with_pages(
+            {
+                "100": PageEntry(
+                    title="Page",
+                    version=1,
+                    export_path="a.md",
+                    attachments={
+                        "att1": AttachmentEntry(version=2, path="space/attachments/x.png"),
+                    },
+                ),
+            }
+        )
 
         entries = LockfileManager.get_page_attachment_entries("100")
         assert "att1" in entries
