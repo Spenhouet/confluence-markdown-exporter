@@ -2966,14 +2966,16 @@ def fetch_deleted_page_ids(page_ids: list[str], base_url: str) -> set[str]:
 
 
 def sync_removed_pages(base_url: str) -> None:
-    """Orchestrate stale-file cleanup: check API for deleted pages, then clean up."""
+    """Orchestrate stale-file cleanup: clean up moved pages, then check API for deletions."""
     if not settings.export.cleanup_stale:
         logger.debug("Stale page cleanup disabled — skipping.")
         return
 
+    LockfileManager.cleanup_moved_pages()
+
     unseen = LockfileManager.unseen_ids()
     if not unseen:
-        logger.debug("No unseen pages in lockfile — nothing to clean up.")
+        logger.debug("No unseen pages in lockfile — nothing further to clean up.")
         return
 
     with console.status(f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"):
@@ -2981,7 +2983,7 @@ def sync_removed_pages(base_url: str) -> None:
 
     if deleted:
         logger.info("Removing %d stale page(s) from local export.", len(deleted))
-    LockfileManager.remove_pages(deleted)
+    LockfileManager.remove_deleted_pages(deleted)
 
 
 def _make_progress() -> Progress:
