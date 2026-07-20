@@ -2306,16 +2306,50 @@ class TestAppMacroNestedPagePropertiesReport:
         converter = self._converter(self._BODY_EXPORT, self._STORAGE)
         result = converter._inline_app_macro_bodies(html)
         assert "metadata-summary-macro" not in result
+        assert "ap-container" in result
 
     def test_cql_absent_from_export_view_does_not_crash(self) -> None:
         converter = self._converter("", self._STORAGE)
         result = converter._inline_app_macro_bodies(self._PLACEHOLDER)
         assert "metadata-summary-macro" not in result
+        assert "ap-container" in result
 
     def test_missing_storage_does_not_crash(self) -> None:
         converter = self._converter(self._BODY_EXPORT, "")
         result = converter._inline_app_macro_bodies(self._PLACEHOLDER)
         assert "metadata-summary-macro" not in result
+        assert "ap-container" in result
+
+    def test_same_report_in_two_placeholders_is_emitted_twice(self) -> None:
+        """Inserting a live node moves it, so each placeholder needs its own copy."""
+        html = self._PLACEHOLDER + self._PLACEHOLDER.replace("MACRO-1", "MACRO-2")
+        storage = self._STORAGE + self._STORAGE.replace("MACRO-1", "MACRO-2").replace(
+            "INNER-1", "INNER-2"
+        )
+        converter = self._converter(self._BODY_EXPORT, storage)
+        result = converter._inline_app_macro_bodies(html)
+        assert result.count("Page A") == 2
+        assert "ap-container" not in result
+
+    def test_nested_app_macro_placeholders_do_not_crash(self) -> None:
+        """Decomposing an outer placeholder orphans the inner one; that must not raise.
+
+        The outer macro must itself resolve to a table, otherwise it is skipped
+        before `decompose()` and the orphaning never happens.
+        """
+        html = (
+            '<div class="ap-container" data-macro-name="outer"'
+            ' data-macro-id="MACRO-OUTER" data-hasbody="true">'
+            + self._PLACEHOLDER
+            + "</div>"
+        )
+        storage = self._STORAGE + self._STORAGE.replace("MACRO-1", "MACRO-OUTER").replace(
+            "INNER-1", "INNER-OUTER"
+        )
+        converter = self._converter(self._BODY_EXPORT, storage)
+        result = converter._inline_app_macro_bodies(html)
+        assert "Page A" in result
+        assert "ap-container" not in result
 
     def test_two_reports_in_one_wrapper_are_both_emitted_in_order(self) -> None:
         storage = (
