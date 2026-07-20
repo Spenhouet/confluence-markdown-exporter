@@ -22,7 +22,7 @@ Exports individual pages, pages with descendants, or entire spaces via the Atlas
 ### Page metadata
 
 - **Page properties**: Page Properties macro exported as YAML front matter, [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, or [Meta Bind](https://www.moritzjung.dev/obsidian-meta-bind-plugin-docs/) VIEW fields; duplicate keys are disambiguated automatically (configurable via [`export.page_properties_format`](./configuration/options.md#exportpage_properties_format))
-- **Page Properties Report**: dynamic cross-page property tables exported as a static snapshot or a live [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) DQL query (configurable via [`export.page_properties_report_format`](./configuration/options.md#exportpage_properties_report_format))
+- **Page Properties Report**: dynamic cross-page property tables exported as a static snapshot or a live [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) DQL query (configurable via [`export.page_properties_report_format`](./configuration/options.md#exportpage_properties_report_format)). Reports nested inside a third-party app macro (for example [Table Filter](https://marketplace.atlassian.com/apps/27447/table-filter-charts-spreadsheets-for-confluence)) are also exported. Note that such apps apply their filtering, sorting and column hiding in the browser, and that behaviour is not available through the API, so the export contains the full unfiltered report.
 - **Page labels**: exported as `tags` in YAML front matter
 
 ### Diagrams & add-ons

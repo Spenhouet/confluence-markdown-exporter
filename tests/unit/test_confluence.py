@@ -2193,3 +2193,200 @@ class TestColumnLayoutConversion:
         assert result.count("Inner Y") == 1
         assert result.count("Outer A") == 1
         assert result.count("Outer B") == 1
+
+
+class TestAppMacroNestedPagePropertiesReport:
+    """Reports nested in third-party Connect app macros are recovered from body.export_view.
+
+    Confluence does not server-render an app macro's body into ``body.view``, so a Page
+    Properties Report wrapped in e.g. StiltSoft Table Filter would otherwise be missing
+    from the export entirely. See issue #281.
+    """
+
+    _CQL = 'label = "tool-validation" and parent = "42"'
+    _CQL_B = 'label = "other" and parent = "42"'
+
+    # Mirrors the real body.view placeholder: the iframe bootstrap <script> is always
+    # present, so an "is the body empty" check must ignore script/style text.
+    _PLACEHOLDER = (
+        '<div class="ap-container conf-macro output-block"'
+        ' data-macro-name="table-filter" data-macro-id="MACRO-1"'
+        ' data-hasbody="true">'
+        '<div class="ap-content"> </div>'
+        '<script class="ap-iframe-body-script">//<![CDATA[\n'
+        '(function(){var data = {"addon_key":"com.stiltsoft.confluence.plugin.'
+        'tablefilter.tablefilter","key":"table-filter",'
+        '"moduleType":"dynamicContentMacros","macro.truncated":"true"};})();\n'
+        "//]]></script>"
+        "</div>"
+    )
+
+    _STORAGE = (
+        '<ac:structured-macro ac:name="table-filter" ac:macro-id="MACRO-1">'
+        '<ac:parameter ac:name="hidelabels">false</ac:parameter>'
+        "<ac:rich-text-body>"
+        '<ac:structured-macro ac:name="detailssummary" ac:macro-id="INNER-1">'
+        f'<ac:parameter ac:name="cql">{_CQL}</ac:parameter>'
+        '<ac:parameter ac:name="headings">Tool Version,Approved for Use</ac:parameter>'
+        "</ac:structured-macro>"
+        "</ac:rich-text-body>"
+        "</ac:structured-macro>"
+    )
+
+    _BODY_EXPORT = (
+        '<table class="aui metadata-summary-macro null"'
+        f" data-cql='{_CQL}'"
+        ' data-current-space-key="TS"'
+        ' data-headings="Tool Version,Approved for Use"'
+        ' data-sort-by="Title"'
+        ' data-reverse-sort="false">'
+        "<tr><th>Title</th><th>Tool Version</th><th>Approved for Use</th></tr>"
+        "<tr><td>Page A</td><td>1.0</td><td>Yes</td></tr>"
+        "</table>"
+    )
+
+    class _MockPage:
+        def __init__(self, body_export: str = "", body_storage: str = "") -> None:
+            self.id = 42
+            self.title = "Test Page"
+            self.base_url = "https://confluence.example.com"
+            self.html = ""
+            self.labels: list = []
+            self.ancestors: list = []
+            self.body_export = body_export
+            self.body_storage = body_storage
+            self.export_path = Path("Test Space/Test Page/Test Page.md")
+
+        def get_attachment_by_file_id(self, file_id: str) -> None:
+            return None
+
+    def _converter(self, body_export: str = "", body_storage: str = "") -> Page.Converter:
+        page = self._MockPage(body_export=body_export, body_storage=body_storage)
+        return Page.Converter(page)
+
+    def test_placeholder_is_replaced_with_report_table(self) -> None:
+        converter = self._converter(self._BODY_EXPORT, self._STORAGE)
+        result = converter._inline_app_macro_bodies(self._PLACEHOLDER)
+        assert "metadata-summary-macro" in result
+        assert "ap-container" not in result
+
+    def test_nested_report_reaches_markdown_output(self) -> None:
+        converter = self._converter(self._BODY_EXPORT, self._STORAGE)
+        html = converter._inline_app_macro_bodies(self._PLACEHOLDER)
+        client = MagicMock()
+        client.get.side_effect = HTTPError("404 Client Error")
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.get_thread_confluence",
+                return_value=client,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_properties_report_format = "frozen"
+            result = converter.convert(html)
+        assert "Page A" in result
+        assert "Tool Version" in result
+
+    def test_html_without_app_macro_is_unchanged(self) -> None:
+        converter = self._converter(self._BODY_EXPORT, self._STORAGE)
+        html = "<p>Nothing to see</p>"
+        assert converter._inline_app_macro_bodies(html) == html
+
+    def test_app_macro_with_rendered_body_is_left_alone(self) -> None:
+        """Server-rendered app macro content must not be discarded."""
+        html = (
+            '<div class="ap-container" data-macro-name="other" '
+            'data-macro-id="MACRO-1" data-hasbody="true">Rendered content</div>'
+        )
+        converter = self._converter(self._BODY_EXPORT, self._STORAGE)
+        assert "Rendered content" in converter._inline_app_macro_bodies(html)
+
+    def test_unknown_macro_id_does_not_crash(self) -> None:
+        html = self._PLACEHOLDER.replace("MACRO-1", "MISSING")
+        converter = self._converter(self._BODY_EXPORT, self._STORAGE)
+        result = converter._inline_app_macro_bodies(html)
+        assert "metadata-summary-macro" not in result
+
+    def test_cql_absent_from_export_view_does_not_crash(self) -> None:
+        converter = self._converter("", self._STORAGE)
+        result = converter._inline_app_macro_bodies(self._PLACEHOLDER)
+        assert "metadata-summary-macro" not in result
+
+    def test_missing_storage_does_not_crash(self) -> None:
+        converter = self._converter(self._BODY_EXPORT, "")
+        result = converter._inline_app_macro_bodies(self._PLACEHOLDER)
+        assert "metadata-summary-macro" not in result
+
+    def test_two_reports_in_one_wrapper_are_both_emitted_in_order(self) -> None:
+        storage = (
+            '<ac:structured-macro ac:name="table-filter" ac:macro-id="MACRO-1">'
+            "<ac:rich-text-body>"
+            '<ac:structured-macro ac:name="detailssummary" ac:macro-id="I1">'
+            f'<ac:parameter ac:name="cql">{self._CQL}</ac:parameter>'
+            "</ac:structured-macro>"
+            '<ac:structured-macro ac:name="detailssummary" ac:macro-id="I2">'
+            f'<ac:parameter ac:name="cql">{self._CQL_B}</ac:parameter>'
+            "</ac:structured-macro>"
+            "</ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        body_export = self._BODY_EXPORT + (
+            '<table class="aui metadata-summary-macro null"'
+            f" data-cql='{self._CQL_B}'>"
+            "<tr><th>Title</th></tr><tr><td>Page B</td></tr>"
+            "</table>"
+        )
+        converter = self._converter(body_export, storage)
+        result = converter._inline_app_macro_bodies(self._PLACEHOLDER)
+        assert result.index("Page A") < result.index("Page B")
+
+    def test_cql_quotes_survive_xml_undefined_entities_in_storage(self) -> None:
+        """Storage entities undefined in XML must not corrupt the CQL join key.
+
+        Third-party macros emit HTML entities such as `&sbquo;` in their parameters.
+        Those are undefined in XML, so lxml's XML parser enters error recovery and
+        silently drops unrelated entities elsewhere in the document, including the
+        `&quot;` around CQL values. That produced a key that never matched.
+        """
+        storage = (
+            '<ac:structured-macro ac:name="table-filter" ac:macro-id="MACRO-1">'
+            '<ac:parameter ac:name="labels">Area&sbquo;Brand&sbquo;Country</ac:parameter>'
+            "<ac:rich-text-body>"
+            '<ac:structured-macro ac:name="detailssummary" ac:macro-id="INNER-1">'
+            '<ac:parameter ac:name="cql">label = &quot;tool-validation&quot;'
+            " and parent = &quot;42&quot;</ac:parameter>"
+            "</ac:structured-macro>"
+            "</ac:rich-text-body>"
+            "</ac:structured-macro>"
+        )
+        converter = self._converter(self._BODY_EXPORT, storage)
+        assert converter._nested_report_cqls("MACRO-1") == [self._CQL]
+        result = converter._inline_app_macro_bodies(self._PLACEHOLDER)
+        assert "Page A" in result
+
+    def test_cql_whitespace_differences_still_match(self) -> None:
+        storage = self._STORAGE.replace(self._CQL, 'label = "tool-validation"\n  and parent = "42"')
+        converter = self._converter(self._BODY_EXPORT, storage)
+        assert "Page A" in converter._inline_app_macro_bodies(self._PLACEHOLDER)
+
+    def test_markdown_property_applies_the_preprocessing(self) -> None:
+        """The pass must be wired into the conversion entry point, not just available."""
+        page = self._MockPage(body_export=self._BODY_EXPORT, body_storage=self._STORAGE)
+        page.html = self._PLACEHOLDER
+        converter = Page.Converter(page)
+        client = MagicMock()
+        client.get.side_effect = HTTPError("404 Client Error")
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.get_thread_confluence",
+                return_value=client,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_properties_report_format = "frozen"
+            s.export.page_breadcrumbs = False
+            s.export.include_document_title = False
+            s.export.page_metadata_in_frontmatter = False
+            s.export.confluence_url_in_frontmatter = "none"
+            result = converter.markdown
+        assert "Page A" in result
