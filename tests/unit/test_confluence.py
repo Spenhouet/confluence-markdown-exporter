@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import types
 from pathlib import Path
 from types import SimpleNamespace
@@ -2320,6 +2321,28 @@ class TestAppMacroNestedPagePropertiesReport:
         assert "metadata-summary-macro" not in result
         assert "ap-container" in result
 
+    def test_unresolvable_report_is_warned_about(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A report that exists in storage but not in export_view must not vanish quietly."""
+        with caplog.at_level(logging.WARNING):
+            self._converter("", self._STORAGE)._inline_app_macro_bodies(self._PLACEHOLDER)
+        assert "has no matching table in body.export_view" in caplog.text
+
+    def test_warning_does_not_contain_raw_cql(self, caplog: pytest.LogCaptureFixture) -> None:
+        """CQL is macro configuration and can embed labels or free-text filters."""
+        with caplog.at_level(logging.WARNING):
+            self._converter("", self._STORAGE)._inline_app_macro_bodies(self._PLACEHOLDER)
+        assert "tool-validation" not in caplog.text
+
+    def test_app_macro_without_a_report_logs_only_at_debug(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Most app macros wrap no report at all; that must not produce a warning."""
+        html = self._PLACEHOLDER.replace("MACRO-1", "MISSING")
+        with caplog.at_level(logging.DEBUG):
+            self._converter(self._BODY_EXPORT, self._STORAGE)._inline_app_macro_bodies(html)
+        assert "has no nested Page Properties Report" in caplog.text
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
     def test_same_report_in_two_placeholders_is_emitted_twice(self) -> None:
         """Inserting a live node moves it, so each placeholder needs its own copy."""
         html = self._PLACEHOLDER + self._PLACEHOLDER.replace("MACRO-1", "MACRO-2")
@@ -2339,9 +2362,7 @@ class TestAppMacroNestedPagePropertiesReport:
         """
         html = (
             '<div class="ap-container" data-macro-name="outer"'
-            ' data-macro-id="MACRO-OUTER" data-hasbody="true">'
-            + self._PLACEHOLDER
-            + "</div>"
+            ' data-macro-id="MACRO-OUTER" data-hasbody="true">' + self._PLACEHOLDER + "</div>"
         )
         storage = self._STORAGE + self._STORAGE.replace("MACRO-1", "MACRO-OUTER").replace(
             "INNER-1", "INNER-OUTER"

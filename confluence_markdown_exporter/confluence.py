@@ -2629,17 +2629,17 @@ class Page(Document):
                 if placeholder.parent is None:
                     continue
                 macro_id = str(placeholder.get("data-macro-id", ""))
-                tables: list[Tag] = []
-                for cql in self._nested_report_cqls(macro_id):
-                    table = export_tables.get(_normalize_cql(cql))
-                    if table is None:
-                        logger.warning(
-                            f"Page Properties Report nested in app macro '{macro_id}' on page "
-                            f"'{self.page.title}' (ID: {self.page.id}) has no matching table in "
-                            f"body.export_view and is omitted from the export. CQL: {cql}"
-                        )
-                        continue
-                    tables.append(table)
+                cqls = self._nested_report_cqls(macro_id)
+                if not cqls:
+                    # Most app macros legitimately wrap no report, so this is not a
+                    # warning; it is logged only to explain a placeholder left in place.
+                    logger.debug(
+                        f"App macro '{macro_id}' on page '{self.page.title}' "
+                        f"(ID: {self.page.id}) has no nested Page Properties Report in "
+                        f"body.storage; leaving the placeholder untouched."
+                    )
+                    continue
+                tables = self._report_tables_for_cqls(cqls, export_tables, macro_id)
                 if not tables:
                     continue
                 for table in tables:
@@ -2648,6 +2648,27 @@ class Page(Document):
                     placeholder.insert_before(copy.copy(table))
                 placeholder.decompose()
             return str(soup)
+
+        def _report_tables_for_cqls(
+            self, cqls: list[str], export_tables: dict[str, Tag], macro_id: str
+        ) -> list[Tag]:
+            """Resolve each nested report's CQL to its rendered body.export_view table."""
+            tables: list[Tag] = []
+            for cql in cqls:
+                table = export_tables.get(_normalize_cql(cql))
+                if table is None:
+                    # The CQL itself is macro configuration and can embed labels or
+                    # free-text filters, so it is kept out of the warning and logged
+                    # only at debug level.
+                    logger.warning(
+                        f"Page Properties Report nested in app macro '{macro_id}' on page "
+                        f"'{self.page.title}' (ID: {self.page.id}) has no matching table in "
+                        f"body.export_view and is omitted from the export."
+                    )
+                    logger.debug(f"Unmatched Page Properties Report CQL: {cql}")
+                    continue
+                tables.append(table)
+            return tables
 
         def _export_report_tables_by_cql(self) -> dict[str, Tag]:
             """Index the Page Properties Report tables rendered into body.export_view."""
@@ -2662,8 +2683,9 @@ class Page(Document):
                     logger.warning(
                         f"Page '{self.page.title}' (ID: {self.page.id}) has multiple Page "
                         f"Properties Reports with identical CQL; the first rendered table "
-                        f"is used for all of them. CQL: {key}"
+                        f"is used for all of them."
                     )
+                    logger.debug(f"Duplicate Page Properties Report CQL: {key}")
                     continue
                 tables[key] = table
             return tables
