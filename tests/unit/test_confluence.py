@@ -2321,6 +2321,16 @@ class TestAppMacroNestedPagePropertiesReport:
         assert "metadata-summary-macro" not in result
         assert "ap-container" in result
 
+    def test_spliced_report_supports_dataview_format(self) -> None:
+        """The splice must not bypass `export.page_properties_report_format`."""
+        converter = self._converter(self._BODY_EXPORT, self._STORAGE)
+        html = converter._inline_app_macro_bodies(self._PLACEHOLDER)
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.page_properties_report_format = "dataview"
+            result = converter.convert(html)
+        assert "```dataview" in result
+        assert "#tool-validation" in result
+
     def test_unresolvable_report_is_warned_about(self, caplog: pytest.LogCaptureFixture) -> None:
         """A report that exists in storage but not in export_view must not vanish quietly."""
         with caplog.at_level(logging.WARNING):
