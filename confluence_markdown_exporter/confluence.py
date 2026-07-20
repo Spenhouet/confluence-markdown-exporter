@@ -3,6 +3,7 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+import copy
 import functools
 import html
 import json
@@ -1501,6 +1502,7 @@ class Page(Document):
             self._panel_icon_map_cache: dict[str, str] | None = None
             self._plantuml_index: int = 0
             self._storage_plantuml_macros_cache: list[Tag] | None = None
+            self._storage_soup_cache: BeautifulSoup | None = None
 
         @property
         def _colorid_map(self) -> dict[str, str]:
@@ -2607,6 +2609,10 @@ class Page(Document):
                 return html
 
             soup = BeautifulSoup(html, "html.parser")
+            # `get_text` ignores <script>/<style> contents (BeautifulSoup models them as
+            # Script/Stylesheet, which are excluded from the string traversal), so the
+            # iframe bootstrap script the placeholder always carries does not count as
+            # rendered content. Only a macro the app did not render server-side matches.
             placeholders = [
                 el
                 for el in soup.find_all("div", class_="ap-container")
@@ -2617,42 +2623,73 @@ class Page(Document):
             if not placeholders:
                 return html
 
-            export_tables: dict[str, Tag] = {}
-            export_soup = BeautifulSoup(self.page.body_export or "", "html.parser")
-            for table in export_soup.find_all("table", class_="metadata-summary-macro"):
-                cql = table.get("data-cql") if isinstance(table, Tag) else None
-                if isinstance(cql, str) and cql:
-                    export_tables.setdefault(_normalize_cql(cql), table)
-
+            export_tables = self._export_report_tables_by_cql()
             for placeholder in placeholders:
+                # An outer placeholder may have contained this one and been decomposed.
+                if placeholder.parent is None:
+                    continue
+                macro_id = str(placeholder.get("data-macro-id", ""))
                 tables: list[Tag] = []
-                for cql in self._nested_report_cqls(str(placeholder.get("data-macro-id", ""))):
+                for cql in self._nested_report_cqls(macro_id):
                     table = export_tables.get(_normalize_cql(cql))
-                    if table is not None:
-                        tables.append(table)
+                    if table is None:
+                        logger.warning(
+                            f"Page Properties Report nested in app macro '{macro_id}' on page "
+                            f"'{self.page.title}' (ID: {self.page.id}) has no matching table in "
+                            f"body.export_view and is omitted from the export. CQL: {cql}"
+                        )
+                        continue
+                    tables.append(table)
                 if not tables:
                     continue
                 for table in tables:
-                    placeholder.insert_before(table)
+                    # Copy: the same table may be referenced by more than one placeholder,
+                    # and inserting a live node moves it rather than duplicating it.
+                    placeholder.insert_before(copy.copy(table))
                 placeholder.decompose()
             return str(soup)
 
-        def _nested_report_cqls(self, macro_id: str) -> list[str]:
-            """Return the CQL of each Page Properties Report nested in an app macro.
+        def _export_report_tables_by_cql(self) -> dict[str, Tag]:
+            """Index the Page Properties Report tables rendered into body.export_view."""
+            tables: dict[str, Tag] = {}
+            soup = BeautifulSoup(self.page.body_export or "", "html.parser")
+            for table in soup.find_all("table", class_="metadata-summary-macro"):
+                cql = table.get("data-cql") if isinstance(table, Tag) else None
+                if not isinstance(cql, str) or not cql:
+                    continue
+                key = _normalize_cql(cql)
+                if key in tables:
+                    logger.warning(
+                        f"Page '{self.page.title}' (ID: {self.page.id}) has multiple Page "
+                        f"Properties Reports with identical CQL; the first rendered table "
+                        f"is used for all of them. CQL: {key}"
+                    )
+                    continue
+                tables[key] = table
+            return tables
 
-            body.storage is parsed with `html.parser` rather than the `xml` parser
-            used elsewhere: storage can contain HTML entities that are undefined in
-            XML (third-party macros emit e.g. `&sbquo;`), which puts lxml into error
-            recovery, where it silently drops unrelated entities such as the `&quot;`
-            wrapping CQL values. That corrupts the CQL and breaks the match below.
-            `html.parser` keeps the namespace prefixes, so both the prefixed and
-            unprefixed tag names are accepted.
+        @property
+        def _storage_soup(self) -> BeautifulSoup:
+            """Cache and return body.storage parsed for macro lookups.
+
+            Parsed with `html.parser` rather than the `xml` parser used elsewhere:
+            storage can contain HTML entities that are undefined in XML (third-party
+            macros emit e.g. `&sbquo;`), which puts lxml into error recovery, where it
+            silently drops unrelated entities such as the `&quot;` wrapping CQL values.
+            That corrupts the CQL and breaks the report lookup. `html.parser` keeps the
+            namespace prefixes, so both the prefixed and unprefixed tag names are
+            accepted by the callers.
             """
+            if self._storage_soup_cache is None:
+                self._storage_soup_cache = BeautifulSoup(self.page.body_storage, "html.parser")
+            return self._storage_soup_cache
+
+        def _nested_report_cqls(self, macro_id: str) -> list[str]:
+            """Return the CQL of each Page Properties Report nested in an app macro."""
             if not macro_id or not self.page.body_storage:
                 return []
 
-            soup = BeautifulSoup(self.page.body_storage, "html.parser")
-            for macro in soup.find_all(_AC_MACRO_TAGS):
+            for macro in self._storage_soup.find_all(_AC_MACRO_TAGS):
                 if not isinstance(macro, Tag) or _ac_attr(macro, "macro-id") != macro_id:
                     continue
                 cqls: list[str] = []
