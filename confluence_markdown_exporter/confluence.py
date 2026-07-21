@@ -2018,15 +2018,27 @@ class Page(Document):
                     if not isinstance(p, Tag):
                         continue
                     name = p.get("name")
-                    if name:
+                    if not name:
+                        continue
+                    # Page-reference params (e.g. `root`) carry their value in a nested
+                    # `ri:page` `ri:content-title` attribute rather than as element text.
+                    ri_page = p.find("page")
+                    if isinstance(ri_page, Tag) and ri_page.get("content-title"):
+                        params[str(name)] = str(ri_page.get("content-title"))
+                    else:
                         params[str(name)] = p.get_text(strip=True)
                 return params
             return {}
 
         @staticmethod
         def _pagetree_depth(params: dict[str, str]) -> int | None:
-            """Return the number of levels to render, or ``None`` for the full subtree."""
-            for key in ("startDepth", "depth", "expandDepth"):
+            """Return the number of levels to render, or ``None`` for the full subtree.
+
+            ``depth`` (Children Display macro) expresses the number of levels directly, so
+            it is preferred; ``startDepth`` (Page Tree macro) maps to the same UI "Tree
+            depth" field on the instances observed and is used as a fallback.
+            """
+            for key in ("depth", "expandDepth", "startDepth"):
                 value = params.get(key)
                 if not value:
                     continue
@@ -2065,7 +2077,7 @@ class Page(Document):
         def _find_page_id_by_title(self, title: str) -> int | None:
             """Resolve a page id by title within the current space via CQL (best effort)."""
             client = get_thread_confluence(self.page.base_url)
-            escaped = title.replace('"', '\\"')
+            escaped = title.replace("\\", "\\\\").replace('"', '\\"')
             cql = f'type=page AND space="{self.page.space.key}" AND title="{escaped}"'
             try:
                 response = cast(

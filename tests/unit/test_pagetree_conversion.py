@@ -49,10 +49,17 @@ def _make_page(
 
 
 def _content_tree_editor2(root: str = "@self", depth: str | None = None) -> str:
+    """Build a page-tree macro in the real storage format.
+
+    The `root` value is carried in a nested `ri:page` `ri:content-title` attribute, as
+    Confluence actually stores it (verified against a live page), not as element text.
+    """
     depth_param = f'<ac:parameter ac:name="startDepth">{depth}</ac:parameter>' if depth else ""
     return (
         '<ac:structured-macro ac:name="content-tree" ac:macro-id="ct-1">'
-        f'<ac:parameter ac:name="root">{root}</ac:parameter>'
+        '<ac:parameter ac:name="root">'
+        f'<ac:link><ri:page ri:content-title="{root}" /></ac:link>'
+        "</ac:parameter>"
         f"{depth_param}"
         "</ac:structured-macro>"
     )
@@ -195,5 +202,25 @@ def test_content_tree_dispatched_via_convert_div(
     converter = _converter(mock_settings, _make_page(_content_tree_editor2(), descendants))
 
     result = converter.convert_div(_el(), "", [])
+
+    assert result == "\n- [[Child A]]\n\n"
+
+
+@patch("confluence_markdown_exporter.confluence.Page.from_id")
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_content_tree_plaintext_root_falls_back_to_text(
+    mock_settings: MagicMock, mock_from_id: MagicMock
+) -> None:
+    # Some macro variants store `root` as plain element text instead of an ri:page link.
+    mock_from_id.side_effect = _from_id_factory(TITLES)
+    editor2 = (
+        '<ac:structured-macro ac:name="content-tree" ac:macro-id="ct-1">'
+        '<ac:parameter ac:name="root">@self</ac:parameter>'
+        "</ac:structured-macro>"
+    )
+    descendants = [_descendant(1, "Child A", [100])]
+    converter = _converter(mock_settings, _make_page(editor2, descendants))
+
+    result = converter.convert_pagetree(_el(), "", [])
 
     assert result == "\n- [[Child A]]\n\n"
