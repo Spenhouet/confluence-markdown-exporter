@@ -50,17 +50,21 @@ def _make_page(
     return page
 
 
-def _content_tree_editor2(root: str = "@self", depth: str | None = None) -> str:
+def _content_tree_editor2(
+    root: str = "@self", depth: str | None = None, space_key: str | None = None
+) -> str:
     """Build a page-tree macro in the real storage format.
 
     The `root` value is carried in a nested `ri:page` `ri:content-title` attribute, as
-    Confluence actually stores it (verified against a live page), not as element text.
+    Confluence actually stores it (verified against a live page), not as element text. A
+    cross-space root also carries a `ri:space-key`.
     """
     depth_param = f'<ac:parameter ac:name="startDepth">{depth}</ac:parameter>' if depth else ""
+    space_attr = f' ri:space-key="{space_key}"' if space_key else ""
     return (
         '<ac:structured-macro ac:name="content-tree" ac:macro-id="ct-1">'
         '<ac:parameter ac:name="root">'
-        f'<ac:link><ri:page ri:content-title="{root}" /></ac:link>'
+        f'<ac:link><ri:page ri:content-title="{root}"{space_attr} /></ac:link>'
         "</ac:parameter>"
         f"{depth_param}"
         "</ac:structured-macro>"
@@ -212,6 +216,52 @@ def test_content_tree_unresolvable_title_root_returns_empty(
     mock_client_factory.return_value = client
 
     page = _make_page(_content_tree_editor2(root="Missing Page"), descendants=[])
+    converter = _converter(mock_settings, page)
+
+    assert converter.convert_pagetree(_el(), "", []) == ""
+
+
+@patch("confluence_markdown_exporter.confluence.Page.from_id")
+@patch("confluence_markdown_exporter.confluence.get_thread_confluence")
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_content_tree_cross_space_root_uses_space_key(
+    mock_settings: MagicMock, mock_client_factory: MagicMock, mock_from_id: MagicMock
+) -> None:
+    client = MagicMock()
+    client.get.return_value = {"results": [{"id": 300, "title": "Other Root"}]}
+    mock_client_factory.return_value = client
+
+    other_root = _make_page("", descendants=[_descendant(5, "Other Child", [300])])
+    other_root.id = 300
+
+    def _from_id(page_id: int, _base_url: str) -> MagicMock:
+        if page_id == 300:
+            return other_root
+        return _linked_page(page_id, {5: "Other Child"}.get(page_id, "Unknown"))
+
+    mock_from_id.side_effect = _from_id
+    page = _make_page(_content_tree_editor2(root="Other Root", space_key="OTHER"), descendants=[])
+    converter = _converter(mock_settings, page)
+
+    result = converter.convert_pagetree(_el(), "", [])
+
+    assert result == "\n- [[Other Child]]\n\n"
+    # The CQL lookup targets the referenced space, not the current page's space.
+    cql = client.get.call_args.kwargs["params"]["cql"]
+    assert 'space="OTHER"' in cql
+
+
+@patch("confluence_markdown_exporter.confluence.get_thread_confluence")
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_content_tree_title_mismatch_returns_empty(
+    mock_settings: MagicMock, mock_client_factory: MagicMock
+) -> None:
+    # CQL returns a fuzzy match with a different title; it must be rejected.
+    client = MagicMock()
+    client.get.return_value = {"results": [{"id": 7, "title": "Design Notes"}]}
+    mock_client_factory.return_value = client
+
+    page = _make_page(_content_tree_editor2(root="Design"), descendants=[])
     converter = _converter(mock_settings, page)
 
     assert converter.convert_pagetree(_el(), "", []) == ""

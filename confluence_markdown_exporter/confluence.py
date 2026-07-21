@@ -1979,7 +1979,9 @@ class Page(Document):
             the CQL descendants query.
             """
             params = self._extract_pagetree_params(el)
-            root_page = self._resolve_pagetree_root(params.get("root"))
+            root_page = self._resolve_pagetree_root(
+                params.get("root"), params.get("root_space_key")
+            )
             if root_page is None:
                 return ""
 
@@ -2039,10 +2041,14 @@ class Page(Document):
                 if not name:
                     continue
                 # Page-reference params (e.g. `root`) carry their value in a nested
-                # `ri:page` `ri:content-title` attribute rather than as element text.
+                # `ri:page` `ri:content-title` attribute rather than as element text; the
+                # referenced page may live in another space (`ri:space-key`).
                 ri_page = p.find("page")
                 if isinstance(ri_page, Tag) and ri_page.get("content-title"):
                     params[str(name)] = str(ri_page.get("content-title"))
+                    space_key = ri_page.get("space-key")
+                    if space_key:
+                        params[f"{name}_space_key"] = str(space_key)
                 else:
                     params[str(name)] = p.get_text(strip=True)
             return params
@@ -2067,8 +2073,14 @@ class Page(Document):
                     return depth
             return None
 
-        def _resolve_pagetree_root(self, root_value: str | None) -> "Page | None":
-            """Resolve the tree root to a Page (``@self`` / ``@home`` / a page title)."""
+        def _resolve_pagetree_root(
+            self, root_value: str | None, space_key: str | None = None
+        ) -> "Page | None":
+            """Resolve the tree root to a Page (``@self`` / ``@home`` / a page title).
+
+            ``space_key`` is the space of a title-referenced root page (from the macro's
+            ``ri:page`` ``ri:space-key``); when absent the current page's space is used.
+            """
             root = (root_value or "").strip()
             if not root or root == "@self":
                 return self.page
@@ -2083,7 +2095,7 @@ class Page(Document):
                     return None
                 return Page.from_id(homepage_id, self.page.base_url)
 
-            page_id = self._find_page_id_by_title(root)
+            page_id = self._find_page_id_by_title(root, space_key)
             if page_id is None:
                 logger.warning(
                     "Content tree macro root page '%s' could not be resolved; skipping.", root
@@ -2091,11 +2103,15 @@ class Page(Document):
                 return None
             return Page.from_id(page_id, self.page.base_url)
 
-        def _find_page_id_by_title(self, title: str) -> int | None:
-            """Resolve a page id by title within the current space via CQL (best effort)."""
+        def _find_page_id_by_title(self, title: str, space_key: str | None = None) -> int | None:
+            """Resolve a page id by exact title within a space via CQL (best effort)."""
             client = get_thread_confluence(self.page.base_url)
-            escaped = title.replace("\\", "\\\\").replace('"', '\\"')
-            cql = f'type=page AND space="{self.page.space.key}" AND title="{escaped}"'
+            space = space_key or self.page.space.key
+
+            def _escape(value: str) -> str:
+                return value.replace("\\", "\\\\").replace('"', '\\"')
+
+            cql = f'type=page AND space="{_escape(space)}" AND title="{_escape(title)}"'
             try:
                 response = cast(
                     "dict",
@@ -2107,8 +2123,12 @@ class Page(Document):
             results = response.get("results", [])
             if not results:
                 return None
+            # CQL title matching can be fuzzy; require an exact title match to be safe.
+            first = results[0]
+            if first.get("title") != title:
+                return None
             try:
-                return int(results[0].get("id"))
+                return int(first.get("id"))
             except (TypeError, ValueError):
                 return None
 
