@@ -1984,6 +1984,10 @@ class Page(Document):
                 return ""
 
             max_depth = self._pagetree_depth(params)
+            if max_depth is None and str(el.get("data-macro-name", "")) == "children":
+                # The Children Display macro shows only direct children unless `all=true`.
+                if params.get("all", "").strip().lower() != "true":
+                    max_depth = 1
             lines = self._render_pagetree(root_page.id, root_page.descendants, max_depth)
             if not lines:
                 return ""
@@ -2006,29 +2010,42 @@ class Page(Document):
 
             macro_id = el.get("data-macro-id")
             soup = BeautifulSoup(f"<root>{source}</root>", "xml")
+            found_any = False
             for macro in soup.find_all("structured-macro"):
                 if not isinstance(macro, Tag):
                     continue
                 if macro.get("name") not in self._PAGETREE_MACRO_NAMES:
                     continue
+                found_any = True
                 if macro_id and macro.get("macro-id") != macro_id:
                     continue
-                params: dict[str, str] = {}
-                for p in macro.find_all("parameter", recursive=False):
-                    if not isinstance(p, Tag):
-                        continue
-                    name = p.get("name")
-                    if not name:
-                        continue
-                    # Page-reference params (e.g. `root`) carry their value in a nested
-                    # `ri:page` `ri:content-title` attribute rather than as element text.
-                    ri_page = p.find("page")
-                    if isinstance(ri_page, Tag) and ri_page.get("content-title"):
-                        params[str(name)] = str(ri_page.get("content-title"))
-                    else:
-                        params[str(name)] = p.get_text(strip=True)
-                return params
+                return self._read_macro_params(macro)
+            if macro_id and found_any:
+                logger.warning(
+                    "Content tree macro (macro-id '%s') not found in storage XML; "
+                    "falling back to defaults.",
+                    macro_id,
+                )
             return {}
+
+        @staticmethod
+        def _read_macro_params(macro: Tag) -> dict[str, str]:
+            """Read a structured-macro's direct ``parameter`` children into a dict."""
+            params: dict[str, str] = {}
+            for p in macro.find_all("parameter", recursive=False):
+                if not isinstance(p, Tag):
+                    continue
+                name = p.get("name")
+                if not name:
+                    continue
+                # Page-reference params (e.g. `root`) carry their value in a nested
+                # `ri:page` `ri:content-title` attribute rather than as element text.
+                ri_page = p.find("page")
+                if isinstance(ri_page, Tag) and ri_page.get("content-title"):
+                    params[str(name)] = str(ri_page.get("content-title"))
+                else:
+                    params[str(name)] = p.get_text(strip=True)
+            return params
 
         @staticmethod
         def _pagetree_depth(params: dict[str, str]) -> int | None:
@@ -2101,6 +2118,10 @@ class Page(Document):
             """Build a nested bullet list of page links from the root's descendants."""
             children_by_parent: dict[int, list[Descendant]] = {}
             for descendant in descendants:
+                if not descendant.id:
+                    continue
+                # `Descendant.from_json` strips only the topmost ancestor, so the last
+                # ancestor is the descendant's immediate parent.
                 parent_id = descendant.ancestors[-1].id if descendant.ancestors else root_id
                 children_by_parent.setdefault(parent_id, []).append(descendant)
 

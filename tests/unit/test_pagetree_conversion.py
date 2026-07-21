@@ -1,9 +1,11 @@
 """Unit tests for the content-tree / page-tree macro conversion."""
 
+import logging
 from collections.abc import Callable
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import pytest
 from bs4 import BeautifulSoup
 
 from confluence_markdown_exporter.confluence import Page
@@ -66,6 +68,18 @@ def _content_tree_editor2(root: str = "@self", depth: str | None = None) -> str:
 
 
 CT_DIV = '<div data-macro-name="content-tree" data-macro-id="ct-1"></div>'
+CHILDREN_DIV = '<div data-macro-name="children" data-macro-id="ct-1"></div>'
+
+
+def _children_editor2(all_param: str | None = None, depth: str | None = None) -> str:
+    extra = ""
+    if all_param is not None:
+        extra += f'<ac:parameter ac:name="all">{all_param}</ac:parameter>'
+    if depth is not None:
+        extra += f'<ac:parameter ac:name="depth">{depth}</ac:parameter>'
+    return (
+        f'<ac:structured-macro ac:name="children" ac:macro-id="ct-1">{extra}</ac:structured-macro>'
+    )
 
 
 def _linked_page(page_id: int, title: str) -> MagicMock:
@@ -95,6 +109,17 @@ TITLES = {1: "Child A", 2: "Child B", 3: "Grandchild B1"}
 
 def _el() -> BeautifulSoup:
     return BeautifulSoup(CT_DIV, "html.parser").find("div")
+
+
+def _children_el() -> BeautifulSoup:
+    return BeautifulSoup(CHILDREN_DIV, "html.parser").find("div")
+
+
+NESTED_DESCENDANTS = [
+    _descendant(1, "Child A", [100]),
+    _descendant(2, "Child B", [100]),
+    _descendant(3, "Grandchild B1", [100, 2]),
+]
 
 
 @patch("confluence_markdown_exporter.confluence.Page.from_id")
@@ -224,3 +249,92 @@ def test_content_tree_plaintext_root_falls_back_to_text(
     result = converter.convert_pagetree(_el(), "", [])
 
     assert result == "\n- [[Child A]]\n\n"
+
+
+@patch("confluence_markdown_exporter.confluence.Page.from_id")
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_children_macro_defaults_to_direct_children(
+    mock_settings: MagicMock, mock_from_id: MagicMock
+) -> None:
+    mock_from_id.side_effect = _from_id_factory(TITLES)
+    converter = _converter(mock_settings, _make_page(_children_editor2(), NESTED_DESCENDANTS))
+
+    result = converter.convert_pagetree(_children_el(), "", [])
+
+    assert result == "\n- [[Child A]]\n- [[Child B]]\n\n"
+    assert "Grandchild" not in result
+
+
+@patch("confluence_markdown_exporter.confluence.Page.from_id")
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_children_macro_all_true_renders_full_tree(
+    mock_settings: MagicMock, mock_from_id: MagicMock
+) -> None:
+    mock_from_id.side_effect = _from_id_factory(TITLES)
+    converter = _converter(
+        mock_settings, _make_page(_children_editor2(all_param="true"), NESTED_DESCENDANTS)
+    )
+
+    result = converter.convert_pagetree(_children_el(), "", [])
+
+    assert result == "\n- [[Child A]]\n- [[Child B]]\n  - [[Grandchild B1]]\n\n"
+
+
+@patch("confluence_markdown_exporter.confluence.Page.from_id")
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_children_macro_explicit_depth_overrides_default(
+    mock_settings: MagicMock, mock_from_id: MagicMock
+) -> None:
+    mock_from_id.side_effect = _from_id_factory(TITLES)
+    converter = _converter(
+        mock_settings, _make_page(_children_editor2(depth="2"), NESTED_DESCENDANTS)
+    )
+
+    result = converter.convert_pagetree(_children_el(), "", [])
+
+    assert result == "\n- [[Child A]]\n- [[Child B]]\n  - [[Grandchild B1]]\n\n"
+
+
+@patch("confluence_markdown_exporter.confluence.Page.from_id")
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_unmatched_macro_id_warns_and_falls_back(
+    mock_settings: MagicMock,
+    mock_from_id: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    mock_from_id.side_effect = _from_id_factory(TITLES)
+    # Storage macro has a different macro-id than the rendered div's data-macro-id.
+    editor2 = (
+        '<ac:structured-macro ac:name="content-tree" ac:macro-id="other-id">'
+        '<ac:parameter ac:name="root">'
+        '<ac:link><ri:page ri:content-title="@self" /></ac:link>'
+        "</ac:parameter>"
+        "</ac:structured-macro>"
+    )
+    descendants = [_descendant(1, "Child A", [100])]
+    converter = _converter(mock_settings, _make_page(editor2, descendants))
+
+    with caplog.at_level(logging.WARNING):
+        result = converter.convert_pagetree(_el(), "", [])
+
+    # Falls back to defaults (root=@self -> current page) and logs a warning.
+    assert result == "\n- [[Child A]]\n\n"
+    assert any("not found in storage XML" in rec.message for rec in caplog.records)
+
+
+@patch("confluence_markdown_exporter.confluence.Page.from_id")
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_descendant_with_zero_id_is_skipped(
+    mock_settings: MagicMock, mock_from_id: MagicMock
+) -> None:
+    mock_from_id.side_effect = _from_id_factory(TITLES)
+    descendants = [
+        _descendant(1, "Child A", [100]),
+        _descendant(0, "Broken", [100]),
+    ]
+    converter = _converter(mock_settings, _make_page(_content_tree_editor2(), descendants))
+
+    result = converter.convert_pagetree(_el(), "", [])
+
+    assert result == "\n- [[Child A]]\n\n"
+    assert "Broken" not in result
