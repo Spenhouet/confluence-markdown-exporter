@@ -1749,6 +1749,9 @@ class Page(Document):
                     "mohamicorp-markdown": self.convert_markdown,
                     "include": self.convert_include,
                     "excerpt-include": self.convert_include,
+                    "content-tree": self.convert_pagetree,
+                    "pagetree": self.convert_pagetree,
+                    "children": self.convert_pagetree,
                 }
                 if macro_name in macro_handlers:
                     return macro_handlers[macro_name](el, text, parent_tags)
@@ -1756,6 +1759,8 @@ class Page(Document):
             class_handlers = {
                 "expand-container": self.convert_expand_container,
                 "columnLayout": self.convert_column_layout,
+                "content-tree": self.convert_pagetree,
+                "plugin_pagetree": self.convert_pagetree,
             }
             for class_name, handler in class_handlers.items():
                 if class_name in str(el.get("class", "")):
@@ -1962,6 +1967,142 @@ class Page(Document):
                 return text
 
             return self.process_tag(tocs[0], parent_tags)
+
+        def convert_pagetree(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert a Confluence content-tree / page-tree macro to nested page links.
+
+            The macro renders as an empty JavaScript placeholder in ``body.view``, so its
+            child pages are resolved from the API (``Page.descendants``) and emitted as a
+            nested Markdown bullet list. Honors the ``root`` (``@self`` / ``@home`` / a page
+            title) and tree-depth parameters read from the storage-format XML. Children are
+            ordered by title, since Confluence's manual "position" order is not available via
+            the CQL descendants query.
+            """
+            params = self._extract_pagetree_params(el)
+            root_page = self._resolve_pagetree_root(params.get("root"))
+            if root_page is None:
+                return ""
+
+            max_depth = self._pagetree_depth(params)
+            lines = self._render_pagetree(root_page.id, root_page.descendants, max_depth)
+            if not lines:
+                return ""
+            return "\n" + "\n".join(lines) + "\n\n"
+
+        _PAGETREE_MACRO_NAMES: ClassVar[set[str]] = {"content-tree", "pagetree", "children"}
+
+        def _extract_pagetree_params(self, el: BeautifulSoup) -> dict[str, str]:
+            """Read the content-tree macro parameters from the storage-format XML.
+
+            BeautifulSoup with the ``xml`` parser strips namespace prefixes, so
+            ``ac:structured-macro`` becomes ``structured-macro`` and ``ac:parameter``
+            becomes ``parameter``. The macro is matched by ``macro-id`` when the rendered
+            div carries one; otherwise the first matching macro is used (class-triggered
+            fallback path).
+            """
+            source = self.page.editor2 or self.page.body_storage
+            if not source:
+                return {}
+
+            macro_id = el.get("data-macro-id")
+            soup = BeautifulSoup(f"<root>{source}</root>", "xml")
+            for macro in soup.find_all("structured-macro"):
+                if not isinstance(macro, Tag):
+                    continue
+                if macro.get("name") not in self._PAGETREE_MACRO_NAMES:
+                    continue
+                if macro_id and macro.get("macro-id") != macro_id:
+                    continue
+                params: dict[str, str] = {}
+                for p in macro.find_all("parameter", recursive=False):
+                    if not isinstance(p, Tag):
+                        continue
+                    name = p.get("name")
+                    if name:
+                        params[str(name)] = p.get_text(strip=True)
+                return params
+            return {}
+
+        @staticmethod
+        def _pagetree_depth(params: dict[str, str]) -> int | None:
+            """Return the number of levels to render, or ``None`` for the full subtree."""
+            for key in ("startDepth", "depth", "expandDepth"):
+                value = params.get(key)
+                if not value:
+                    continue
+                try:
+                    depth = int(value)
+                except ValueError:
+                    continue
+                if depth > 0:
+                    return depth
+            return None
+
+        def _resolve_pagetree_root(self, root_value: str | None) -> "Page | None":
+            """Resolve the tree root to a Page (``@self`` / ``@home`` / a page title)."""
+            root = (root_value or "").strip()
+            if not root or root == "@self":
+                return self.page
+            if root == "@home":
+                homepage_id = self.page.space.homepage
+                if not homepage_id:
+                    logger.warning(
+                        "Content tree macro root is @home but space '%s' has no homepage; "
+                        "skipping.",
+                        self.page.space.key,
+                    )
+                    return None
+                return Page.from_id(homepage_id, self.page.base_url)
+
+            page_id = self._find_page_id_by_title(root)
+            if page_id is None:
+                logger.warning(
+                    "Content tree macro root page '%s' could not be resolved; skipping.", root
+                )
+                return None
+            return Page.from_id(page_id, self.page.base_url)
+
+        def _find_page_id_by_title(self, title: str) -> int | None:
+            """Resolve a page id by title within the current space via CQL (best effort)."""
+            client = get_thread_confluence(self.page.base_url)
+            escaped = title.replace('"', '\\"')
+            cql = f'type=page AND space="{self.page.space.key}" AND title="{escaped}"'
+            try:
+                response = cast(
+                    "dict",
+                    client.get("rest/api/content/search", params={"cql": cql, "limit": 1}),
+                )
+            except Exception:
+                logger.exception("Failed to resolve content tree root page '%s'.", title)
+                return None
+            results = response.get("results", [])
+            if not results:
+                return None
+            try:
+                return int(results[0].get("id"))
+            except (TypeError, ValueError):
+                return None
+
+        def _render_pagetree(
+            self, root_id: int, descendants: list["Descendant"], max_depth: int | None
+        ) -> list[str]:
+            """Build a nested bullet list of page links from the root's descendants."""
+            children_by_parent: dict[int, list[Descendant]] = {}
+            for descendant in descendants:
+                parent_id = descendant.ancestors[-1].id if descendant.ancestors else root_id
+                children_by_parent.setdefault(parent_id, []).append(descendant)
+
+            lines: list[str] = []
+
+            def walk(parent_id: int, level: int) -> None:
+                if max_depth is not None and level >= max_depth:
+                    return
+                for child in sorted(children_by_parent.get(parent_id, []), key=lambda c: c.title):
+                    lines.append(f"{'  ' * level}- {self.convert_page_link(child.id)}")
+                    walk(child.id, level + 1)
+
+            walk(root_id, 0)
+            return lines
 
         def convert_hidden_content(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
