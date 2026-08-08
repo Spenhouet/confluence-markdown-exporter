@@ -436,6 +436,27 @@ class TestMergedCells:
         """
         assert self._convert(html)[2:] == ["| A | B |"]
 
+    def test_zero_or_negative_colspan_keeps_the_cell(self) -> None:
+        """A colspan below 1 must still occupy one position instead of erasing the cell.
+
+        This is what the minimum of 1 in ``pad`` protects: without it the cell is
+        repeated zero times and disappears from the row.
+        """
+        zero = """
+        <table>
+            <tr><th>H1</th><th>H2</th></tr>
+            <tr><td colspan="0">A</td><td>B</td></tr>
+        </table>
+        """
+        negative = """
+        <table>
+            <tr><th>H1</th><th>H2</th></tr>
+            <tr><td colspan="-1">A</td><td>B</td></tr>
+        </table>
+        """
+        assert self._convert(zero)[2:] == ["| A | B |"]
+        assert self._convert(negative)[2:] == ["| A | B |"]
+
     def test_spanned_cell_is_converted_only_once(self) -> None:
         """Repeated positions must reuse the conversion, not run it again.
 
@@ -455,5 +476,7 @@ class TestMergedCells:
 
         ids = converter.converted_cell_ids
         assert len(ids) == len(set(ids)), "a cell was converted more than once"
-        # 2 headers + 1 spanned cell + 3 regular cells.
+        # 2 headers + 1 spanned cell + 3 regular cells. This counts only the pass
+        # convert_table performs itself; markdownify's own tree descent converts every
+        # cell once more, which is pre-existing behaviour and out of scope here.
         assert len(ids) == 6
