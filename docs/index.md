@@ -49,7 +49,7 @@ hide:
 
 -   :material-puzzle: __Macros and add-ons__
 
-    Status badges, panels, page properties, draw.io, PlantUML, Mermaid, include/excerpt: all converted to portable Markdown.
+    Status badges, panels, page properties, draw.io, PlantUML, Graphviz, Mermaid, include/excerpt: all converted to portable Markdown.
 
     [:octicons-arrow-right-24: Features](features.md)
 

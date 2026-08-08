@@ -11,7 +11,7 @@ Exports individual pages, pages with descendants, or entire spaces via the Atlas
 ### Content & formatting
 
 - **Rich text**: headings, paragraphs, bold, italic, underline, lists, tables, links, images, attachments, and image captions
-- **Code blocks**: language-aware fenced code blocks
+- **Code blocks**: language-aware fenced code blocks; blocks holding PlantUML or Graphviz DOT source are detected and fenced as `plantuml` / `dot` even when the Code macro declares no language
 - **Task lists**: checkboxes with completion state
 - **Text highlights & font colours**: preserved with inline HTML colour styling
 - **Status badges**: converted to coloured inline highlights
@@ -29,4 +29,5 @@ Exports individual pages, pages with descendants, or entire spaces via the Atlas
 
 - **[draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts)**: diagram files saved as attachments; embedded Mermaid diagrams extracted as fenced Mermaid blocks
 - **[PlantUML](https://marketplace.atlassian.com/apps/1222993/flowchart-plantuml-diagrams-for-confluence)**: exported as fenced PlantUML code blocks
+- **[Graphviz](https://marketplace.atlassian.com/apps/257/graphviz-diagrams-for-confluence)**: `graphviz` and `digraph` macros exported as fenced `dot` code blocks; the `digraph` macro's graph header is reconstructed from its `name` and `attributes` parameters so the DOT renders standalone
 - **[Markdown Extensions](https://marketplace.atlassian.com/apps/1215703/markdown-extensions-for-confluence)**: pass-through of raw Markdown macro content
