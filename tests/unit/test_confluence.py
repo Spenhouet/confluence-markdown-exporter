@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import types
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
 from requests import HTTPError
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+from confluence_markdown_exporter.confluence import Ancestor
 from confluence_markdown_exporter.confluence import Attachment
 from confluence_markdown_exporter.confluence import Page
 from confluence_markdown_exporter.confluence import Space
@@ -23,6 +29,7 @@ class MockPage:
 
     def __init__(self) -> None:
         self.id = "test-page"
+        self.base_url = "https://wiki.example.com"
         self.title = "Test Page"
         self.type = ""
         self.html = ""
@@ -2193,3 +2200,122 @@ class TestColumnLayoutConversion:
         assert result.count("Inner Y") == 1
         assert result.count("Outer A") == 1
         assert result.count("Outer B") == 1
+
+class TestConvertPageLinkAncestorGate:
+    """`page_href_relative_only_if_ancestor_of` restricts relative conversion to a subtree."""
+
+    @staticmethod
+    def _make_space() -> Space:
+        return Space(
+            base_url="https://wiki.example.com",
+            key="TEST",
+            name="TEST",
+            description="",
+            homepage=0,
+        )
+
+    @staticmethod
+    def _make_version() -> Version:
+        return Version(
+            number=1,
+            by=User(
+                account_id="u1",
+                display_name="User",
+                username="user",
+                public_name="",
+                email="",
+            ),
+            when="2024-01-01T00:00:00Z",
+            friendly_when="Jan 1",
+        )
+
+    @classmethod
+    def _make_ancestor(cls, ancestor_id: int) -> Ancestor:
+        return Ancestor(
+            base_url="https://wiki.example.com",
+            id=ancestor_id,
+            title=f"Ancestor {ancestor_id}",
+            space=cls._make_space(),
+            ancestors=[],
+            version=cls._make_version(),
+        )
+
+    @classmethod
+    def _target(
+        cls,
+        page_id: int,
+        ancestor_ids: list[int],
+        title: str = "Target Page",
+        web_url: str = "https://wiki.example.com/wiki/spaces/TEST/pages/5",
+    ) -> Page:
+        return Page(
+            base_url="https://wiki.example.com",
+            id=page_id,
+            title=title,
+            space=cls._make_space(),
+            ancestors=[cls._make_ancestor(aid) for aid in ancestor_ids],
+            version=cls._make_version(),
+            web_url=web_url,
+            body="",
+            body_export="",
+            editor2="",
+            body_storage="",
+            labels=[],
+            attachments=[],
+        )
+
+    @staticmethod
+    @contextmanager
+    def _gate_env(
+        target: Page, *, ancestor_of: int | None, page_href: str = "relative"
+    ) -> Iterator[MagicMock]:
+        """Patch settings and Page.from_id for gate tests, isolating the title registry."""
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+
+        def _from_id(page_id: int, *_args: object) -> Page:
+            assert page_id == target.id, (
+                f"Page.from_id called with {page_id}, expected {target.id}"
+            )
+            return target
+
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as mock_settings,
+            patch(
+                "confluence_markdown_exporter.confluence.Page.from_id",
+                side_effect=_from_id,
+            ),
+        ):
+            mock_settings.export.page_href_relative_only_if_ancestor_of = ancestor_of
+            mock_settings.export.page_href = page_href
+            yield mock_settings
+        PageTitleRegistry.reset()
+
+    def test_non_descendant_keeps_absolute_confluence_url(
+        self, converter: Page.Converter
+    ) -> None:
+        target = self._target(page_id=5, ancestor_ids=[10, 20])
+        with self._gate_env(target, ancestor_of=100):
+            result = converter.convert_page_link(5)
+        assert result == "[Target Page](https://wiki.example.com/wiki/spaces/TEST/pages/5)"
+
+    def test_descendant_is_converted_relatively(self, converter: Page.Converter) -> None:
+        target = self._target(page_id=5, ancestor_ids=[100, 20])
+        with self._gate_env(target, ancestor_of=100, page_href="wiki"):
+            result = converter.convert_page_link(5)
+        assert result == "[[Target Page]]"
+
+    def test_gate_page_itself_is_converted_relatively(
+        self, converter: Page.Converter
+    ) -> None:
+        target = self._target(page_id=100, ancestor_ids=[])
+        with self._gate_env(target, ancestor_of=100, page_href="wiki"):
+            result = converter.convert_page_link(100)
+        assert result == "[[Target Page]]"
+
+    def test_disabled_gate_converts_relatively(self, converter: Page.Converter) -> None:
+        target = self._target(page_id=5, ancestor_ids=[10, 20])
+        with self._gate_env(target, ancestor_of=None, page_href="wiki"):
+            result = converter.convert_page_link(5)
+        assert result == "[[Target Page]]"

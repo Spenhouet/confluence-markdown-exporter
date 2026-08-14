@@ -2093,6 +2093,13 @@ class Page(Document):
                 )
                 return f"[Page not accessible (ID: {page_id})]"
 
+            ancestor_gate = settings.export.page_href_relative_only_if_ancestor_of
+            if isinstance(ancestor_gate, int):
+                ancestors_ids = {anc.id for anc in page.ancestors} | {page.id}
+                is_descendant = ancestor_gate in ancestors_ids
+                if not is_descendant:
+                    return f"[{page.title}]({page.web_url})"
+
             PageTitleRegistry.register(int(page.id), page.title)
 
             if settings.export.page_href == "wiki":

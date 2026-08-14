@@ -30,6 +30,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.page_path` | File path template for exported pages |\n\n"
     "| `export.attachment_path` | File path template for exported attachments |\n\n"
     "| `export.page_href` | Link style for pages: `relative` or `absolute` |\n\n"
+    "| `export.page_href_relative_only_if_ancestor_of` | Limit relative links to subpages |\n\n"
     "| `export.attachment_href` | Link style for attachments: `relative` or `absolute` |\n\n"
     "| `export.include_document_title` | Prepend H1 title to each page |\n\n"
     "| `export.include_toc` | Export Table of Contents macro (`true`/`false`) |\n\n"
