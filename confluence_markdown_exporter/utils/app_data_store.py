@@ -352,6 +352,17 @@ class ExportConfig(BaseModel):
             "  - `wiki` generates Obsidian-style [[Page Title]] wiki links"
         ),
     )
+    page_href_relative_only_if_ancestor_of: int | None = Field(
+        default=None,
+        title="Relative hrefs only for descendants of a page",
+        description=(
+            "Numerical Page ID that gates relative link conversion. When set, links are only "
+            "converted to relative paths if the target page is that page or a descendant "
+            "of it. Links to pages outside this subtree remain as absolute Confluence URLs. "
+            "Use this when only exporting a subset of a Confluence Space. "
+            "Set to null to export all links within the Confluence instance as relative."
+        ),
+    )
     page_path: str = Field(
         default="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md",
         title="Page Path Template",

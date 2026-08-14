@@ -35,6 +35,17 @@ How to generate links to pages in Markdown. Options: `relative` (default), `abso
 | `absolute` | `[Page Title](/space/path/to/page.md)` |
 | `wiki`     | `[[Page Title]]`                       |
 
+### export.page_href_relative_only_if_ancestor_of
+
+When `export.page_href=relative`, this option limits the scope of relative links to only be used
+if the link is a descendant of the chosen top page. This can be useful if you only wish to
+export a sub-section of a confluence space and keep links to the other sections from markdown into
+remaining Confluence space.
+
+Must be the numerical id of the page. Urls are not supported.
+
+- Default: `none`
+
 ### export.page_path
 
 Path template for exported pages.
