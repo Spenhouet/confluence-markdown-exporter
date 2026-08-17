@@ -3235,7 +3235,7 @@ class Page(Document):
             elif style == "wiki":
                 result = path.name
             else:
-                result = os.path.relpath(path, self.page.export_path.parent)
+                result = os.path.relpath(path, self.page.export_path.parent).replace(os.sep, "/")
             return result
 
 
