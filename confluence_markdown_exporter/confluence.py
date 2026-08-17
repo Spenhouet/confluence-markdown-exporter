@@ -3,6 +3,7 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+import copy
 import functools
 import html
 import json
@@ -91,9 +92,31 @@ _RE_HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 # (in matrix-style tables) to row-label <td>s. Treated as "no user-chosen colour".
 _DEFAULT_HEADER_BGS = frozenset({"#f4f5f7", "#f2f2f2"})
 
+# Storage-format tag names, with and without the `ac:` prefix. Which form is present
+# depends on the parser: `html.parser` keeps the prefix, the `xml` parser strips it.
+_AC_MACRO_TAGS = ["ac:structured-macro", "structured-macro"]
+_AC_PARAMETER_TAGS = ["ac:parameter", "parameter"]
+
 
 def _rgb_to_hex(r: int, g: int, b: int) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _ac_attr(el: Tag, name: str) -> str:
+    """Read a storage-format attribute, with or without the `ac:` prefix."""
+    value = el.get(f"ac:{name}")
+    if value is None:
+        value = el.get(name, "")
+    return str(value)
+
+
+def _normalize_cql(cql: str) -> str:
+    """Normalize a CQL string so it can be used as a lookup key.
+
+    body.storage and body.export_view are produced by different renderers and may
+    differ in incidental whitespace, so collapse it before comparing.
+    """
+    return " ".join(cql.split())
 
 
 def _render_meta_bind_view_fields(props: dict[str, str], mode: str) -> str:
@@ -1479,6 +1502,7 @@ class Page(Document):
             self._panel_icon_map_cache: dict[str, str] | None = None
             self._plantuml_index: int = 0
             self._storage_plantuml_macros_cache: list[Tag] | None = None
+            self._storage_soup_cache: BeautifulSoup | None = None
 
         @property
         def _colorid_map(self) -> dict[str, str]:
@@ -1562,6 +1586,7 @@ class Page(Document):
         @property
         def markdown(self) -> str:
             html = self._strip_excerpt_include_panel_titles(self.page.html)
+            html = self._inline_app_macro_bodies(html)
             md_body = self.convert(html)
             md_body = self._escape_template_placeholders(md_body)
             markdown = f"{self.front_matter}\n"
@@ -2565,6 +2590,140 @@ class Page(Document):
             content = el.find("div", class_="panelContent")
             if isinstance(content, Tag):
                 content.unwrap()
+
+        def _inline_app_macro_bodies(self, html: str) -> str:
+            """Splice Connect app macro bodies back into the rendered view HTML.
+
+            Confluence does not server-render the body of a Connect
+            `dynamicContentMacros` app macro (e.g. the StiltSoft Table Filter) into
+            body.view. It emits an empty `ap-container` placeholder and leaves the app
+            to render the body in an iframe, so a Page Properties Report nested in such
+            a macro never reaches `convert_table`. body.export_view does render the
+            report, with the wrapper stripped, so the placeholder is replaced with that
+            table and the regular report handling then applies unchanged.
+
+            The two are matched on the CQL of the nested `detailssummary` macro in
+            body.storage, because body.export_view carries no macro IDs.
+            """
+            if "ap-container" not in html:
+                return html
+
+            soup = BeautifulSoup(html, "html.parser")
+            # `get_text` ignores <script>/<style> contents (BeautifulSoup models them as
+            # Script/Stylesheet, which are excluded from the string traversal), so the
+            # iframe bootstrap script the placeholder always carries does not count as
+            # rendered content. Only a macro the app did not render server-side matches.
+            placeholders = [
+                el
+                for el in soup.find_all("div", class_="ap-container")
+                if isinstance(el, Tag)
+                and el.get("data-hasbody") == "true"
+                and not el.get_text(strip=True)
+            ]
+            if not placeholders:
+                return html
+
+            export_tables = self._export_report_tables_by_cql()
+            for placeholder in placeholders:
+                # An outer placeholder may have contained this one and been decomposed.
+                if placeholder.parent is None:
+                    continue
+                macro_id = str(placeholder.get("data-macro-id", ""))
+                cqls = self._nested_report_cqls(macro_id)
+                if not cqls:
+                    # Most app macros legitimately wrap no report, so this is not a
+                    # warning; it is logged only to explain a placeholder left in place.
+                    logger.debug(
+                        f"App macro '{macro_id}' on page '{self.page.title}' "
+                        f"(ID: {self.page.id}) has no nested Page Properties Report in "
+                        f"body.storage; leaving the placeholder untouched."
+                    )
+                    continue
+                tables = self._report_tables_for_cqls(cqls, export_tables, macro_id)
+                if not tables:
+                    continue
+                for table in tables:
+                    # Copy: the same table may be referenced by more than one placeholder,
+                    # and inserting a live node moves it rather than duplicating it.
+                    placeholder.insert_before(copy.copy(table))
+                placeholder.decompose()
+            return str(soup)
+
+        def _report_tables_for_cqls(
+            self, cqls: list[str], export_tables: dict[str, Tag], macro_id: str
+        ) -> list[Tag]:
+            """Resolve each nested report's CQL to its rendered body.export_view table."""
+            tables: list[Tag] = []
+            for cql in cqls:
+                table = export_tables.get(_normalize_cql(cql))
+                if table is None:
+                    # The CQL itself is macro configuration and can embed labels or
+                    # free-text filters, so it is kept out of the warning and logged
+                    # only at debug level.
+                    logger.warning(
+                        f"Page Properties Report nested in app macro '{macro_id}' on page "
+                        f"'{self.page.title}' (ID: {self.page.id}) has no matching table in "
+                        f"body.export_view and is omitted from the export."
+                    )
+                    logger.debug(f"Unmatched Page Properties Report CQL: {cql}")
+                    continue
+                tables.append(table)
+            return tables
+
+        def _export_report_tables_by_cql(self) -> dict[str, Tag]:
+            """Index the Page Properties Report tables rendered into body.export_view."""
+            tables: dict[str, Tag] = {}
+            soup = BeautifulSoup(self.page.body_export or "", "html.parser")
+            for table in soup.find_all("table", class_="metadata-summary-macro"):
+                cql = table.get("data-cql") if isinstance(table, Tag) else None
+                if not isinstance(cql, str) or not cql:
+                    continue
+                key = _normalize_cql(cql)
+                if key in tables:
+                    logger.warning(
+                        f"Page '{self.page.title}' (ID: {self.page.id}) has multiple Page "
+                        f"Properties Reports with identical CQL; the first rendered table "
+                        f"is used for all of them."
+                    )
+                    logger.debug(f"Duplicate Page Properties Report CQL: {key}")
+                    continue
+                tables[key] = table
+            return tables
+
+        @property
+        def _storage_soup(self) -> BeautifulSoup:
+            """Cache and return body.storage parsed for macro lookups.
+
+            Parsed with `html.parser` rather than the `xml` parser used elsewhere:
+            storage can contain HTML entities that are undefined in XML (third-party
+            macros emit e.g. `&sbquo;`), which puts lxml into error recovery, where it
+            silently drops unrelated entities such as the `&quot;` wrapping CQL values.
+            That corrupts the CQL and breaks the report lookup. `html.parser` keeps the
+            namespace prefixes, so both the prefixed and unprefixed tag names are
+            accepted by the callers.
+            """
+            if self._storage_soup_cache is None:
+                self._storage_soup_cache = BeautifulSoup(self.page.body_storage, "html.parser")
+            return self._storage_soup_cache
+
+        def _nested_report_cqls(self, macro_id: str) -> list[str]:
+            """Return the CQL of each Page Properties Report nested in an app macro."""
+            if not macro_id or not self.page.body_storage:
+                return []
+
+            for macro in self._storage_soup.find_all(_AC_MACRO_TAGS):
+                if not isinstance(macro, Tag) or _ac_attr(macro, "macro-id") != macro_id:
+                    continue
+                cqls: list[str] = []
+                for nested in macro.find_all(_AC_MACRO_TAGS):
+                    if not isinstance(nested, Tag) or _ac_attr(nested, "name") != "detailssummary":
+                        continue
+                    for param in nested.find_all(_AC_PARAMETER_TAGS):
+                        if isinstance(param, Tag) and _ac_attr(param, "name") == "cql":
+                            cqls.append(param.get_text())
+                            break
+                return cqls
+            return []
 
         def _extract_include_target_title(self, macro_id: str) -> str | None:
             """Resolve the target page title for an `include` / `excerpt-include` macro.
