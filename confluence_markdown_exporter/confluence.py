@@ -3,6 +3,7 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+import base64
 import copy
 import functools
 import html
@@ -12,6 +13,7 @@ import mimetypes
 import os
 import re
 import urllib.parse
+import zlib
 from collections.abc import Set
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
@@ -82,6 +84,10 @@ _MAX_UNICODE_CODEPOINT = 0x10FFFF
 
 # Rows requested per call when fetching all Page Properties Report entries.
 _REPORT_FETCH_PAGE_SIZE = 50
+
+# Upper bound for an inflated `plantumlcloud` payload. Deflate reaches ~1000:1, so an
+# unbounded inflate of remote page content could exhaust memory.
+_MAX_PLANTUML_SOURCE_BYTES = 4 * 1024 * 1024
 
 _RE_RGB_BG = re.compile(r"background-color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
 _RE_RGB_COLOR = re.compile(r"(?<![a-z-])color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
@@ -1501,7 +1507,8 @@ class Page(Document):
             self._image_captions_cache: dict[str, str] | None = None
             self._panel_icon_map_cache: dict[str, str] | None = None
             self._plantuml_index: int = 0
-            self._storage_plantuml_macros_cache: list[Tag] | None = None
+            self._plantumlcloud_index: int = 0
+            self._storage_macros_cache: dict[str, list[Tag]] = {}
             self._storage_soup_cache: BeautifulSoup | None = None
 
         @property
@@ -1518,10 +1525,9 @@ class Page(Document):
                 self._colorid_map_cache = cache
             return self._colorid_map_cache
 
-        @property
-        def _storage_plantuml_macros(self) -> list[Tag]:
-            """Cache and return all PlantUML structured-macros from body.storage."""
-            if self._storage_plantuml_macros_cache is None:
+        def _storage_macros_by_name(self, name: str) -> list[Tag]:
+            """Cache and return all structured-macros with the given name from body.storage."""
+            if name not in self._storage_macros_cache:
                 macros: list[Tag] = []
                 if self.page.body_storage:
                     wrapped = f"<root>{self.page.body_storage}</root>"
@@ -1529,10 +1535,10 @@ class Page(Document):
                     macros.extend(
                         macro
                         for macro in soup.find_all("structured-macro")
-                        if isinstance(macro, Tag) and macro.get("name") == "plantuml"
+                        if isinstance(macro, Tag) and macro.get("name") == name
                     )
-                self._storage_plantuml_macros_cache = macros
-            return self._storage_plantuml_macros_cache
+                self._storage_macros_cache[name] = macros
+            return self._storage_macros_cache[name]
 
         @property
         def _image_captions(self) -> dict[str, str]:
@@ -1564,14 +1570,21 @@ class Page(Document):
             return self._panel_icon_map_cache
 
         @staticmethod
-        def _extract_panel_emoji(macro: Tag) -> str | None:
-            params: dict[str, str] = {}
-            for p in macro.find_all("parameter", recursive=False):
-                if not isinstance(p, Tag):
-                    continue
-                name = p.get("name")
-                if name:
-                    params[str(name)] = p.get_text(strip=True)
+        def _macro_params(macro: Tag) -> dict[str, str]:
+            """Map a structured-macro's direct `parameter` children to their values.
+
+            Only direct children: a macro body may hold nested macros with parameters of
+            their own. On a repeated name the last occurrence wins.
+            """
+            return {
+                str(p.get("name")): p.get_text(strip=True)
+                for p in macro.find_all("parameter", recursive=False)
+                if isinstance(p, Tag) and p.get("name")
+            }
+
+        @classmethod
+        def _extract_panel_emoji(cls, macro: Tag) -> str | None:
+            params = cls._macro_params(macro)
             if text := params.get("panelIconText"):
                 return text
             if icon_id := params.get("panelIconId"):
@@ -1766,6 +1779,7 @@ class Page(Document):
                     "details": self.convert_page_properties,
                     "drawio": self.convert_drawio,
                     "plantuml": self.convert_plantuml,
+                    "plantumlcloud": self.convert_plantumlcloud,
                     "scroll-ignore": self.convert_hidden_content,
                     "toc": self.convert_toc,
                     "jira": self.convert_jira_table,
@@ -2681,7 +2695,7 @@ class Page(Document):
 
         def _extract_uml_from_storage(self) -> str | None:
             """Extract PlantUML source from body.storage by position (Server format)."""
-            storage_macros = self._storage_plantuml_macros
+            storage_macros = self._storage_macros_by_name("plantuml")
             idx = self._plantuml_index
             self._plantuml_index += 1
             if idx >= len(storage_macros):
@@ -2722,6 +2736,106 @@ class Page(Document):
                 return f"\n```plantuml\n{uml}\n```\n\n"
 
             logger.warning("PlantUML macro could not be resolved from editor2 or body.storage")
+            return "\n<!-- PlantUML diagram (source not found) -->\n\n"
+
+        @staticmethod
+        def _decode_plantumlcloud_data(data: str, *, compressed: bool) -> str | None:
+            """Decode the ``data`` parameter of a ``plantumlcloud`` macro.
+
+            The app stores the diagram source base64-encoded.  When ``compressed`` is
+            set, the payload is additionally raw-deflated (no zlib header).  The text may
+            also be percent-encoded, independently of ``compressed``, so that is detected
+            from the text itself rather than from the parameter.
+
+            Returns ``None`` on any malformed payload so the caller can emit a visible
+            marker; never returns a partially decoded payload.
+            """
+            try:
+                # Not `validate=True`: storage values may be line-wrapped, and rejecting
+                # them here would discard a perfectly decodable diagram.
+                payload = base64.b64decode(data)
+            except ValueError:
+                return None
+
+            if compressed:
+                decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
+                try:
+                    payload = decompressor.decompress(payload, _MAX_PLANTUML_SOURCE_BYTES)
+                except zlib.error:
+                    return None
+                # Not the size guard itself - `max_length` already bounds the inflate, and
+                # the `eof` check below rejects what is left over. This branch only tells
+                # "too large" apart from "truncated" in the log.
+                if decompressor.unconsumed_tail:
+                    logger.warning(
+                        "PlantUML (plantumlcloud) source is larger than %d bytes, skipping it",
+                        _MAX_PLANTUML_SOURCE_BYTES,
+                    )
+                    return None
+                if not decompressor.eof:
+                    # A truncated deflate stream inflates without error, so without this
+                    # check a partial diagram would be exported as if it were complete.
+                    logger.warning("PlantUML (plantumlcloud) payload is truncated, skipping it")
+                    return None
+
+            try:
+                text = payload.decode("utf-8")
+            except UnicodeDecodeError:
+                return None
+
+            # Percent-decode only when the payload actually is encoded: PlantUML sources
+            # use a literal `%` (`%date%`, `%filename()`), which unquote would corrupt.
+            if "@start" not in text:
+                text = unquote(text)
+            return text.strip() or None
+
+        def _extract_uml_from_plantumlcloud(self, macro_id: str | None) -> str | None:
+            """Extract PlantUML source for a `plantumlcloud` macro from body.storage."""
+            macros = self._storage_macros_by_name("plantumlcloud")
+            idx = (
+                next((i for i, m in enumerate(macros) if m.get("macro-id") == macro_id), None)
+                if macro_id
+                else None
+            )
+            if idx is None:
+                if macro_id and all(m.get("macro-id") for m in macros):
+                    # Every stored macro is identifiable, yet none matches: the placeholder
+                    # belongs to another page - an include macro expands the transcluded
+                    # page's view HTML into this one. Falling back to position would emit
+                    # an unrelated diagram, which is worse than none. Storage that carries
+                    # no macro-id at all still falls through to positional matching.
+                    return None
+                idx = self._plantumlcloud_index
+            if idx >= len(macros):
+                return None
+            # Advance the positional cursor past the consumed macro, also on a macro-id
+            # match, so a later macro without a macro-id does not re-resolve this one.
+            self._plantumlcloud_index = max(self._plantumlcloud_index, idx + 1)
+
+            params = self._macro_params(macros[idx])
+            data = params.get("data")
+            if not data:
+                return None
+            compressed = params.get("compressed", "").lower() == "true"
+            return self._decode_plantumlcloud_data(data, compressed=compressed)
+
+        def convert_plantumlcloud(
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+        ) -> str:
+            """Convert the `plantumlcloud` macro to a Markdown code block.
+
+            The "Flowchart, PlantUML Diagrams for Confluence" app registers this macro
+            name on Confluence Cloud.  Being a Connect app, it renders only an empty
+            iframe placeholder into `body.view` and writes nothing to `editor2`, so the
+            diagram source is recovered from `body.storage`, where it is kept in the
+            macro's `data` parameter.
+            """
+            macro_id = el.get("data-macro-id")
+            uml = self._extract_uml_from_plantumlcloud(str(macro_id) if macro_id else None)
+            if uml:
+                return f"\n```plantuml\n{uml}\n```\n\n"
+
+            logger.warning("PlantUML (plantumlcloud) macro could not be resolved from body.storage")
             return "\n<!-- PlantUML diagram (source not found) -->\n\n"
 
         def convert_include(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
