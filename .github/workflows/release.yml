@@ -75,7 +75,7 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           # -u: stage modifications to tracked files only; never add untracked files.
-          git add -u pyproject.toml uv.lock README.md docs src
+          git add -u pyproject.toml uv.lock README.md docs
           git diff --cached --quiet || git commit -m "Bump version to ${{ env.NEW_VERSION }}"
           git push
 
