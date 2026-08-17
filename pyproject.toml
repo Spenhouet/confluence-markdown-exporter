@@ -14,7 +14,11 @@ authors = [
 ]
 requires-python = ">= 3.10"
 dependencies = [
-    'atlassian-python-api',
+    # atlassian-python-api 5.x is a breaking rewrite of the Confluence client:
+    # the Cloud class drops get_page_by_id, get_attachments_from_content and
+    # get_page_comments, client.url no longer carries the /wiki context, and the
+    # v2 cursor pagination builds an invalid next-page URL. Cap until we migrate.
+    'atlassian-python-api>=4,<5',
     'jmespath',
     'markdownify',
     'pydantic-settings',
