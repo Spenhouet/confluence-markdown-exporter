@@ -58,9 +58,16 @@ jobs:
             ./dist/*.tar.gz
             ./dist/*.whl
 
-      - name: Upload signed artifacts to GitHub Release
+      # The release workflow leaves the release as a draft; publishing it here,
+      # after the assets are attached, is what makes it immutable.
+      - name: Upload signed artifacts and publish GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ inputs.version }}" dist/** \
-            --repo "$GITHUB_REPOSITORY"
+          VERSION="${{ inputs.version }}"
+          if [[ "$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft)" != "true" ]]; then
+            echo "Release $VERSION is already published; its assets are immutable. Skipping."
+            exit 0
+          fi
+          gh release upload "$VERSION" dist/** --repo "$GITHUB_REPOSITORY"
+          gh release edit "$VERSION" --draft=false --repo "$GITHUB_REPOSITORY"

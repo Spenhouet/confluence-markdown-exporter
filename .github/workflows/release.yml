@@ -84,13 +84,17 @@ jobs:
           git tag "${{ env.NEW_VERSION }}"
           git push origin "${{ env.NEW_VERSION }}"
 
-      - name: Create and publish GitHub Release
+      # Created as a draft so the publish job can attach signed artifacts: with
+      # immutable releases enabled, assets are frozen the moment a release is
+      # published. The publish job flips the draft once the assets are up.
+      - name: Create draft GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ env.NEW_VERSION }}" \
             --title "Release ${{ env.NEW_VERSION }}" \
-            --generate-notes
+            --generate-notes \
+            --draft
 
   publish-python:
     name: Publish Python package
