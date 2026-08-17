@@ -1,8 +1,24 @@
 """Tests for the table_converter module."""
 
+from typing import Any
+
 from bs4 import BeautifulSoup
 
 from confluence_markdown_exporter.utils.table_converter import TableConverter
+
+
+class _CountingTableConverter(TableConverter):
+    """TableConverter that records the cells ``convert_table`` converts."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self.converted_cell_ids: list[int] = []
+
+    def process_tag(self, node: Any, *args: Any, **kwargs: Any) -> str:  # noqa: ANN401
+        parent_tags = kwargs.get("parent_tags", args[0] if args else None)
+        if getattr(node, "name", None) in {"td", "th"} and parent_tags == {"table"}:
+            self.converted_cell_ids.append(id(node))
+        return super().process_tag(node, *args, **kwargs)  # type: ignore[no-any-return]
 
 
 class TestTableConverter:
@@ -313,3 +329,154 @@ class TestTableConverter:
         result = converter.convert(html)
         # Should be formatted compactly
         assert "  " not in result
+
+
+class TestMergedCells:
+    """Markdown has no merged cells, so a span repeats its value in every position."""
+
+    @staticmethod
+    def _convert(html: str) -> list[str]:
+        """Convert compactly and return the table rows."""
+        converter = TableConverter(table_column_width="compact")
+        return [line for line in converter.convert(html).splitlines() if line.startswith("|")]
+
+    def test_rowspan_repeats_value_in_following_row(self) -> None:
+        """A rowspan=2 cell must render its value in both rows."""
+        html = """
+        <table>
+            <tr><th>Env</th><th>Branch</th><th>Cluster</th></tr>
+            <tr><td>Staging</td><td>release</td><td rowspan="2">Cluster A</td></tr>
+            <tr><td>Test</td><td>main</td></tr>
+        </table>
+        """
+        assert self._convert(html) == [
+            "| Env | Branch | Cluster |",
+            "| --- | --- | --- |",
+            "| Staging | release | Cluster A |",
+            "| Test | main | Cluster A |",
+        ]
+
+    def test_rowspan_three_repeats_in_all_rows(self) -> None:
+        """A rowspan larger than two must fill every covered row."""
+        html = """
+        <table>
+            <tr><th>H1</th><th>H2</th></tr>
+            <tr><td rowspan="3">Shared</td><td>a</td></tr>
+            <tr><td>b</td></tr>
+            <tr><td>c</td></tr>
+        </table>
+        """
+        assert self._convert(html)[2:] == [
+            "| Shared | a |",
+            "| Shared | b |",
+            "| Shared | c |",
+        ]
+
+    def test_colspan_repeats_value_across_columns(self) -> None:
+        """A colspan=3 cell must render its value in all three columns."""
+        html = """
+        <table>
+            <tr><th>H1</th><th>H2</th><th>H3</th></tr>
+            <tr><td colspan="3">Full width</td></tr>
+        </table>
+        """
+        assert self._convert(html)[2:] == ["| Full width | Full width | Full width |"]
+
+    def test_rowspan_and_colspan_fill_whole_block(self) -> None:
+        """A combined rowspan/colspan cell must fill the full 2x2 block."""
+        html = """
+        <table>
+            <tr><th>H1</th><th>H2</th><th>H3</th></tr>
+            <tr><td>a</td><td rowspan="2" colspan="2">Block</td></tr>
+            <tr><td>b</td></tr>
+        </table>
+        """
+        assert self._convert(html)[2:] == [
+            "| a | Block | Block |",
+            "| b | Block | Block |",
+        ]
+
+    def test_rowspan_on_header_cell(self) -> None:
+        """A rowspan on a header cell repeats into the row below it."""
+        html = """
+        <table>
+            <tr><th rowspan="2">Name</th><th>A</th></tr>
+            <tr><th>B</th></tr>
+            <tr><td>x</td><td>y</td></tr>
+        </table>
+        """
+        assert self._convert(html) == [
+            "| Name | A |",
+            "| --- | --- |",
+            "| Name | B |",
+            "| x | y |",
+        ]
+
+    def test_cells_after_a_span_keep_their_column(self) -> None:
+        """A span in the first column must not shift the following cells."""
+        html = """
+        <table>
+            <tr><th>H1</th><th>H2</th><th>H3</th></tr>
+            <tr><td rowspan="2">R</td><td>b1</td><td>c1</td></tr>
+            <tr><td>b2</td><td>c2</td></tr>
+        </table>
+        """
+        assert self._convert(html)[2:] == [
+            "| R | b1 | c1 |",
+            "| R | b2 | c2 |",
+        ]
+
+    def test_malformed_span_attributes_keep_cells(self) -> None:
+        """Unparsable or zero span values must fall back to a single cell."""
+        html = """
+        <table>
+            <tr><th>H1</th><th>H2</th></tr>
+            <tr><td colspan="abc">A</td><td rowspan="0">B</td></tr>
+        </table>
+        """
+        assert self._convert(html)[2:] == ["| A | B |"]
+
+    def test_zero_or_negative_colspan_keeps_the_cell(self) -> None:
+        """A colspan below 1 must still occupy one position instead of erasing the cell.
+
+        This is what the minimum of 1 in ``pad`` protects: without it the cell is
+        repeated zero times and disappears from the row.
+        """
+        zero = """
+        <table>
+            <tr><th>H1</th><th>H2</th></tr>
+            <tr><td colspan="0">A</td><td>B</td></tr>
+        </table>
+        """
+        negative = """
+        <table>
+            <tr><th>H1</th><th>H2</th></tr>
+            <tr><td colspan="-1">A</td><td>B</td></tr>
+        </table>
+        """
+        assert self._convert(zero)[2:] == ["| A | B |"]
+        assert self._convert(negative)[2:] == ["| A | B |"]
+
+    def test_spanned_cell_is_converted_only_once(self) -> None:
+        """Repeated positions must reuse the conversion, not run it again.
+
+        Cell conversion is stateful in ``Page.Converter`` (the PlantUML macro index
+        advances per converted macro), so a repeated cell must not be reprocessed.
+        """
+        html = """
+        <table>
+            <tr><th>H1</th><th>H2</th></tr>
+            <tr><td rowspan="3">Shared</td><td>a</td></tr>
+            <tr><td>b</td></tr>
+            <tr><td>c</td></tr>
+        </table>
+        """
+        converter = _CountingTableConverter(table_column_width="compact")
+        converter.convert(html)
+
+        ids = converter.converted_cell_ids
+        assert len(ids) == len(set(ids)), "a cell was converted more than once"
+        # 2 headers + 1 spanned cell + 3 regular cells. This counts only the pass
+        # convert_table performs itself; markdownify's own tree descent converts every
+        # cell once more, which is pre-existing behaviour and out of scope here.
+        assert len(ids) == 6
