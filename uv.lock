@@ -238,7 +238,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "atlassian-python-api" },
+    { name = "atlassian-python-api", specifier = ">=4,<5" },
     { name = "jmespath" },
     { name = "lxml", specifier = ">=6.0.2" },
     { name = "markdownify" },
