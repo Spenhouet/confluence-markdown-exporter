@@ -65,7 +65,18 @@ def _get_int_attr(cell: Tag, attr: str, default: str = "1") -> int:
 
 
 def pad(rows: list[list[Tag]]) -> list[list[Tag]]:
-    """Pad table rows to handle rowspan and colspan for markdown conversion."""
+    """Expand rowspan and colspan into a rectangular grid of cells.
+
+    Markdown tables cannot merge cells, so in a well-formed table every grid position a
+    merged cell covers references the merge origin itself and therefore renders the same
+    value. The same Tag object is reused on purpose, so callers can convert each origin
+    only once.
+
+    A ragged row, one with too few cells to reach a position reserved by an earlier
+    rowspan, still drops that reservation, because the trailing sweep only fills the
+    positions directly following the last cell of the row. Such markup is malformed and
+    renders the same way it did before merged content was carried over.
+    """
     padded: list[list[Tag]] = []
     occ: dict[tuple[int, int], Tag] = {}
     for r, row in enumerate(rows):
@@ -77,28 +88,24 @@ def pad(rows: list[list[Tag]]) -> list[list[Tag]]:
             while (r, c) in occ:
                 cur.append(occ.pop((r, c)))
                 c += 1
-            rs = _get_int_attr(cell, "rowspan", "1")
-            cs = _get_int_attr(cell, "colspan", "1")
-            cur.append(cell)
-            # Append extra cells for colspan
-            if cs > 1:
-                cur.extend(make_empty_cell() for _ in range(1, cs))
-            # Mark future cells for rowspan and colspan
-            for i in range(rs):
+            # Every cell occupies at least one grid position: colspan="0" (valid in
+            # HTML4, dropped in HTML5) or a negative value would otherwise erase it.
+            # rowspan="0" validly means "to the end of the row group"; treating it as a
+            # single row is a pragmatic simplification, not a spec-accurate reading.
+            rs = max(_get_int_attr(cell, "rowspan", "1"), 1)
+            cs = max(_get_int_attr(cell, "colspan", "1"), 1)
+            # Repeat the cell across the columns it spans in this row.
+            cur.extend([cell] * cs)
+            # Reserve the positions it spans in the following rows.
+            for i in range(1, rs):
                 for j in range(cs):
-                    if i or j:
-                        occ[(r + i, c + j)] = make_empty_cell()
+                    occ[(r + i, c + j)] = cell
             c += cs
         while (r, c) in occ:
             cur.append(occ.pop((r, c)))
             c += 1
         padded.append(cur)
     return padded
-
-
-def make_empty_cell() -> Tag:
-    """Return an empty <td> Tag."""
-    return Tag(name="td")
 
 
 def normalize_table_cell_text(text: str) -> str:
@@ -161,9 +168,21 @@ class TableConverter(MarkdownConverter):
             return ""
 
         padded_rows = pad(rows)
-        converted = [
-            [self.process_tag(cell, parent_tags={"table"}) for cell in row] for row in padded_rows
-        ]
+        # A merged cell occupies several grid positions but must be converted only
+        # once: conversion is stateful (e.g. the PlantUML macro index advances per
+        # converted macro), so repeated positions reuse the first conversion.
+        # Keyed on id() and not on the Tag itself: bs4 gives Tag a structural __eq__
+        # and __hash__, so two distinct cells with identical markup would collapse
+        # into one cache entry and wrongly share a conversion.
+        cell_cache: dict[int, str] = {}
+        converted: list[list[str]] = []
+        for row in padded_rows:
+            converted_row: list[str] = []
+            for cell in row:
+                if id(cell) not in cell_cache:
+                    cell_cache[id(cell)] = self.process_tag(cell, parent_tags={"table"})
+                converted_row.append(cell_cache[id(cell)])
+            converted.append(converted_row)
 
         has_header = all(cell.name == "th" for cell in rows[0])
 

@@ -44,7 +44,7 @@ jobs:
         run: uv build --no-sources
 
       - name: Generate artifact attestations
-        uses: actions/attest-build-provenance@v4.1.1
+        uses: actions/attest-build-provenance@v4.2.2
         with:
           subject-path: "dist/*"
 
@@ -52,7 +52,7 @@ jobs:
         run: uv publish
 
       - name: Sign the distributions with Sigstore
-        uses: sigstore/gh-action-sigstore-python@v3.4.0
+        uses: sigstore/gh-action-sigstore-python@v3.5.0
         with:
           inputs: >-
             ./dist/*.tar.gz

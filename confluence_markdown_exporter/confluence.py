@@ -4,6 +4,7 @@ https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
 import base64
+import copy
 import functools
 import html
 import json
@@ -97,9 +98,31 @@ _RE_HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 # (in matrix-style tables) to row-label <td>s. Treated as "no user-chosen colour".
 _DEFAULT_HEADER_BGS = frozenset({"#f4f5f7", "#f2f2f2"})
 
+# Storage-format tag names, with and without the `ac:` prefix. Which form is present
+# depends on the parser: `html.parser` keeps the prefix, the `xml` parser strips it.
+_AC_MACRO_TAGS = ["ac:structured-macro", "structured-macro"]
+_AC_PARAMETER_TAGS = ["ac:parameter", "parameter"]
+
 
 def _rgb_to_hex(r: int, g: int, b: int) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _ac_attr(el: Tag, name: str) -> str:
+    """Read a storage-format attribute, with or without the `ac:` prefix."""
+    value = el.get(f"ac:{name}")
+    if value is None:
+        value = el.get(name, "")
+    return str(value)
+
+
+def _normalize_cql(cql: str) -> str:
+    """Normalize a CQL string so it can be used as a lookup key.
+
+    body.storage and body.export_view are produced by different renderers and may
+    differ in incidental whitespace, so collapse it before comparing.
+    """
+    return " ".join(cql.split())
 
 
 def _render_meta_bind_view_fields(props: dict[str, str], mode: str) -> str:
@@ -1486,6 +1509,7 @@ class Page(Document):
             self._plantuml_index: int = 0
             self._plantumlcloud_index: int = 0
             self._storage_macros_cache: dict[str, list[Tag]] = {}
+            self._storage_soup_cache: BeautifulSoup | None = None
 
         @property
         def _colorid_map(self) -> dict[str, str]:
@@ -1575,6 +1599,7 @@ class Page(Document):
         @property
         def markdown(self) -> str:
             html = self._strip_excerpt_include_panel_titles(self.page.html)
+            html = self._inline_app_macro_bodies(html)
             md_body = self.convert(html)
             md_body = self._escape_template_placeholders(md_body)
             markdown = f"{self.front_matter}\n"
@@ -1763,6 +1788,9 @@ class Page(Document):
                     "mohamicorp-markdown": self.convert_markdown,
                     "include": self.convert_include,
                     "excerpt-include": self.convert_include,
+                    "content-tree": self.convert_pagetree,
+                    "pagetree": self.convert_pagetree,
+                    "children": self.convert_pagetree,
                 }
                 if macro_name in macro_handlers:
                     return macro_handlers[macro_name](el, text, parent_tags)
@@ -1770,6 +1798,8 @@ class Page(Document):
             class_handlers = {
                 "expand-container": self.convert_expand_container,
                 "columnLayout": self.convert_column_layout,
+                "content-tree": self.convert_pagetree,
+                "plugin_pagetree": self.convert_pagetree,
             }
             for class_name, handler in class_handlers.items():
                 if class_name in str(el.get("class", "")):
@@ -1976,6 +2006,195 @@ class Page(Document):
                 return text
 
             return self.process_tag(tocs[0], parent_tags)
+
+        def convert_pagetree(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert a Confluence content-tree / page-tree macro to nested page links.
+
+            The macro renders as an empty JavaScript placeholder in ``body.view``, so its
+            child pages are resolved from the API (``Page.descendants``) and emitted as a
+            nested Markdown bullet list. Honors the ``root`` (``@self`` / ``@home`` / a page
+            title) and tree-depth parameters read from the storage-format XML. Children are
+            ordered by title, since Confluence's manual "position" order is not available via
+            the CQL descendants query.
+            """
+            params = self._extract_pagetree_params(el)
+            root_page = self._resolve_pagetree_root(
+                params.get("root"), params.get("root_space_key")
+            )
+            if root_page is None:
+                return ""
+
+            max_depth = self._pagetree_depth(params)
+            if max_depth is None and str(el.get("data-macro-name", "")) == "children":
+                # The Children Display macro shows only direct children unless `all=true`.
+                if params.get("all", "").strip().lower() != "true":
+                    max_depth = 1
+            lines = self._render_pagetree(root_page.id, root_page.descendants, max_depth)
+            if not lines:
+                return ""
+            return "\n" + "\n".join(lines) + "\n\n"
+
+        _PAGETREE_MACRO_NAMES: ClassVar[set[str]] = {"content-tree", "pagetree", "children"}
+
+        def _extract_pagetree_params(self, el: BeautifulSoup) -> dict[str, str]:
+            """Read the content-tree macro parameters from the storage-format XML.
+
+            BeautifulSoup with the ``xml`` parser strips namespace prefixes, so
+            ``ac:structured-macro`` becomes ``structured-macro`` and ``ac:parameter``
+            becomes ``parameter``. The macro is matched by ``macro-id`` when the rendered
+            div carries one; otherwise the first matching macro is used (class-triggered
+            fallback path).
+            """
+            source = self.page.editor2 or self.page.body_storage
+            if not source:
+                return {}
+
+            macro_id = el.get("data-macro-id")
+            soup = BeautifulSoup(f"<root>{source}</root>", "xml")
+            found_any = False
+            for macro in soup.find_all("structured-macro"):
+                if not isinstance(macro, Tag):
+                    continue
+                if macro.get("name") not in self._PAGETREE_MACRO_NAMES:
+                    continue
+                found_any = True
+                if macro_id and macro.get("macro-id") != macro_id:
+                    continue
+                return self._read_macro_params(macro)
+            if macro_id and found_any:
+                logger.warning(
+                    "Content tree macro (macro-id '%s') not found in storage XML; "
+                    "falling back to defaults.",
+                    macro_id,
+                )
+            return {}
+
+        @staticmethod
+        def _read_macro_params(macro: Tag) -> dict[str, str]:
+            """Read a structured-macro's direct ``parameter`` children into a dict."""
+            params: dict[str, str] = {}
+            for p in macro.find_all("parameter", recursive=False):
+                if not isinstance(p, Tag):
+                    continue
+                name = p.get("name")
+                if not name:
+                    continue
+                # Page-reference params (e.g. `root`) carry their value in a nested
+                # `ri:page` `ri:content-title` attribute rather than as element text; the
+                # referenced page may live in another space (`ri:space-key`).
+                ri_page = p.find("page")
+                if isinstance(ri_page, Tag) and ri_page.get("content-title"):
+                    params[str(name)] = str(ri_page.get("content-title"))
+                    space_key = ri_page.get("space-key")
+                    if space_key:
+                        params[f"{name}_space_key"] = str(space_key)
+                else:
+                    params[str(name)] = p.get_text(strip=True)
+            return params
+
+        @staticmethod
+        def _pagetree_depth(params: dict[str, str]) -> int | None:
+            """Return the number of levels to render, or ``None`` for the full subtree.
+
+            ``depth`` (Children Display macro) expresses the number of levels directly, so
+            it is preferred; ``startDepth`` (Page Tree macro) maps to the same UI "Tree
+            depth" field on the instances observed and is used as a fallback.
+            """
+            for key in ("depth", "expandDepth", "startDepth"):
+                value = params.get(key)
+                if not value:
+                    continue
+                try:
+                    depth = int(value)
+                except ValueError:
+                    continue
+                if depth > 0:
+                    return depth
+            return None
+
+        def _resolve_pagetree_root(
+            self, root_value: str | None, space_key: str | None = None
+        ) -> "Page | None":
+            """Resolve the tree root to a Page (``@self`` / ``@home`` / a page title).
+
+            ``space_key`` is the space of a title-referenced root page (from the macro's
+            ``ri:page`` ``ri:space-key``); when absent the current page's space is used.
+            """
+            root = (root_value or "").strip()
+            if not root or root == "@self":
+                return self.page
+            if root == "@home":
+                homepage_id = self.page.space.homepage
+                if not homepage_id:
+                    logger.warning(
+                        "Content tree macro root is @home but space '%s' has no homepage; "
+                        "skipping.",
+                        self.page.space.key,
+                    )
+                    return None
+                return Page.from_id(homepage_id, self.page.base_url)
+
+            page_id = self._find_page_id_by_title(root, space_key)
+            if page_id is None:
+                logger.warning(
+                    "Content tree macro root page '%s' could not be resolved; skipping.", root
+                )
+                return None
+            return Page.from_id(page_id, self.page.base_url)
+
+        def _find_page_id_by_title(self, title: str, space_key: str | None = None) -> int | None:
+            """Resolve a page id by exact title within a space via CQL (best effort)."""
+            client = get_thread_confluence(self.page.base_url)
+            space = space_key or self.page.space.key
+
+            def _escape(value: str) -> str:
+                return value.replace("\\", "\\\\").replace('"', '\\"')
+
+            cql = f'type=page AND space="{_escape(space)}" AND title="{_escape(title)}"'
+            try:
+                response = cast(
+                    "dict",
+                    client.get("rest/api/content/search", params={"cql": cql, "limit": 1}),
+                )
+            except Exception:
+                logger.exception("Failed to resolve content tree root page '%s'.", title)
+                return None
+            results = response.get("results", [])
+            if not results:
+                return None
+            # CQL title matching can be fuzzy; require an exact title match to be safe.
+            first = results[0]
+            if first.get("title") != title:
+                return None
+            try:
+                return int(first.get("id"))
+            except (TypeError, ValueError):
+                return None
+
+        def _render_pagetree(
+            self, root_id: int, descendants: list["Descendant"], max_depth: int | None
+        ) -> list[str]:
+            """Build a nested bullet list of page links from the root's descendants."""
+            children_by_parent: dict[int, list[Descendant]] = {}
+            for descendant in descendants:
+                if not descendant.id:
+                    continue
+                # `Descendant.from_json` strips only the topmost ancestor, so the last
+                # ancestor is the descendant's immediate parent.
+                parent_id = descendant.ancestors[-1].id if descendant.ancestors else root_id
+                children_by_parent.setdefault(parent_id, []).append(descendant)
+
+            lines: list[str] = []
+
+            def walk(parent_id: int, level: int) -> None:
+                if max_depth is not None and level >= max_depth:
+                    return
+                for child in sorted(children_by_parent.get(parent_id, []), key=lambda c: c.title):
+                    lines.append(f"{'  ' * level}- {self.convert_page_link(child.id)}")
+                    walk(child.id, level + 1)
+
+            walk(root_id, 0)
+            return lines
 
         def convert_hidden_content(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
@@ -2680,6 +2899,140 @@ class Page(Document):
             if isinstance(content, Tag):
                 content.unwrap()
 
+        def _inline_app_macro_bodies(self, html: str) -> str:
+            """Splice Connect app macro bodies back into the rendered view HTML.
+
+            Confluence does not server-render the body of a Connect
+            `dynamicContentMacros` app macro (e.g. the StiltSoft Table Filter) into
+            body.view. It emits an empty `ap-container` placeholder and leaves the app
+            to render the body in an iframe, so a Page Properties Report nested in such
+            a macro never reaches `convert_table`. body.export_view does render the
+            report, with the wrapper stripped, so the placeholder is replaced with that
+            table and the regular report handling then applies unchanged.
+
+            The two are matched on the CQL of the nested `detailssummary` macro in
+            body.storage, because body.export_view carries no macro IDs.
+            """
+            if "ap-container" not in html:
+                return html
+
+            soup = BeautifulSoup(html, "html.parser")
+            # `get_text` ignores <script>/<style> contents (BeautifulSoup models them as
+            # Script/Stylesheet, which are excluded from the string traversal), so the
+            # iframe bootstrap script the placeholder always carries does not count as
+            # rendered content. Only a macro the app did not render server-side matches.
+            placeholders = [
+                el
+                for el in soup.find_all("div", class_="ap-container")
+                if isinstance(el, Tag)
+                and el.get("data-hasbody") == "true"
+                and not el.get_text(strip=True)
+            ]
+            if not placeholders:
+                return html
+
+            export_tables = self._export_report_tables_by_cql()
+            for placeholder in placeholders:
+                # An outer placeholder may have contained this one and been decomposed.
+                if placeholder.parent is None:
+                    continue
+                macro_id = str(placeholder.get("data-macro-id", ""))
+                cqls = self._nested_report_cqls(macro_id)
+                if not cqls:
+                    # Most app macros legitimately wrap no report, so this is not a
+                    # warning; it is logged only to explain a placeholder left in place.
+                    logger.debug(
+                        f"App macro '{macro_id}' on page '{self.page.title}' "
+                        f"(ID: {self.page.id}) has no nested Page Properties Report in "
+                        f"body.storage; leaving the placeholder untouched."
+                    )
+                    continue
+                tables = self._report_tables_for_cqls(cqls, export_tables, macro_id)
+                if not tables:
+                    continue
+                for table in tables:
+                    # Copy: the same table may be referenced by more than one placeholder,
+                    # and inserting a live node moves it rather than duplicating it.
+                    placeholder.insert_before(copy.copy(table))
+                placeholder.decompose()
+            return str(soup)
+
+        def _report_tables_for_cqls(
+            self, cqls: list[str], export_tables: dict[str, Tag], macro_id: str
+        ) -> list[Tag]:
+            """Resolve each nested report's CQL to its rendered body.export_view table."""
+            tables: list[Tag] = []
+            for cql in cqls:
+                table = export_tables.get(_normalize_cql(cql))
+                if table is None:
+                    # The CQL itself is macro configuration and can embed labels or
+                    # free-text filters, so it is kept out of the warning and logged
+                    # only at debug level.
+                    logger.warning(
+                        f"Page Properties Report nested in app macro '{macro_id}' on page "
+                        f"'{self.page.title}' (ID: {self.page.id}) has no matching table in "
+                        f"body.export_view and is omitted from the export."
+                    )
+                    logger.debug(f"Unmatched Page Properties Report CQL: {cql}")
+                    continue
+                tables.append(table)
+            return tables
+
+        def _export_report_tables_by_cql(self) -> dict[str, Tag]:
+            """Index the Page Properties Report tables rendered into body.export_view."""
+            tables: dict[str, Tag] = {}
+            soup = BeautifulSoup(self.page.body_export or "", "html.parser")
+            for table in soup.find_all("table", class_="metadata-summary-macro"):
+                cql = table.get("data-cql") if isinstance(table, Tag) else None
+                if not isinstance(cql, str) or not cql:
+                    continue
+                key = _normalize_cql(cql)
+                if key in tables:
+                    logger.warning(
+                        f"Page '{self.page.title}' (ID: {self.page.id}) has multiple Page "
+                        f"Properties Reports with identical CQL; the first rendered table "
+                        f"is used for all of them."
+                    )
+                    logger.debug(f"Duplicate Page Properties Report CQL: {key}")
+                    continue
+                tables[key] = table
+            return tables
+
+        @property
+        def _storage_soup(self) -> BeautifulSoup:
+            """Cache and return body.storage parsed for macro lookups.
+
+            Parsed with `html.parser` rather than the `xml` parser used elsewhere:
+            storage can contain HTML entities that are undefined in XML (third-party
+            macros emit e.g. `&sbquo;`), which puts lxml into error recovery, where it
+            silently drops unrelated entities such as the `&quot;` wrapping CQL values.
+            That corrupts the CQL and breaks the report lookup. `html.parser` keeps the
+            namespace prefixes, so both the prefixed and unprefixed tag names are
+            accepted by the callers.
+            """
+            if self._storage_soup_cache is None:
+                self._storage_soup_cache = BeautifulSoup(self.page.body_storage, "html.parser")
+            return self._storage_soup_cache
+
+        def _nested_report_cqls(self, macro_id: str) -> list[str]:
+            """Return the CQL of each Page Properties Report nested in an app macro."""
+            if not macro_id or not self.page.body_storage:
+                return []
+
+            for macro in self._storage_soup.find_all(_AC_MACRO_TAGS):
+                if not isinstance(macro, Tag) or _ac_attr(macro, "macro-id") != macro_id:
+                    continue
+                cqls: list[str] = []
+                for nested in macro.find_all(_AC_MACRO_TAGS):
+                    if not isinstance(nested, Tag) or _ac_attr(nested, "name") != "detailssummary":
+                        continue
+                    for param in nested.find_all(_AC_PARAMETER_TAGS):
+                        if isinstance(param, Tag) and _ac_attr(param, "name") == "cql":
+                            cqls.append(param.get_text())
+                            break
+                return cqls
+            return []
+
         def _extract_include_target_title(self, macro_id: str) -> str | None:
             """Resolve the target page title for an `include` / `excerpt-include` macro.
 
@@ -2996,7 +3349,7 @@ class Page(Document):
             elif style == "wiki":
                 result = path.name
             else:
-                result = os.path.relpath(path, self.page.export_path.parent)
+                result = os.path.relpath(path, self.page.export_path.parent).replace(os.sep, "/")
             return result
 
 
