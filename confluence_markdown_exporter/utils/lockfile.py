@@ -306,8 +306,28 @@ class LockfileManager:
         return set(cls._lock.all_pages().keys()) - cls._seen_page_ids
 
     @classmethod
-    def remove_pages(cls, deleted_ids: set[str]) -> None:
-        """Remove files and lockfile entries for moved or deleted pages.
+    def cleanup_moved_pages(cls) -> None:
+        """Delete old files for pages whose export_path changed during this run."""
+        if cls._lock is None or cls._output_path is None:
+            return
+
+        for page_id in cls._seen_page_ids:
+            if page_id in cls._all_entries_snapshot:
+                old_entry = cls._all_entries_snapshot[page_id]
+                new_entry = cls._lock.get_page(page_id)
+                if new_entry and old_entry.export_path != new_entry.export_path:
+                    try:
+                        (cls._output_path / old_entry.export_path).unlink(missing_ok=True)
+                    except OSError:
+                        logger.exception(
+                            "Failed to delete old path for moved page: %s", old_entry.export_path
+                        )
+                        continue
+                    logger.info("Deleted old path for moved page: %s", old_entry.export_path)
+
+    @classmethod
+    def remove_deleted_pages(cls, deleted_ids: set[str]) -> None:
+        """Remove files and lockfile entries for pages deleted from Confluence.
 
         Args:
             deleted_ids: Page IDs confirmed as deleted from Confluence.
@@ -317,20 +337,14 @@ class LockfileManager:
 
         result_delete_ids: set[str] = set()
 
-        # Handle moved pages: delete old file when export_path changed
-        for page_id in cls._seen_page_ids:
-            if page_id in cls._all_entries_snapshot:
-                old_entry = cls._all_entries_snapshot[page_id]
-                new_entry = cls._lock.get_page(page_id)
-                if new_entry and old_entry.export_path != new_entry.export_path:
-                    (cls._output_path / old_entry.export_path).unlink(missing_ok=True)
-                    logger.info("Deleted old path for moved page: %s", old_entry.export_path)
-
-        # Remove files and lockfile entries for pages deleted from Confluence
         for page_id in deleted_ids:
             entry = cls._lock.get_page(page_id)
             if entry:
-                (cls._output_path / entry.export_path).unlink(missing_ok=True)
+                try:
+                    (cls._output_path / entry.export_path).unlink(missing_ok=True)
+                except OSError:
+                    logger.exception("Failed to delete removed page: %s", entry.export_path)
+                    continue
                 logger.info("Deleted removed page: %s", entry.export_path)
                 result_delete_ids.add(page_id)
 
