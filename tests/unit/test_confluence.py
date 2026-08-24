@@ -6,6 +6,7 @@ import logging
 import types
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -1906,6 +1907,105 @@ class TestAttachmentTemplateVars:
             path2 = att2.export_path
 
         assert path1 != path2
+
+
+class TestAttachmentPageContext:
+    """Attachments carry page_id/page_title from their owning page for page-scoped paths."""
+
+    _SPACE = Space(
+        base_url="https://example.com", key="TS", name="Test", description="", homepage=0
+    )
+
+    _ATTACHMENT_JSON: ClassVar[dict] = {
+        "id": "att-1",
+        "title": "file.png",
+        "extensions": {"fileId": "guid-1"},
+        "_expandable": {"space": "/rest/api/space/TS"},
+        "_links": {"download": "/download/att-1"},
+        "container": {},
+    }
+
+    def test_from_json_without_page_context_defaults_to_empty(self) -> None:
+        """Backward compatible: page_id/page_title default to '' when not passed."""
+        with patch(
+            "confluence_markdown_exporter.confluence.Space.from_key", return_value=self._SPACE
+        ):
+            attachment = Attachment.from_json(self._ATTACHMENT_JSON, "https://example.com")
+
+        assert attachment.page_id == ""
+        assert attachment.page_title == ""
+        assert attachment._template_vars["page_id"] == ""
+        assert attachment._template_vars["page_title"] == ""
+
+    def test_from_json_sets_page_context_when_provided(self) -> None:
+        with patch(
+            "confluence_markdown_exporter.confluence.Space.from_key", return_value=self._SPACE
+        ):
+            attachment = Attachment.from_json(
+                self._ATTACHMENT_JSON, "https://example.com", page_id="42", page_title="My Page"
+            )
+
+        assert attachment.page_id == "42"
+        assert attachment.page_title == "My Page"
+        assert attachment._template_vars["page_id"] == "42"
+        assert attachment._template_vars["page_title"] == "My Page"
+
+    def test_from_page_id_propagates_page_context_to_attachments(self) -> None:
+        fake_response = {"results": [self._ATTACHMENT_JSON], "size": 1}
+        with (
+            patch("confluence_markdown_exporter.confluence.get_thread_confluence") as mock_client,
+            patch(
+                "confluence_markdown_exporter.confluence.Space.from_key", return_value=self._SPACE
+            ),
+        ):
+            mock_client.return_value.get_attachments_from_content.return_value = fake_response
+            attachments = Attachment.from_page_id(42, "https://example.com", page_title="My Page")
+
+        assert len(attachments) == 1
+        assert attachments[0].page_id == "42"
+        assert attachments[0].page_title == "My Page"
+
+    def test_page_from_json_forwards_its_title_as_attachment_page_title(self) -> None:
+        """Page.from_json() must pass its own title through to Attachment.from_page_id()."""
+        page_data = {
+            "id": 42,
+            "title": "My Page",
+            "_expandable": {"space": "/rest/api/space/TS"},
+            "body": {
+                "view": {"value": ""},
+                "export_view": {"value": ""},
+                "editor2": {"value": ""},
+            },
+            "metadata": {"labels": {"results": []}},
+            "ancestors": [],
+            "version": {},
+        }
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.Attachment.from_page_id",
+                return_value=[],
+            ) as mock_from_page_id,
+            patch(
+                "confluence_markdown_exporter.confluence.Space.from_key", return_value=self._SPACE
+            ),
+        ):
+            Page.from_json(page_data, "https://example.com")
+
+        mock_from_page_id.assert_called_once_with(42, "https://example.com", page_title="My Page")
+
+    def test_page_scoped_attachment_path_template(self) -> None:
+        """attachment_path can now use {page_id}/{page_title}, per attachment."""
+        attachment = _make_attachment("123", "guid-1")
+        attachment.page_id = "42"
+        attachment.page_title = "My Page"
+
+        with patch("confluence_markdown_exporter.confluence.settings") as mock_settings:
+            mock_settings.export.attachment_path = (
+                "{page_id}/{attachment_file_id}{attachment_extension}"
+            )
+            path = attachment.export_path
+
+        assert path == Path("42/guid-1.png")
 
 
 class TestWikiLinkDisambiguation:

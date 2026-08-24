@@ -391,6 +391,8 @@ class ExportConfig(BaseModel):
             "  - {homepage_title}: The title of the homepage of the Confluence space.\n"
             "  - {ancestor_ids}: A slash-separated list of ancestor page IDs.\n"
             "  - {ancestor_titles}: A slash-separated list of ancestor page titles.\n"
+            "  - {page_id}: The unique ID of the Confluence page the attachment is on.\n"
+            "  - {page_title}: The title of the Confluence page the attachment is on.\n"
             "  - {attachment_id}: The unique ID of the attachment.\n"
             "  - {attachment_title}: The title of the attachment (without file extension).\n"
             "  - {attachment_file_id}: The file ID of the attachment. Falls back to "

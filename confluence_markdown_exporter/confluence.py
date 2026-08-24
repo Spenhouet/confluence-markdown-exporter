@@ -737,6 +737,12 @@ class Attachment(Document):
     collection_name: str
     download_link: str
     comment: str
+    # Populated by from_page_id()/from_json() from the owning page - Document itself has no
+    # page context (only space/homepage/ancestors), unlike Page/Descendant which add page_id/
+    # page_title on top. Kept optional (empty string default) for backward compatibility with
+    # any other from_json() call site that does not know the owning page.
+    page_id: str = ""
+    page_title: str = ""
 
     @property
     def extension(self) -> str:
@@ -758,6 +764,8 @@ class Attachment(Document):
         title_without_ext = title[: -len(ext)] if ext and title.endswith(ext) else Path(title).stem
         return {
             **super()._template_vars,
+            "page_id": self.page_id,
+            "page_title": sanitize_filename(self.page_title) if self.page_title else "",
             "attachment_id": str(self.id),
             "attachment_title": sanitize_filename(title_without_ext),
             # file_id is a GUID and does not need sanitization. On
@@ -774,7 +782,9 @@ class Attachment(Document):
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
-    def from_json(cls, data: JsonResponse, base_url: str) -> "Attachment":
+    def from_json(
+        cls, data: JsonResponse, base_url: str, *, page_id: str = "", page_title: str = ""
+    ) -> "Attachment":
         extensions = data.get("extensions", {})
         container = data.get("container", {})
         return cls(
@@ -791,6 +801,8 @@ class Attachment(Document):
             collection_name=extensions.get("collectionName", ""),
             download_link=data.get("_links", {}).get("download", ""),
             comment=extensions.get("comment", ""),
+            page_id=page_id,
+            page_title=page_title,
             ancestors=[
                 *[
                     Ancestor.from_json(ancestor, base_url)
@@ -802,7 +814,9 @@ class Attachment(Document):
         )
 
     @classmethod
-    def from_page_id(cls, page_id: int, base_url: str) -> list["Attachment"]:
+    def from_page_id(
+        cls, page_id: int, base_url: str, page_title: str = ""
+    ) -> list["Attachment"]:
         attachments = []
         start = 0
         paging_limit = 50
@@ -820,7 +834,12 @@ class Attachment(Document):
             )
 
             attachments.extend(
-                [cls.from_json(att, base_url) for att in response.get("results", [])]
+                [
+                    cls.from_json(
+                        att, base_url, page_id=str(page_id), page_title=page_title
+                    )
+                    for att in response.get("results", [])
+                ]
             )
 
             size = response.get("size", 0)
@@ -1372,7 +1391,9 @@ class Page(Document):
                 Label.from_json(label)
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
-            attachments=Attachment.from_page_id(data.get("id", 0), base_url),
+            attachments=Attachment.from_page_id(
+                data.get("id", 0), base_url, page_title=data.get("title", "")
+            ),
             ancestors=[
                 Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])
             ][1:],
