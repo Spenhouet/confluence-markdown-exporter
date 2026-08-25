@@ -94,3 +94,53 @@ class TestEmoticonConversion:
         result = converter.convert(html).strip()
         assert "✅" in result
         assert "Done" in result
+
+    # Server/DC format tests (using data-emoticon-name instead of data-emoji-id)
+    def test_serverdc_emoticon_tick(self, converter: Page.Converter) -> None:
+        html = (
+            '<img class="emoticon emoticon-tick"'
+            ' data-emoticon-name="tick"'
+            ' alt="(Häkchen)" />'
+        )
+        assert converter.convert(html).strip() == "✅"
+
+    def test_serverdc_emoticon_cross(self, converter: Page.Converter) -> None:
+        html = (
+            '<img class="emoticon emoticon-cross"'
+            ' data-emoticon-name="cross"'
+            ' alt="(Fehler)" />'
+        )
+        assert converter.convert(html).strip() == "❌"
+
+    def test_serverdc_emoticon_warning(self, converter: Page.Converter) -> None:
+        html = (
+            '<img class="emoticon emoticon-warning"'
+            ' data-emoticon-name="warning"'
+            ' alt="(Warnung)" />'
+        )
+        assert converter.convert(html).strip() == "⚠️"
+
+    def test_serverdc_emoticon_light_on(self, converter: Page.Converter) -> None:
+        html = (
+            '<img class="emoticon emoticon-light-on"'
+            ' data-emoticon-name="light-on"'
+            ' alt="(Glühbirne an)" />'
+        )
+        assert converter.convert(html).strip() == "💡"
+
+    def test_serverdc_emoticon_yes(self, converter: Page.Converter) -> None:
+        html = (
+            '<img class="emoticon emoticon-yes"'
+            ' data-emoticon-name="yes"'
+            ' alt="(Daumen hoch)" />'
+        )
+        assert converter.convert(html).strip() == "👍"
+
+    def test_serverdc_emoticon_fallback_to_alt_when_name_unknown(self, converter: Page.Converter) -> None:
+        html = (
+            '<img class="emoticon emoticon-unknown"'
+            ' data-emoticon-name="unknown_name"'
+            ' alt="(Unknown)" />'
+        )
+        # Falls back to alt text when data-emoticon-name is not recognized
+        assert converter.convert(html).strip() == "(Unknown)"

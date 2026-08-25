@@ -2434,10 +2434,49 @@ class Page(Document):
             "atlassian-wink": "😉",
         }
 
+        # Mapping of Confluence Server/DC emoticon names to emoji Unicode values
+        _EMOTICON_SERVERDC_NAMES: ClassVar[dict[str, str]] = {
+            "tick": "✅",
+            "cross": "❌",
+            "check_mark": "✅",
+            "cross_mark": "❌",
+            "yes": "👍",
+            "no": "👎",
+            "thumbs-up": "👍",
+            "thumbs-down": "👎",
+            "info": "\u2139\ufe0f",
+            "information": "\u2139\ufe0f",
+            "warning": "⚠️",
+            "forbidden": "🚫",
+            "add": "\u2795",
+            "plus": "\u2795",
+            "subtract": "\u2796",
+            "minus": "\u2796",
+            "help": "❓",
+            "question": "❓",
+            "attention": "❗",
+            "exclamation": "❗",
+            "light-on": "💡",
+            "light-off": "💡",
+            "light_on": "💡",
+            "light_off": "💡",
+            "light-bulb": "💡",
+            "star": "⭐",
+            "star_yellow": "⭐",
+            "blue_star": "🔵",
+            "smile": "😊",
+            "sad": "😞",
+            "tongue": "😛",
+            "biggrin": "😁",
+            "wink": "😉",
+        }
+
         def _convert_emoticon(self, el: BeautifulSoup) -> str | None:
             classes = el.get("class") or []
             if "emoticon" not in classes:
                 return None
+
+            # Try Cloud format first (data-emoji-id, data-emoji-fallback, etc.)
             emoji_id = str(el.get("data-emoji-id", ""))
             fallback = str(el.get("data-emoji-fallback", ""))
             if fallback and not fallback.startswith(":"):
@@ -2452,6 +2491,12 @@ class Page(Document):
                 if emoji_id in self._ATLASSIAN_EMOTICONS:
                     return self._ATLASSIAN_EMOTICONS[emoji_id]
             shortname = str(el.get("data-emoji-shortname", ""))
+
+            # Fallback to Server/DC format (data-emoticon-name)
+            emoticon_name = str(el.get("data-emoticon-name", ""))
+            if emoticon_name and emoticon_name in self._EMOTICON_SERVERDC_NAMES:
+                return self._EMOTICON_SERVERDC_NAMES[emoticon_name]
+
             return shortname or fallback or str(el.get("alt", "")) or None
 
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901, PLR0911, PLR0912
