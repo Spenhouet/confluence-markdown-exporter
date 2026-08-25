@@ -1271,23 +1271,74 @@ class Page(Document):
                     lines.append(r_body_md)
                     lines.append("")
 
+    def _clientside_macro_attachment_names(self) -> set[str]:
+        """Extract attachment names referenced in clientside-rendered macros.
+
+        On Confluence Server/DC, some macros (gliffy, drawio) render clientside in
+        body.view but their metadata is available in body.storage. This method extracts
+        attachment references from those structured-macros so they can be included in
+        the export.
+
+        Returns:
+            Set of attachment titles that should be exported (e.g., {"diagram1", "diagram1.png"})
+        """
+        names: set[str] = set()
+
+        if not self.body_storage:
+            return names
+
+        try:
+            wrapped = f"<root>{self.body_storage}</root>"
+            soup = BeautifulSoup(wrapped, "xml")
+
+            # Gliffy diagrams
+            for macro in soup.find_all("structured-macro"):
+                if not isinstance(macro, Tag) or macro.get("name") != "gliffy":
+                    continue
+                for param in macro.find_all("parameter", recursive=False):
+                    if isinstance(param, Tag) and param.get("name") == "diagramName":
+                        diag_name = param.get_text(strip=True)
+                        if diag_name:
+                            names.add(diag_name)
+                            names.add(f"{diag_name}.png")  # Include preview image
+
+            # DrawIO diagrams (Server/DC variant in storage)
+            for macro in soup.find_all("structured-macro"):
+                if not isinstance(macro, Tag) or macro.get("name") != "drawio":
+                    continue
+                for param in macro.find_all("parameter", recursive=False):
+                    if isinstance(param, Tag) and param.get("name") == "diagramName":
+                        diag_name = param.get_text(strip=True)
+                        if diag_name:
+                            names.add(diag_name)
+                            names.add(f"{diag_name}.png")  # Include preview image
+
+        except Exception as e:  # noqa: BLE001
+            logger.debug(
+                f"Error parsing clientside macros from storage for page {self.id}: {e}"
+            )
+
+        return names
+
     def _attachments_for_export(self) -> list["Attachment"]:
         """Return the subset of attachments that should be exported for this page."""
         if settings.export.attachments_export == "all":
             return list(self.attachments)
+
         bodies = self.body + self.body_export
+        clientside_names = self._clientside_macro_attachment_names()
+
         return [
             a
             for a in self.attachments
-            if (a.filename.endswith(".drawio") and f"diagramName={a.title}" in self.body)
-            or (
-                a.filename.endswith((".drawio.png", ".drawio"))
-                and a.title.replace(" ", "%20") in self.body_export
+            if (
+                a.file_id in bodies
+                or a.id in bodies
+                or a.title in bodies
+                or a.title.replace(" ", "%20") in bodies
+                or a.title in clientside_names
+                or a.title.replace(" ", "%20") in clientside_names
             )
-            or a.file_id in bodies
-            or a.id in bodies
-            or a.title in bodies
-            or a.title.replace(" ", "%20") in bodies
         ]
 
     def export_attachments(self) -> dict[str, AttachmentEntry]:
@@ -1778,6 +1829,7 @@ class Page(Document):
                     "warning": self.convert_alert,
                     "details": self.convert_page_properties,
                     "drawio": self.convert_drawio,
+                    "gliffy": self.convert_gliffy,
                     "plantuml": self.convert_plantuml,
                     "plantumlcloud": self.convert_plantumlcloud,
                     "scroll-ignore": self.convert_hidden_content,
@@ -2643,32 +2695,137 @@ class Page(Document):
             return load_and_parse_drawio(str(drawio_filepath))
 
         def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert DrawIO diagrams to markdown image/file links.
+
+            Supports two strategies:
+            1. Cloud/editor2 format: Extract from HTML pattern `|diagramName=....|`
+            2. Server/DC fallback: Parse from body.storage structured-macros
+
+            Args:
+                el: The div element containing the macro
+                text: The processed text content
+                parent_tags: Stack of parent HTML tags
+
+            Returns:
+                Markdown formatted image link or error comment
+            """
+            drawio_name = None
+
+            # Strategy 1: Try to extract from HTML (Cloud format)
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
                 drawio_name = match.group(1)
-                preview_name = f"{drawio_name}.png"
-                drawio_attachments = self.page.get_attachments_by_title(drawio_name)
-                preview_attachments = self.page.get_attachments_by_title(preview_name)
 
-                if not drawio_attachments or not preview_attachments:
-                    return f"\n<!-- Drawio diagram `{drawio_name}` not found -->\n\n"
+            # Strategy 2: Server/DC fallback - parse from body.storage
+            if not drawio_name and self.page.body_storage:
+                try:
+                    wrapped = f"<root>{self.page.body_storage}</root>"
+                    soup = BeautifulSoup(wrapped, "xml")
 
-                if settings.export.attachment_href == "wiki":
-                    preview_filename = preview_attachments[0].export_path.name
-                    drawio_filename = drawio_attachments[0].export_path.name
-                    drawio_image_embedding = f"![[{preview_filename}|{drawio_name}]]"
-                    drawio_link = f"[[{drawio_filename}|{drawio_image_embedding}]]"
-                else:
-                    drawio_path = self._get_path_for_href(
-                        drawio_attachments[0].export_path, settings.export.attachment_href
-                    )
-                    preview_path = self._get_path_for_href(
-                        preview_attachments[0].export_path, settings.export.attachment_href
-                    )
-                    drawio_image_embedding = f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
-                    drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
-                return f"\n{drawio_link}\n\n"
+                    # Find the first drawio macro in storage
+                    for macro in soup.find_all("structured-macro"):
+                        if not isinstance(macro, Tag) or macro.get("name") != "drawio":
+                            continue
 
-            return ""
+                        # Extract diagramName parameter
+                        for param in macro.find_all("parameter", recursive=False):
+                            if isinstance(param, Tag) and param.get("name") == "diagramName":
+                                drawio_name = param.get_text(strip=True)
+                                break
+
+                        if drawio_name:
+                            break
+
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"Error extracting DrawIO diagram name from storage: {e}")
+
+            if not drawio_name:
+                return ""
+
+            # Find attachments
+            preview_name = f"{drawio_name}.png"
+            drawio_attachments = self.page.get_attachments_by_title(drawio_name)
+            preview_attachments = self.page.get_attachments_by_title(preview_name)
+
+            if not drawio_attachments or not preview_attachments:
+                return f"\n<!-- DrawIO diagram `{drawio_name}` not found -->\n\n"
+
+            # Render as markdown image/file link
+            if settings.export.attachment_href == "wiki":
+                preview_filename = preview_attachments[0].export_path.name
+                drawio_filename = drawio_attachments[0].export_path.name
+                drawio_image_embedding = f"![[{preview_filename}|{drawio_name}]]"
+                drawio_link = f"[[{drawio_filename}|{drawio_image_embedding}]]"
+            else:
+                drawio_path = self._get_path_for_href(
+                    drawio_attachments[0].export_path, settings.export.attachment_href
+                )
+                preview_path = self._get_path_for_href(
+                    preview_attachments[0].export_path, settings.export.attachment_href
+                )
+                drawio_image_embedding = f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
+                drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
+
+            return f"\n{drawio_link}\n\n"
+
+        def convert_gliffy(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert Gliffy diagrams to markdown image links.
+
+            On Confluence Server/DC, Gliffy macros render clientside in body.view but
+            the metadata is available in body.storage. This handler extracts diagram names
+            from storage and renders them as markdown image links.
+
+            Args:
+                el: The div element containing the macro
+                text: The processed text content
+                parent_tags: Stack of parent HTML tags
+
+            Returns:
+                Markdown formatted image link or error comment
+            """
+            # Try to extract diagram name from storage
+            gliffy_name = None
+
+            if self.page.body_storage:
+                try:
+                    wrapped = f"<root>{self.page.body_storage}</root>"
+                    soup = BeautifulSoup(wrapped, "xml")
+
+                    # Find the first gliffy macro in storage
+                    for macro in soup.find_all("structured-macro"):
+                        if not isinstance(macro, Tag) or macro.get("name") != "gliffy":
+                            continue
+
+                        # Extract diagramName parameter
+                        for param in macro.find_all("parameter", recursive=False):
+                            if isinstance(param, Tag) and param.get("name") == "diagramName":
+                                gliffy_name = param.get_text(strip=True)
+                                break
+
+                        if gliffy_name:
+                            break
+
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"Error extracting Gliffy diagram name from storage: {e}")
+
+            if not gliffy_name:
+                return f"\n<!-- Gliffy diagram not found (no diagramName in storage) -->\n\n"
+
+            # Find preview image attachment
+            preview_name = f"{gliffy_name}.png"
+            preview_attachments = self.page.get_attachments_by_title(preview_name)
+
+            if not preview_attachments:
+                return f"\n<!-- Gliffy diagram `{gliffy_name}` preview image not found -->\n\n"
+
+            # Render as markdown image link
+            if settings.export.attachment_href == "wiki":
+                preview_filename = preview_attachments[0].export_path.name
+                return f"\n![[{preview_filename}|{gliffy_name}]]\n\n"
+            else:
+                preview_path = self._get_path_for_href(
+                    preview_attachments[0].export_path, settings.export.attachment_href
+                )
+                return f"\n![{gliffy_name}]({preview_path.replace(' ', '%20')})\n\n"
 
         def _extract_uml_from_editor2(self, macro_id: str) -> str | None:
             """Extract PlantUML source from editor2 XML by macro-id (Cloud format)."""
