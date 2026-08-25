@@ -124,6 +124,7 @@ def _make_attachment(
     file_id: str,
     title: str = "file.png",
     media_type: str = "image/png",
+    comment: str = "",
 ) -> Attachment:
     space = Space(base_url="https://example.com", key="TS", name="Test", description="", homepage=0)
     version = Version(
@@ -145,7 +146,7 @@ def _make_attachment(
         file_id=file_id,
         collection_name="",
         download_link="/download",
-        comment="",
+        comment=comment,
     )
 
 
@@ -1878,6 +1879,43 @@ class TestPagePropertiesReportFrozenFetchesAllRows:
 
         assert "Page A" in result
         assert "Page B" not in result
+
+
+class TestAttachmentExtension:
+    """draw.io source attachments must resolve to `.drawio` regardless of language.
+
+    `comment` is localized by Confluence, but `media_type` is not.
+    """
+
+    DRAWIO_MEDIA_TYPE = "application/vnd.jgraph.mxfile"
+
+    def test_english_comment_resolves_to_drawio(self) -> None:
+        att = _make_attachment(
+            "1", "guid-1", media_type=self.DRAWIO_MEDIA_TYPE, comment="draw.io diagram"
+        )
+        assert att.extension == ".drawio"
+
+    def test_french_comment_resolves_to_drawio(self) -> None:
+        """The extension must not depend on `comment`'s language.
+
+        Confluence localizes `extensions.comment` (e.g. "diagramme draw.io" in French).
+        """
+        att = _make_attachment(
+            "2", "guid-2", media_type=self.DRAWIO_MEDIA_TYPE, comment="diagramme draw.io"
+        )
+        assert att.extension == ".drawio"
+
+    def test_missing_comment_resolves_to_drawio(self) -> None:
+        att = _make_attachment("3", "guid-3", media_type=self.DRAWIO_MEDIA_TYPE, comment="")
+        assert att.extension == ".drawio"
+
+    def test_drawio_preview_still_requires_comment_match(self) -> None:
+        att = _make_attachment("4", "guid-4", media_type="image/png", comment="draw.io preview")
+        assert att.extension == ".drawio.png"
+
+    def test_regular_png_without_drawio_comment_unaffected(self) -> None:
+        att = _make_attachment("5", "guid-5", media_type="image/png", comment="")
+        assert att.extension == ".png"
 
 
 class TestAttachmentTemplateVars:

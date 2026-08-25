@@ -740,7 +740,12 @@ class Attachment(Document):
 
     @property
     def extension(self) -> str:
-        if self.comment == "draw.io diagram" and self.media_type == "application/vnd.jgraph.mxfile":
+        # media_type is unique to draw.io diagram sources, so it alone is a
+        # reliable, locale-independent discriminator. `comment` is not: Confluence
+        # localizes it to the editing user's language (e.g. "diagramme draw.io" in
+        # French vs. "draw.io diagram" in English), so matching it exactly caused
+        # diagrams authored by non-English users to silently lose their extension.
+        if self.media_type == "application/vnd.jgraph.mxfile":
             return ".drawio"
         if self.comment == "draw.io preview" and self.media_type == "image/png":
             return ".drawio.png"
