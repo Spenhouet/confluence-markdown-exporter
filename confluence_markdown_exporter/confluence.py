@@ -1071,6 +1071,26 @@ class Page(Document):
 
     _COMMENT_TITLE_MAX_LEN = 60
 
+    @classmethod
+    def _truncate_excerpt(cls, text: str, max_len: int = _COMMENT_TITLE_MAX_LEN) -> str:
+        """Strip Markdown links/formatting and truncate text at word boundary."""
+        # Strip Markdown images ![alt](url) -> alt
+        clean = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
+        # Strip Markdown links [text](url) -> text
+        clean = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", clean)
+        # Strip Wiki links [[url|text]] -> text, [[text]] -> text
+        clean = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]+)\]\]", r"\1", clean)
+        # Collapse whitespace
+        clean = re.sub(r"\s+", " ", clean).strip()
+
+        if len(clean) <= max_len:
+            return clean
+
+        truncated = clean[:max_len]
+        if " " in truncated:
+            truncated = truncated.rsplit(" ", 1)[0]
+        return truncated.rstrip(".,:;!? ") + "…"
+
     def _fetch_inline_comments(self) -> list[dict]:
         client = get_thread_confluence(self.base_url)
         results: list[dict] = []
@@ -1187,9 +1207,7 @@ class Page(Document):
             ref = comment.get("extensions", {}).get("inlineProperties", {}).get("markerRef", "")
             marked_md = self._marked_texts.get(ref, "")
 
-            plain = re.sub(r"\s+", " ", marked_md).strip()
-            n = self._COMMENT_TITLE_MAX_LEN
-            short_title = plain[:n] + "…" if len(plain) > n else plain
+            short_title = self._truncate_excerpt(marked_md)
             if not short_title:
                 short_title = f"Comment {ref[:8]}"
             lines.append(f"### {short_title}")
@@ -1239,9 +1257,7 @@ class Page(Document):
                 .strip()
             )
 
-            plain = re.sub(r"\s+", " ", body_md).strip()
-            n = self._COMMENT_TITLE_MAX_LEN
-            short_title = plain[:n] + "…" if len(plain) > n else plain
+            short_title = self._truncate_excerpt(body_md)
             if not short_title:
                 short_title = f"Comment {str(comment.get('id', ''))[:8]}"
             lines.append(f"### {short_title}")

@@ -1343,7 +1343,8 @@ def _make_comments_page(
     page.base_url = "https://example.atlassian.net"
     page.export_path = Path("TEAM/My Page.md")
     page._marked_texts = marked_texts or {}
-    page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN.default
+    page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN
+    page._truncate_excerpt = Page._truncate_excerpt
     page._fetch_inline_comments = lambda: list(inline_comments or [])
     page._fetch_page_comments = lambda: list(page_comments or [])
     replies_map = replies or {}
@@ -1509,6 +1510,36 @@ class TestPageCommentsSidecarBody:
 
         ids = [c["id"] for c in results]
         assert ids == ["open1", "open2"]
+
+
+class TestCommentExcerptTruncation:
+    """Test clean truncation of comment excerpt headings (Issue #301)."""
+
+    def test_truncate_excerpt_strips_markdown_links(self) -> None:
+        text = "siehe auch US [SSMPA-2656](https://jira.example.com/browse/SSMPA-2656) fuer Details"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "siehe auch US SSMPA-2656 fuer Details"
+
+    def test_truncate_excerpt_strips_markdown_images(self) -> None:
+        text = "siehe Bild ![Screenshot](https://example.com/img.png) und Text"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "siehe Bild Screenshot und Text"
+
+    def test_truncate_excerpt_strips_wiki_links(self) -> None:
+        text = "siehe [[Page Title|Display Text]] oder [[Simple Page]]"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "siehe Display Text oder Simple Page"
+
+    def test_truncate_excerpt_word_boundary(self) -> None:
+        text = "Das ist ein sehr langer Kommentartext der definitiv gekuerzt werden muss"
+        result = Page._truncate_excerpt(text, max_len=30)
+        assert result == "Das ist ein sehr langer…"
+        assert not result.endswith(" l…")
+
+    def test_truncate_excerpt_no_truncation_when_short(self) -> None:
+        text = "Kurzer Kommentar"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "Kurzer Kommentar"
 
 
 class TestPagePropertiesReportDataview:
