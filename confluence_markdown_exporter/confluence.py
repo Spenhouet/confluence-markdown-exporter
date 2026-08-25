@@ -1207,11 +1207,12 @@ class Page(Document):
             ref = comment.get("extensions", {}).get("inlineProperties", {}).get("markerRef", "")
             marked_md = self._marked_texts.get(ref, "")
 
-            short_title = self._truncate_excerpt(marked_md)
-            if not short_title:
-                short_title = f"Comment {ref[:8]}"
-            lines.append(f"### {short_title}")
-            lines.append("")
+            if settings.export.comment_headings:
+                short_title = self._truncate_excerpt(marked_md)
+                if not short_title:
+                    short_title = f"Comment {ref[:8]}"
+                lines.append(f"### {short_title}")
+                lines.append("")
 
             if marked_md:
                 lines.extend(
@@ -1257,11 +1258,12 @@ class Page(Document):
                 .strip()
             )
 
-            short_title = self._truncate_excerpt(body_md)
-            if not short_title:
-                short_title = f"Comment {str(comment.get('id', ''))[:8]}"
-            lines.append(f"### {short_title}")
-            lines.append("")
+            if settings.export.comment_headings:
+                short_title = self._truncate_excerpt(body_md)
+                if not short_title:
+                    short_title = f"Comment {str(comment.get('id', ''))[:8]}"
+                lines.append(f"### {short_title}")
+                lines.append("")
 
             author = comment.get("history", {}).get("createdBy", {}).get("displayName", "Unknown")
             created = comment.get("history", {}).get("createdDate", "")[:10]

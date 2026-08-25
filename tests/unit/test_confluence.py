@@ -1310,6 +1310,7 @@ class TestInlineCommentsFrontMatter:
         ):
             s.export.output_path = Path("out")
             s.export.comments_export = "inline"
+            s.export.comment_headings = True
             Page.export_comments_sidecar(page)
 
         assert mock_save.called
@@ -1327,6 +1328,69 @@ class TestInlineCommentsFrontMatter:
         assert "\npage_id:" not in content
         assert "\npage_title:" not in content
         assert "\nsource:" not in content
+
+
+class TestCommentHeadingsConfig:
+    """Test comment_headings setting toggling excerpt headings."""
+
+    def test_comment_headings_disabled(self) -> None:
+        page = MockPage()
+        page.id = 123
+        page.title = "My Page"
+        page.space = MagicMock()
+        page.space.key = "TEAM"
+        page.base_url = "https://example.atlassian.net"
+        page.export_path = Path("TEAM/My Page.md")
+        page._marked_texts = {"ref-1": "marked excerpt"}
+        page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN.default
+        page._fetch_inline_comments = lambda: [
+            {
+                "id": "c1",
+                "extensions": {"inlineProperties": {"markerRef": "ref-1"}},
+                "history": {
+                    "createdBy": {"displayName": "Alice"},
+                    "createdDate": "2026-04-01T10:00:00Z",
+                },
+                "body": {"view": {"value": "<p>nice</p>"}},
+            }
+        ]
+        page._fetch_page_comments = lambda: [
+            {
+                "id": "c2",
+                "history": {
+                    "createdBy": {"displayName": "Bob"},
+                    "createdDate": "2026-04-02T10:00:00Z",
+                },
+                "body": {"view": {"value": "<p>footer comment</p>"}},
+            }
+        ]
+        page._fetch_comment_replies = lambda _cid: []
+        page._truncate_excerpt = Page._truncate_excerpt
+        page._render_inline_comments = types.MethodType(Page._render_inline_comments, page)
+        page._render_page_comments = types.MethodType(Page._render_page_comments, page)
+
+        with (
+            patch("confluence_markdown_exporter.confluence.save_file") as mock_save,
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.output_path = Path("out")
+            s.export.comments_export = "all"
+            s.export.comment_headings = False
+            Page.export_comments_sidecar(page)
+
+        assert mock_save.called
+        content = mock_save.call_args[0][1]
+
+        # Section headings remain
+        assert "## Inline comments" in content
+        assert "## Page comments" in content
+        # Excerpt '### ' headings must not be present
+        assert "### " not in content
+        # Authors and bodies are present
+        assert "**Alice** · 2026-04-01" in content
+        assert "nice" in content
+        assert "**Bob** · 2026-04-02" in content
+        assert "footer comment" in content
 
 
 def _make_comments_page(
