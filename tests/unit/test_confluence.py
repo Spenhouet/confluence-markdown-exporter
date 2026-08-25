@@ -1300,6 +1300,7 @@ class TestInlineCommentsFrontMatter:
         ]
         page._fetch_page_comments = list
         page._fetch_comment_replies = lambda _cid: []
+        page._truncate_excerpt = Page._truncate_excerpt
         page._render_inline_comments = types.MethodType(Page._render_inline_comments, page)
         page._render_page_comments = types.MethodType(Page._render_page_comments, page)
 
