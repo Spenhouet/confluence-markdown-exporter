@@ -136,7 +136,9 @@ class TestEmoticonConversion:
         )
         assert converter.convert(html).strip() == "👍"
 
-    def test_serverdc_emoticon_fallback_to_alt_when_name_unknown(self, converter: Page.Converter) -> None:
+    def test_serverdc_emoticon_fallback_to_alt_when_name_unknown(
+        self, converter: Page.Converter
+    ) -> None:
         html = (
             '<img class="emoticon emoticon-unknown"'
             ' data-emoticon-name="unknown_name"'
