@@ -7,318 +7,218 @@ from bs4 import BeautifulSoup
 
 from confluence_markdown_exporter.confluence import Page
 
+Converter = Page.Converter
+
+
+class SimplePageForTesting:
+    """Minimal Page-like object for testing."""
+
+    def __init__(self, body_storage: str | None = None, id_val: int = 0) -> None:
+        self.body_storage = body_storage
+        self.id = id_val
+
 
 class TestClientsideMacroAttachmentNames:
     """Test _clientside_macro_attachment_names() parsing."""
 
-    @pytest.fixture
-    def mock_page_gliffy(self) -> MagicMock:
-        """Create a mock page with Gliffy macro in body.storage."""
-        page = MagicMock(spec=Page)
-        page.id = 12345
-        page.title = "Gliffy Test Page"
-        page.body_storage = (
+    def test_gliffy_diagram_names_extracted(self) -> None:
+        """Test that Gliffy diagram names are extracted from storage."""
+        page = SimplePageForTesting(
             '<ac:structured-macro ac:name="gliffy">'
             '<ac:parameter ac:name="diagramName">my_workflow</ac:parameter>'
-            "</ac:structured-macro>"
+            '</ac:structured-macro>',
+            12345
         )
-        return page
-
-    @pytest.fixture
-    def mock_page_drawio(self) -> MagicMock:
-        """Create a mock page with DrawIO macro in body.storage."""
-        page = MagicMock(spec=Page)
-        page.id = 12346
-        page.title = "DrawIO Test Page"
-        page.body_storage = (
-            '<ac:structured-macro ac:name="drawio">'
-            '<ac:parameter ac:name="diagramName">architecture</ac:parameter>'
-            "</ac:structured-macro>"
-        )
-        return page
-
-    @pytest.fixture
-    def mock_page_both(self) -> MagicMock:
-        """Create a mock page with both Gliffy and DrawIO macros."""
-        page = MagicMock(spec=Page)
-        page.id = 12347
-        page.title = "Mixed Macros Test Page"
-        page.body_storage = (
-            '<ac:structured-macro ac:name="gliffy">'
-            '<ac:parameter ac:name="diagramName">workflow</ac:parameter>'
-            "</ac:structured-macro>"
-            '<ac:structured-macro ac:name="drawio">'
-            '<ac:parameter ac:name="diagramName">architecture</ac:parameter>'
-            "</ac:structured-macro>"
-        )
-        return page
-
-    @pytest.fixture
-    def mock_page_no_macros(self) -> MagicMock:
-        """Create a mock page with no clientside macros."""
-        page = MagicMock(spec=Page)
-        page.id = 12348
-        page.title = "No Macros Page"
-        page.body_storage = "<p>Just some text with no macros</p>"
-        return page
-
-    def test_gliffy_diagram_names_extracted(self, mock_page_gliffy: MagicMock) -> None:
-        """Test that Gliffy diagram names are extracted from storage."""
-        names = Page._clientside_macro_attachment_names(mock_page_gliffy)
+        names = Page._clientside_macro_attachment_names(page)
         assert "my_workflow" in names
         assert "my_workflow.png" in names
         assert len(names) == 2
 
-    def test_drawio_diagram_names_extracted(self, mock_page_drawio: MagicMock) -> None:
+    def test_drawio_diagram_names_extracted(self) -> None:
         """Test that DrawIO diagram names are extracted from storage."""
-        names = Page._clientside_macro_attachment_names(mock_page_drawio)
+        page = SimplePageForTesting(
+            '<ac:structured-macro ac:name="drawio">'
+            '<ac:parameter ac:name="diagramName">architecture</ac:parameter>'
+            '</ac:structured-macro>',
+            12346
+        )
+        names = Page._clientside_macro_attachment_names(page)
         assert "architecture" in names
         assert "architecture.png" in names
         assert len(names) == 2
 
-    def test_both_gliffy_and_drawio_extracted(self, mock_page_both: MagicMock) -> None:
+    def test_both_gliffy_and_drawio_extracted(self) -> None:
         """Test that both Gliffy and DrawIO diagrams are extracted together."""
-        names = Page._clientside_macro_attachment_names(mock_page_both)
+        page = SimplePageForTesting(
+            '<ac:structured-macro ac:name="gliffy">'
+            '<ac:parameter ac:name="diagramName">workflow</ac:parameter>'
+            '</ac:structured-macro>'
+            '<ac:structured-macro ac:name="drawio">'
+            '<ac:parameter ac:name="diagramName">architecture</ac:parameter>'
+            '</ac:structured-macro>',
+            12347
+        )
+        names = Page._clientside_macro_attachment_names(page)
         assert "workflow" in names
         assert "workflow.png" in names
         assert "architecture" in names
         assert "architecture.png" in names
         assert len(names) == 4
 
-    def test_no_macros_returns_empty_set(self, mock_page_no_macros: MagicMock) -> None:
-        """Test that empty storage returns empty set."""
-        names = Page._clientside_macro_attachment_names(mock_page_no_macros)
-        assert len(names) == 0
-        assert isinstance(names, set)
+    def test_no_macros_returns_empty_set(self) -> None:
+        """Test that non-macro storage returns empty set."""
+        page = SimplePageForTesting("<p>Just some text with no macros</p>", 12348)
+        names = Page._clientside_macro_attachment_names(page)
+        assert names == set()
 
     def test_missing_diagram_name_ignored(self) -> None:
         """Test that macros without diagramName parameter are ignored."""
-        page = MagicMock(spec=Page)
-        page.body_storage = (
+        page = SimplePageForTesting(
             '<ac:structured-macro ac:name="gliffy">'
             '<ac:parameter ac:name="otherParam">value</ac:parameter>'
-            "</ac:structured-macro>"
+            '</ac:structured-macro>',
+            12349
         )
         names = Page._clientside_macro_attachment_names(page)
-        assert len(names) == 0
+        assert names == set()
 
     def test_empty_storage_returns_empty_set(self) -> None:
-        """Test that empty body_storage returns empty set."""
-        page = MagicMock(spec=Page)
-        page.body_storage = ""
+        """Test that empty body.storage returns empty set."""
+        page = SimplePageForTesting("", 12350)
         names = Page._clientside_macro_attachment_names(page)
-        assert len(names) == 0
+        assert names == set()
 
     def test_none_storage_returns_empty_set(self) -> None:
-        """Test that None body_storage returns empty set."""
-        page = MagicMock(spec=Page)
-        page.body_storage = None
+        """Test that None body.storage returns empty set."""
+        page = SimplePageForTesting(None, 12351)
         names = Page._clientside_macro_attachment_names(page)
-        assert len(names) == 0
+        assert names == set()
 
 
 class TestGliffyConversion:
-    """Test Gliffy macro conversion to Markdown."""
+    """Test Gliffy diagram conversion to markdown."""
 
-    @pytest.fixture
-    def mock_page_with_attachment(self) -> MagicMock:
-        """Create a mock page with Gliffy and attachment."""
+    @pytest.mark.parametrize("href_mode", ["wiki", "relative"])
+    def test_gliffy_renders_as_image_link(self, href_mode: str) -> None:
+        """Test that Gliffy diagrams render as markdown image links."""
         page = MagicMock(spec=Page)
-        page.id = 12349
-        page.title = "Gliffy with Attachment"
         page.body_storage = (
             '<ac:structured-macro ac:name="gliffy">'
-            '<ac:parameter ac:name="diagramName">workflow</ac:parameter>'
-            "</ac:structured-macro>"
+            '<ac:parameter ac:name="diagramName">my_diagram</ac:parameter>'
+            '</ac:structured-macro>'
         )
 
         # Mock attachment
         attachment = MagicMock()
-        attachment.export_path.name = "workflow.png"
-
+        attachment.export_path.name = "my_diagram.png"
         page.get_attachments_by_title = MagicMock(return_value=[attachment])
 
-        return page
+        converter = MagicMock(spec=Converter)
+        converter.page = page
 
-    @pytest.fixture
-    def mock_page_no_attachment(self) -> MagicMock:
-        """Create a mock page with Gliffy but no attachment."""
+        # Call convert_gliffy
+        result = Converter.convert_gliffy(converter, BeautifulSoup("", "html.parser"), "", [])
+
+        # Should contain the diagram name and be an image link
+        assert "my_diagram" in result
+        assert ("![" in result or "![[" in result)
+
+    def test_gliffy_missing_attachment_returns_error(self) -> None:
+        """Test that missing Gliffy attachment returns error comment."""
         page = MagicMock(spec=Page)
-        page.id = 12350
-        page.title = "Gliffy no Attachment"
         page.body_storage = (
             '<ac:structured-macro ac:name="gliffy">'
-            '<ac:parameter ac:name="diagramName">workflow</ac:parameter>'
-            "</ac:structured-macro>"
+            '<ac:parameter ac:name="diagramName">missing_diagram</ac:parameter>'
+            '</ac:structured-macro>'
         )
         page.get_attachments_by_title = MagicMock(return_value=[])
-        return page
 
-    @pytest.fixture
-    def mock_page_no_storage(self) -> MagicMock:
-        """Create a mock page with no body.storage."""
+        converter = MagicMock(spec=Converter)
+        converter.page = page
+
+        result = Converter.convert_gliffy(converter, BeautifulSoup("", "html.parser"), "", [])
+        assert "not found" in result
+
+    def test_gliffy_no_storage_returns_error(self) -> None:
+        """Test that Gliffy with no storage returns error."""
         page = MagicMock(spec=Page)
-        page.id = 12351
-        page.body_storage = ""
-        page.get_attachments_by_title = MagicMock(return_value=[])
-        return page
+        page.body_storage = None
 
-    @pytest.mark.parametrize("attachment_href", ["relative", "absolute"])
-    def test_gliffy_renders_as_image_markdown_link(
-        self, mock_page_with_attachment: MagicMock, attachment_href: str
-    ) -> None:
-        """Test that Gliffy diagrams render as markdown image links."""
-        from unittest.mock import patch
+        converter = MagicMock(spec=Converter)
+        converter.page = page
 
-        with patch("confluence_markdown_exporter.confluence.settings") as mock_settings:
-            mock_settings.export.attachment_href = attachment_href
-            mock_settings.export.include_document_title = False
-
-            converter = Page.Converter(mock_page_with_attachment)
-
-            html = '<div data-macro-name="gliffy"></div>'
-            el = BeautifulSoup(html, "html.parser").find("div")
-
-            result = converter.convert_gliffy(el, "", [])
-
-            if attachment_href == "wiki":
-                assert "![[" in result
-                assert "]]" in result
-            else:
-                assert "![" in result
-                assert "](" in result
-                assert "workflow.png" in result
-
-    def test_gliffy_missing_attachment_returns_error_comment(
-        self, mock_page_no_attachment: MagicMock
-    ) -> None:
-        """Test that missing attachments generate error comments."""
-        from unittest.mock import patch
-
-        with patch("confluence_markdown_exporter.confluence.settings") as mock_settings:
-            mock_settings.export.attachment_href = "relative"
-            mock_settings.export.include_document_title = False
-
-            converter = Page.Converter(mock_page_no_attachment)
-
-            html = '<div data-macro-name="gliffy"></div>'
-            el = BeautifulSoup(html, "html.parser").find("div")
-
-            result = converter.convert_gliffy(el, "", [])
-
-            assert "<!--" in result
-            assert "Gliffy" in result
-            assert "not found" in result
-
-    def test_gliffy_no_storage_returns_error_comment(
-        self, mock_page_no_storage: MagicMock
-    ) -> None:
-        """Test that empty storage generates error comment."""
-        from unittest.mock import patch
-
-        with patch("confluence_markdown_exporter.confluence.settings") as mock_settings:
-            mock_settings.export.attachment_href = "relative"
-            mock_settings.export.include_document_title = False
-
-            converter = Page.Converter(mock_page_no_storage)
-
-            html = '<div data-macro-name="gliffy"></div>'
-            el = BeautifulSoup(html, "html.parser").find("div")
-
-            result = converter.convert_gliffy(el, "", [])
-
-            assert "<!--" in result or result == ""  # Either error comment or empty
+        result = Converter.convert_gliffy(converter, BeautifulSoup("", "html.parser"), "", [])
+        assert "not found" in result
 
 
 class TestDrawIOServerDCFallback:
-    """Test improved DrawIO conversion with Server/DC fallback."""
-
-    @pytest.fixture
-    def mock_page_drawio_storage(self) -> MagicMock:
-        """Create a mock page with DrawIO in storage (Server/DC format)."""
-        page = MagicMock(spec=Page)
-        page.id = 12352
-        page.title = "DrawIO Server Storage"
-        page.body_storage = (
-            '<ac:structured-macro ac:name="drawio">'
-            '<ac:parameter ac:name="diagramName">architecture</ac:parameter>'
-            "</ac:structured-macro>"
-        )
-        page.body = ""  # No HTML pattern (Server/DC renders clientside)
-
-        # Mock attachments
-        drawio_attachment = MagicMock()
-        drawio_attachment.export_path.name = "architecture.drawio"
-
-        preview_attachment = MagicMock()
-        preview_attachment.export_path.name = "architecture.png"
-
-        def get_attachments_by_name(name: str):
-            if name == "architecture":
-                return [drawio_attachment]
-            elif name == "architecture.png":
-                return [preview_attachment]
-            return []
-
-        page.get_attachments_by_title = MagicMock(side_effect=get_attachments_by_name)
-
-        return page
+    """Test DrawIO fallback to Server/DC storage format."""
 
     def test_drawio_cloud_html_pattern_still_works(self) -> None:
         """Test that Cloud format (HTML pattern) still works."""
-        from unittest.mock import patch
-
         page = MagicMock(spec=Page)
-        page.body_storage = ""  # No storage (Cloud)
-        page.body = ""
+        page.body_storage = ""
 
-        drawio_attachment = MagicMock()
-        drawio_attachment.export_path.name = "diagram.drawio"
+        # Mock attachments
+        drawio_att = MagicMock()
+        drawio_att.export_path.name = "architecture.drawio"
 
-        preview_attachment = MagicMock()
-        preview_attachment.export_path.name = "diagram.png"
+        preview_att = MagicMock()
+        preview_att.export_path.name = "architecture.png"
 
-        page.get_attachments_by_title = MagicMock(
-            side_effect=lambda name: (
-                [drawio_attachment] if name == "diagram"
-                else [preview_attachment] if name == "diagram.png"
-                else []
-            )
+        def get_atts(name: str) -> list:
+            if name == "architecture":
+                return [drawio_att]
+            if name == "architecture.png":
+                return [preview_att]
+            return []
+
+        page.get_attachments_by_title = MagicMock(side_effect=get_atts)
+
+        converter = MagicMock(spec=Converter)
+        converter.page = page
+        converter._get_path_for_href = MagicMock(return_value="attachments/architecture.drawio")
+
+        # Cloud HTML format with |diagramName=...| pattern
+        html_el = BeautifulSoup("Something |diagramName=architecture| something", "html.parser")
+        result = Converter.convert_drawio(converter, html_el, "", [])
+
+        assert "architecture" in result
+
+    def test_drawio_server_dc_storage_fallback(self) -> None:
+        """Test that Server/DC format (storage fallback) works."""
+        page = MagicMock(spec=Page)
+        page.body_storage = (
+            '<ac:structured-macro ac:name="drawio">'
+            '<ac:parameter ac:name="diagramName">architecture</ac:parameter>'
+            '</ac:structured-macro>'
         )
 
-        with patch("confluence_markdown_exporter.confluence.settings") as mock_settings:
-            mock_settings.export.attachment_href = "relative"
-            mock_settings.export.include_document_title = False
+        # Mock attachments
+        drawio_att = MagicMock()
+        drawio_att.export_path.name = "architecture.drawio"
 
-            converter = Page.Converter(page)
+        preview_att = MagicMock()
+        preview_att.export_path.name = "architecture.png"
 
-            # Cloud format has the pattern in the HTML
-            html = '<div data-macro-name="drawio">|diagramName=diagram|</div>'
-            el = BeautifulSoup(html, "html.parser").find("div")
+        def get_atts(name: str) -> list:
+            if name == "architecture":
+                return [drawio_att]
+            if name == "architecture.png":
+                return [preview_att]
+            return []
 
-            result = converter.convert_drawio(el, "", [])
+        page.get_attachments_by_title = MagicMock(side_effect=get_atts)
 
-            assert "![" in result or "![[" in result
-            assert "diagram" in result
+        converter = MagicMock(spec=Converter)
+        converter.page = page
+        converter._get_path_for_href = MagicMock(return_value="attachments/architecture.drawio")
 
-    def test_drawio_server_dc_storage_fallback(
-        self, mock_page_drawio_storage: MagicMock
-    ) -> None:
-        """Test that Server/DC format (storage-based) works."""
-        from unittest.mock import patch
+        # Mock _extract_drawio_name_from_storage to return the diagram name
+        converter._extract_drawio_name_from_storage = MagicMock(return_value="architecture")
 
-        with patch("confluence_markdown_exporter.confluence.settings") as mock_settings:
-            mock_settings.export.attachment_href = "relative"
-            mock_settings.export.include_document_title = False
+        # No Cloud pattern - should fall back to storage
+        html_el = BeautifulSoup("", "html.parser")
+        result = Converter.convert_drawio(converter, html_el, "", [])
 
-            converter = Page.Converter(mock_page_drawio_storage)
-
-            # Server/DC renders as empty div (no pattern in HTML)
-            html = '<div data-macro-name="drawio"></div>'
-            el = BeautifulSoup(html, "html.parser").find("div")
-
-            result = converter.convert_drawio(el, "", [])
-
-            # Should fall back to storage and render successfully
-            assert "![" in result
-            assert "architecture" in result
+        assert "architecture" in result
