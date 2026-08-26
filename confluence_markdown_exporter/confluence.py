@@ -26,6 +26,7 @@ from typing import Literal
 from typing import TypeAlias
 from typing import cast
 from urllib.parse import unquote
+from urllib.parse import unquote_plus
 from urllib.parse import urlparse
 
 import yaml
@@ -1784,6 +1785,7 @@ class Page(Document):
                     "toc": self.convert_toc,
                     "jira": self.convert_jira_table,
                     "attachments": self.convert_attachments,
+                    "viewpdf": self.convert_viewpdf,
                     "markdown": self.convert_markdown,
                     "mohamicorp-markdown": self.convert_markdown,
                     "include": self.convert_include,
@@ -2378,6 +2380,25 @@ class Page(Document):
                 return f"[{text}]({href})"
 
             return self._format_attachment_link(attachment)
+
+        def convert_viewpdf(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert the PDF/file preview macro (`viewpdf`) to a Markdown attachment link.
+
+            The macro renders as a clientside preview widget with no static link in
+            body.view/body.export_view, but the wrapping element carries the referenced
+            attachment as `data-attachment-id`/`data-attachment` (URL-encoded filename).
+            """
+            attachment = None
+            if aid := el.get("data-attachment-id"):
+                attachment = self.page.get_attachment_by_id(str(aid))
+            if not attachment and (raw_filename := el.get("data-attachment")):
+                matches = self.page.get_attachments_by_title(unquote_plus(str(raw_filename)))
+                attachment = matches[0] if matches else None
+
+            if attachment is None:
+                return "\n<!-- viewpdf macro: attachment not found -->\n\n"
+
+            return f"\n{self._format_attachment_link(attachment)}\n\n"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
