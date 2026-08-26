@@ -107,6 +107,7 @@ class TestGliffyConversion:
             '<ac:parameter ac:name="diagramName">my_diagram</ac:parameter>'
             '</ac:structured-macro>'
         )
+        page.body_view = '<div class="gliffy-macro"></div>'
 
         # Mock attachment
         attachment = MagicMock()
@@ -115,9 +116,17 @@ class TestGliffyConversion:
 
         converter = MagicMock(spec=Converter)
         converter.page = page
+        converter.options = {"href_mode": href_mode}
+        converter._extract_macro_param_from_storage = (
+            lambda el, m, p: Page.Converter._extract_macro_param_from_storage(
+                converter, el, m, p
+            )
+        )
+        converter.convert_img = lambda _el, _t, _p: "![my_diagram](attachments/my_diagram.png)"
 
         # Call convert_gliffy
-        result = Converter.convert_gliffy(converter, BeautifulSoup("", "html.parser"), "", [])
+        el = BeautifulSoup('<div class="gliffy-macro"></div>', "html.parser").div
+        result = Converter.convert_gliffy(converter, el, "", [])
 
         # Should contain the diagram name and be an image link
         assert "my_diagram" in result
@@ -131,23 +140,37 @@ class TestGliffyConversion:
             '<ac:parameter ac:name="diagramName">missing_diagram</ac:parameter>'
             '</ac:structured-macro>'
         )
+        page.body_view = ""
         page.get_attachments_by_title = MagicMock(return_value=[])
 
         converter = MagicMock(spec=Converter)
         converter.page = page
+        converter._extract_macro_param_from_storage = (
+            lambda el, m, p: Page.Converter._extract_macro_param_from_storage(
+                converter, el, m, p
+            )
+        )
 
-        result = Converter.convert_gliffy(converter, BeautifulSoup("", "html.parser"), "", [])
+        dummy_div = BeautifulSoup("<div></div>", "html.parser").div
+        result = Converter.convert_gliffy(converter, dummy_div, "", [])
         assert "not found" in result
 
     def test_gliffy_no_storage_returns_error(self) -> None:
         """Test that Gliffy with no storage returns error."""
         page = MagicMock(spec=Page)
         page.body_storage = None
+        page.body_view = ""
 
         converter = MagicMock(spec=Converter)
         converter.page = page
+        converter._extract_macro_param_from_storage = (
+            lambda el, m, p: Page.Converter._extract_macro_param_from_storage(
+                converter, el, m, p
+            )
+        )
 
-        result = Converter.convert_gliffy(converter, BeautifulSoup("", "html.parser"), "", [])
+        dummy_div = BeautifulSoup("<div></div>", "html.parser").div
+        result = Converter.convert_gliffy(converter, dummy_div, "", [])
         assert "not found" in result
 
 
@@ -193,6 +216,7 @@ class TestDrawIOServerDCFallback:
             '<ac:parameter ac:name="diagramName">architecture</ac:parameter>'
             '</ac:structured-macro>'
         )
+        page.body_view = '<div class="drawio-diagram">Something without cloud pattern</div>'
 
         # Mock attachments
         drawio_att = MagicMock()
@@ -212,13 +236,21 @@ class TestDrawIOServerDCFallback:
 
         converter = MagicMock(spec=Converter)
         converter.page = page
+        converter.options = {"href_mode": "relative"}
         converter._get_path_for_href = MagicMock(return_value="attachments/architecture.drawio")
-
-        # Mock _extract_drawio_name_from_storage to return the diagram name
-        converter._extract_drawio_name_from_storage = MagicMock(return_value="architecture")
+        converter._extract_macro_param_from_storage = (
+            lambda el, m, p: Page.Converter._extract_macro_param_from_storage(
+                converter, el, m, p
+            )
+        )
+        converter._convert_drawio_embedded_mermaid = MagicMock(return_value=None)
+        converter.convert_img = (
+            lambda _el, _t, _p: "![architecture](attachments/architecture.png)"
+        )
 
         # No Cloud pattern - should fall back to storage
-        html_el = BeautifulSoup("", "html.parser")
+        html_str = '<div class="drawio-diagram">Something without cloud pattern</div>'
+        html_el = BeautifulSoup(html_str, "html.parser").div
         result = Converter.convert_drawio(converter, html_el, "", [])
 
         assert "architecture" in result
