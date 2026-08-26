@@ -2310,7 +2310,26 @@ class Page(Document):
                     return f"[[#{text}]]"
                 return f"[{text}](#{github_heading_slug(href[1:])})"
 
-            return super().convert_a(el, text, parent_tags)
+            res = super().convert_a(el, text, parent_tags)
+            if res.startswith("[") and "](" in res and res.endswith(")"):
+                idx = res.find("](")
+                link_text = res[1:idx]
+                link_url = res[idx + 2 : -1]
+
+                # Sanitize link destination: encode parentheses that break Markdown link syntax
+                sanitized_url = urllib.parse.quote(link_url, safe=":/%?&=#+@$,;-~_.*'![]")
+
+                # If link text is an unformatted URL, clean up backslash-escaped underscores
+                if (
+                    link_text.startswith(("http://", "https://"))
+                    or unquote(link_text).replace("\\_", "_") == unquote(link_url)
+                ):
+                    link_text = link_text.replace("\\_", "_")
+
+                return f"[{link_text}]({sanitized_url})"
+
+
+            return res
 
         def convert_page_link(self, page_id: int) -> str:
             if not page_id:
