@@ -2303,8 +2303,27 @@ class Page(Document):
                     if page_id_param and page_id_param.isdigit():
                         return self.convert_page_link(int(page_id_param))
                     if match := parse_confluence_path(parsed_href.path):
-                        if match.page_id:
-                            return self.convert_page_link(match.page_id)
+                        page_id = match.page_id
+                        if not page_id and match.space_key and match.page_title:
+                            try:
+                                page_data = _require_dict(
+                                    get_thread_confluence(self.page.base_url).get_page_by_title(
+                                        space=match.space_key,
+                                        title=match.page_title,
+                                        expand="version",
+                                    ),
+                                    f"page title={match.page_title!r} space={match.space_key!r}",
+                                )
+                                if page_data.get("id"):
+                                    page_id = int(page_data["id"])
+                            except Exception as e:  # noqa: BLE001
+                                logger.debug(
+                                    f"Could not resolve page by space '{match.space_key}' "
+                                    f"and title '{match.page_title}': {e}"
+                                )
+
+                        if page_id:
+                            return self.convert_page_link(page_id)
             if (href := href_str).startswith("#"):
                 if settings.export.page_href == "wiki":
                     return f"[[#{text}]]"

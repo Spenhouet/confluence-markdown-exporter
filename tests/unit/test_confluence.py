@@ -2123,6 +2123,39 @@ class TestAbsoluteUrlPageLinks:
         PageTitleRegistry.reset()
         assert result == "[[Legacy Page]]"
 
+    def test_relative_server_display_url_resolves_page_by_title(self) -> None:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(777, "SFDC Integration", "AOSAPXI")
+        source = _make_page(body="", body_export="", attachments=[])
+
+        mock_client = MagicMock()
+        mock_client.get_page_by_title.return_value = {"id": 777}
+
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.get_thread_confluence",
+                return_value=mock_client,
+            ),
+            patch(
+                "confluence_markdown_exporter.confluence.Page.from_id",
+                return_value=target,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = '<a href="/display/AOSAPXI/SFDC_Integration">SFDC_Integration</a>'
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        mock_client.get_page_by_title.assert_called_once_with(
+            space="AOSAPXI", title="SFDC_Integration", expand="version"
+        )
+        assert result == "[[SFDC Integration]]"
+
 
 class TestColumnLayoutConversion:
     """Confluence multi-column layouts must not be stripped from the output.
