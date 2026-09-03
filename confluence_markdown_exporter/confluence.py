@@ -3438,16 +3438,18 @@ def sync_removed_pages(base_url: str) -> None:
         logger.debug("Stale page cleanup disabled — skipping.")
         return
 
+    # Renamed and moved pages are seen during the run, so they never show up as
+    # unseen. Their old files still need removing, which needs no API call.
+    deleted: set[str] = set()
     unseen = LockfileManager.unseen_ids()
-    if not unseen:
-        logger.debug("No unseen pages in lockfile — nothing to clean up.")
-        return
+    if unseen:
+        with console.status(f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"):
+            deleted = fetch_deleted_page_ids(sorted(unseen), base_url)
+        if deleted:
+            logger.info("Removing %d stale page(s) from local export.", len(deleted))
+    else:
+        logger.debug("No unseen pages in lockfile — skipping existence check.")
 
-    with console.status(f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"):
-        deleted = fetch_deleted_page_ids(sorted(unseen), base_url)
-
-    if deleted:
-        logger.info("Removing %d stale page(s) from local export.", len(deleted))
     LockfileManager.remove_pages(deleted)
 
 

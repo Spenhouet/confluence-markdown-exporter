@@ -338,7 +338,9 @@ Skip exporting pages that have not changed since last export. Uses a lockfile to
 
 ### export.cleanup_stale
 
-After export, delete local files for pages removed from Confluence or whose export path has changed.
+After export, delete local files for pages removed from Confluence or whose export path has changed. Renaming or moving a page in Confluence changes its export path, so the file at the previous path is removed along with its `.comments.md` sidecar. Renaming a parent page also changes the path of every descendant, because `{ancestor_titles}` is part of the default `export.page_path`.
+
+The old file is kept when another page now occupies that exact path, and when the old and new paths are the same file on disk. The latter happens on a case-only rename on a case-insensitive filesystem such as the macOS or Windows default.
 
 - Default: `True`
 - ENV Var: `CME_EXPORT__CLEANUP_STALE`
