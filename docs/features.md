@@ -11,6 +11,7 @@ Exports individual pages, pages with descendants, or entire spaces via the Atlas
 ### Content & formatting
 
 - **Rich text**: headings, paragraphs, bold, italic, underline, lists, tables, links, images, attachments, and image captions
+- **Page links**: links to Confluence pages become relative Markdown links, whether they were inserted as page links, pasted as full page URLs, or pasted as tiny links (`/wiki/x/...`, the "Copy link" shortlink)
 - **Code blocks**: language-aware fenced code blocks
 - **Task lists**: checkboxes with completion state
 - **Text highlights & font colours**: preserved with inline HTML colour styling
