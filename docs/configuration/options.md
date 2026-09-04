@@ -42,6 +42,35 @@ Path template for exported pages.
 - Default: `{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md`
 - ENV Var: `CME_EXPORT__PAGE_PATH`
 
+### export.page_path_if_parent
+
+Overrides `export.page_path` on pages having descendant child-pages.
+
+- Default: `None`, in which case `export.page_path` is used.
+- ENV Var: `CME_EXPORT__PAGE_PATH`
+
+Useful for renaming parent pages into `README.md`/`index.md`, while keeping their name as the directory name instead. 
+
+Example usage, together with `export.attachment_path_if_parent`: 
+```
+export.page_path                 = {ancestor_titles}/{page_title}.md
+export.page_path_if_parent       = {ancestor_titles}/{page_title}/README.md
+export.attachment_path           = {ancestors_without_last}/_assets/{attachment_title}{attachment_extension}
+export.attachment_path_if_parent = {ancestor_titles}/_assets/{attachment_title}{attachment_extension}
+```
+Will create output like:
+```
+├── _assets
+│   └── diagram_a.png            # linked from PageA
+├── PageB
+│   ├── _assets
+│   │      ├── diagram_b.png     # Linked from PageB  (now PageB/README.md)
+│   │      └── diagram_c.png     # Linked from PageC
+│   ├── PageC.md
+│   └── README.md                # In confluence this was PageB
+└── PageA                        # Does not have child-pages => not renamed to PageA/README.md
+```
+
 ### export.attachment_href
 
 How to generate links to attachments in Markdown. Options: `relative` (default), `absolute`, or `wiki`.
@@ -63,6 +92,17 @@ Path template for attachments.
 - ENV Var: `CME_EXPORT__ATTACHMENT_PATH`
 
 On Confluence Data Center / Server, where the API does not provide `fileId`, `{attachment_file_id}` falls back to the content id, so the default template still produces unique filenames.
+
+
+### export.attachment_path_if_parent
+
+Overrides `export.attachment_path` on pages having descendant child-pages.
+
+
+- Default: `None`, in which case `export.attachment_path` is used
+- ENV Var: `CME_EXPORT__ATTACHMENT_PATH_IF_PARENT`
+
+See `export.export.page_path_if_parent` for example usage.
 
 ### export.attachments_export
 

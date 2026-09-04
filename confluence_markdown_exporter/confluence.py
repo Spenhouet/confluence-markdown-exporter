@@ -3,6 +3,8 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+from __future__ import annotations
+
 import functools
 import html
 import json
@@ -727,6 +729,9 @@ class Attachment(Document):
         ext = self.extension
         title = self.title
         title_without_ext = title[: -len(ext)] if ext and title.endswith(ext) else Path(title).stem
+
+        ancestors_without_last = [sanitize_filename(a.title) for a in self.ancestors[0:-1]]
+
         return {
             **super()._template_vars,
             "attachment_id": str(self.id),
@@ -737,11 +742,21 @@ class Attachment(Document):
             # present and unique.
             "attachment_file_id": self.file_id or str(self.id),
             "attachment_extension": self.extension,
+            "ancestors_without_last": "/".join(ancestors_without_last),
         }
+
+    def _attachment_template(self):
+        if len(self.ancestors) > 0:
+            owning_page = self.ancestors[-1]
+            has_descendants = len(_descendants(owning_page)) > 0
+            if has_descendants and (parent_template := settings.export.attachment_path_if_parent):
+                return parent_template
+        return settings.export.attachment_path
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(settings.export.attachment_path.replace("{", "${"))
+        template = self._attachment_template()
+        filepath_template = Template(template.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
@@ -848,6 +863,19 @@ class Ancestor(Document):
         )
 
 
+def _page_template_vars(page: Document | Page):
+    page_title = sanitize_filename(page.title)
+
+    return {
+        "page_id": str(page.id),
+        "page_title": page_title,
+    }
+
+def _export_page_path_template(has_descendants: bool):
+    if has_descendants and (parent_template := settings.export.page_path_if_parent):
+        return parent_template
+    return settings.export.page_path
+
 class Descendant(Document):
     id: int
 
@@ -855,13 +883,13 @@ class Descendant(Document):
     def _template_vars(self) -> dict[str, str]:
         return {
             **super()._template_vars,
-            "page_id": str(self.id),
-            "page_title": sanitize_filename(self.title),
+            **_page_template_vars(self)
         }
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(settings.export.page_path.replace("{", "${"))
+        template = _export_page_path_template(has_descendants=len(_descendants(self)) > 0)
+        filepath_template = Template(template.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
@@ -909,6 +937,41 @@ def _parse_image_captions(storage_xml: str) -> dict[str, str]:
     return captions
 
 
+def _descendants(page: Page | Descendant | Ancestor) -> list[Descendant]:
+    url = "rest/api/content/search"
+    params = {
+        "cql": f"type=page AND ancestor={page.id}",
+        "expand": "metadata.properties,ancestors,version",
+        "limit": 250,
+    }
+    results = []
+    client = get_thread_confluence(page.base_url)
+
+    try:
+        response = cast("dict", client.get(url, params=params))
+        results.extend(response.get("results", []))
+        next_path = response.get("_links", {}).get("next")
+
+        while next_path:
+            response = cast("dict", client.get(next_path))
+            results.extend(response.get("results", []))
+            next_path = response.get("_links", {}).get("next")
+
+    except HTTPError as e:
+        if e.response.status_code == 404:  # noqa: PLR2004
+            logger.warning(
+                f"Content with ID {page.id} not found (404) when fetching descendants."
+            )
+            return []
+        return []
+    except Exception:
+        logger.exception(
+            f"Unexpected error when fetching descendants for content ID {page.id}."
+        )
+        return []
+    return [Descendant.from_json(result, page.base_url) for result in results]
+
+
 class Page(Document):
     id: int
     type: str = ""
@@ -926,50 +989,19 @@ class Page(Document):
 
     @property
     def descendants(self) -> list["Descendant"]:
-        url = "rest/api/content/search"
-        params = {
-            "cql": f"type=page AND ancestor={self.id}",
-            "expand": "metadata.properties,ancestors,version",
-            "limit": 250,
-        }
-        results = []
-        client = get_thread_confluence(self.base_url)
-
-        try:
-            response = cast("dict", client.get(url, params=params))
-            results.extend(response.get("results", []))
-            next_path = response.get("_links", {}).get("next")
-
-            while next_path:
-                response = cast("dict", client.get(next_path))
-                results.extend(response.get("results", []))
-                next_path = response.get("_links", {}).get("next")
-
-        except HTTPError as e:
-            if e.response.status_code == 404:  # noqa: PLR2004
-                logger.warning(
-                    f"Content with ID {self.id} not found (404) when fetching descendants."
-                )
-                return []
-            return []
-        except Exception:
-            logger.exception(
-                f"Unexpected error when fetching descendants for content ID {self.id}."
-            )
-            return []
-        return [Descendant.from_json(result, self.base_url) for result in results]
+        return _descendants(self)
 
     @property
     def _template_vars(self) -> dict[str, str]:
         return {
             **super()._template_vars,
-            "page_id": str(self.id),
-            "page_title": sanitize_filename(self.title),
+            **_page_template_vars(self)
         }
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(settings.export.page_path.replace("{", "${"))
+        template = _export_page_path_template(has_descendants=len(self.descendants)> 0)
+        filepath_template = Template(template.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @property

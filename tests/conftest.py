@@ -31,6 +31,16 @@ _original_get_confluence = None
 _original_get_jira = None
 
 
+def _confluence_mock():
+    mock_confluence = MagicMock()
+
+    def _get(*args, **kwargs):
+        # Prevent _descendants() getting stuck iterating over `next_path` being infinite series of `MagicMock`
+        raise Exception("Unmocked get-call")
+
+    mock_confluence.get.side_effect = _get
+    mock_confluence.get_all_spaces.return_value = []
+
 def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     """Configure pytest and mock API clients before test collection."""
     import confluence_markdown_exporter.api_clients
@@ -42,13 +52,10 @@ def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
     _original_get_jira = confluence_markdown_exporter.api_clients.get_jira_instance
 
     # Create mock objects that will be returned by the wrapper
-    mock_confluence = MagicMock()
-    mock_confluence.get_all_spaces.return_value = []
-
     mock_jira = MagicMock()
 
     # Replace with wrapper functions that return mocks
-    confluence_markdown_exporter.api_clients.get_confluence_instance = lambda _url: mock_confluence
+    confluence_markdown_exporter.api_clients.get_confluence_instance = lambda _url: _confluence_mock
     confluence_markdown_exporter.api_clients.get_jira_instance = lambda _url: mock_jira
 
 
@@ -97,12 +104,10 @@ def restore_api_functions_for_specific_tests(
 
     # Re-apply mocks after the test
     if is_api_client_function_test:
-        mock_confluence = MagicMock()
-        mock_confluence.get_all_spaces.return_value = []
         mock_jira = MagicMock()
 
         confluence_markdown_exporter.api_clients.get_confluence_instance = (
-            lambda _url: mock_confluence
+            lambda _url: _confluence_mock
         )
         confluence_markdown_exporter.api_clients.get_jira_instance = lambda _url: mock_jira
 

@@ -369,6 +369,17 @@ class ExportConfig(BaseModel):
         ),
         examples=["{space_name}/{page_title}.md"],
     )
+    page_path_if_parent: str | None = Field(
+        default=None,
+        title="Page Path Template if the page has subpages",
+        description=(
+            "Template for exported page file paths.\n"
+            "Available variables: see `export.page_path`\n"
+            "If unset, uses the same template as `export.page_path`\n"
+            "Useful for naming top-level directories with subpages as `index.md`/`README.md`, in that case exclude `{page_title}` from the template.\n"
+        ),
+        examples=["{space_name}/{ancestor_titles}/README.md"],
+    )
     attachment_href: Literal["absolute", "relative", "wiki"] = Field(
         default="relative",
         title="Attachment Href Style",
@@ -390,7 +401,8 @@ class ExportConfig(BaseModel):
             "  - {homepage_id}: The ID of the homepage of the Confluence space.\n"
             "  - {homepage_title}: The title of the homepage of the Confluence space.\n"
             "  - {ancestor_ids}: A slash-separated list of ancestor page IDs.\n"
-            "  - {ancestor_titles}: A slash-separated list of ancestor page titles.\n"
+            "  - {ancestor_titles}: A slash-separated list of ancestor page titles. Including the page title of the page holding the attachment itself.\n"
+            " -  {ancestors_without_last}: A slash-separated list of ancestor page titles. Excluding the page title of the page holding the attachment itself.\n"
             "  - {attachment_id}: The unique ID of the attachment.\n"
             "  - {attachment_title}: The title of the attachment (without file extension).\n"
             "  - {attachment_file_id}: The file ID of the attachment. Falls back to "
@@ -399,7 +411,18 @@ class ExportConfig(BaseModel):
             "  - {attachment_extension}: The file extension of the attachment,\n"
             "including the leading dot."
         ),
-        examples=["{space_name}/attachments/{attachment_file_id}{attachment_extension}"],
+        examples=["{space_name}/attachments/{attachment_file_id}{attachment_extension}",
+                  "{space_name}/{homepage_title}/{ancestors_without_last}/media/{attachment_title}{attachment_extension}"
+                  ],
+    )
+    attachment_path_if_parent: str | None = Field(
+        default=None,
+        title="Attachment Path Template",
+        description=(
+            "Template for exported attachment file paths if the page has any child-pages.\n"
+            "Available variables: See `export.attachment_path`\n"
+        ),
+        examples=["{space_name}/{homepage_title}/{ancestor_titles}/media/{attachment_title}{attachment_extension}"],
     )
 
     @field_validator("attachment_path", mode="before")
