@@ -2118,6 +2118,33 @@ class TestAbsoluteUrlPageLinks:
         from_id.assert_called_once_with(123456789, source.base_url)
         assert result == "[[Linked Page]]"
 
+    def test_tiny_link_with_query_string_resolves_page(self) -> None:
+        """A shortlink from "Copy link" carries tracking parameters; only the path decides the target."""
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(123456789, "Linked Page", "STRUCT")
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.Page.from_id",
+                return_value=target,
+            ) as from_id,
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            url = "https://example.com/wiki/x/Fc1bBw?xpis=c2hhcmVkLWxpbms&atlOrigin=abc"
+            html = f'<a href="{url}" data-card-appearance="inline">{url}</a>'
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        from_id.assert_called_once_with(123456789, source.base_url)
+        assert result == "[[Linked Page]]"
+
     def test_absolute_url_different_host_left_alone(self) -> None:
         source = _make_page(body="", body_export="", attachments=[])
         conv = Page.Converter(source)
