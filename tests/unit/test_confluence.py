@@ -2119,7 +2119,7 @@ class TestAbsoluteUrlPageLinks:
         assert result == "[[Linked Page]]"
 
     def test_tiny_link_with_query_string_resolves_page(self) -> None:
-        """A shortlink from "Copy link" carries tracking parameters; only the path decides the target."""
+        """A "Copy link" shortlink carries tracking parameters; only the path picks the page."""
         from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
 
         PageTitleRegistry.reset()
