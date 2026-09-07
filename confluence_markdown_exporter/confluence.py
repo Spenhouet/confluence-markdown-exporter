@@ -1618,7 +1618,7 @@ class Page(Document):
             if not self.page_properties:
                 return ""
 
-            yml = yaml.dump(self.page_properties, indent=indent).strip()
+            yml = yaml.dump(self.page_properties, indent=indent, allow_unicode=True).strip()
             # Indent the root level list items
             yml = re.sub(r"^( *)(- )", r"\1" + " " * indent + r"\2", yml, flags=re.MULTILINE)
             return f"---\n{yml}\n---\n"
