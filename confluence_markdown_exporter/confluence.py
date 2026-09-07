@@ -2487,6 +2487,17 @@ class Page(Document):
                     if len(drawio_images) > 0:
                         attachment = drawio_images[0]
 
+            # Confluence occasionally emits embedded images with no data-media identifiers at
+            # all, leaving the download URL as the only link back to the attachment.
+            # Resolve those by filename so they are exported as local files instead
+            # of an absolute Confluence URL.
+            if attachment is None:
+                for candidate in (url_src, str(el.get("data-image-src", ""))):
+                    if candidate:
+                        attachment = self._attachment_from_download_href(candidate)
+                        if attachment is not None:
+                            break
+
             if attachment is None:
                 href = el.get("href") or text
                 if href:

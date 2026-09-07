@@ -469,6 +469,76 @@ class TestAttachmentsExportFlag:
         assert page.attachments[0].id == "att-1"
 
 
+class TestEmbeddedImageWithoutDataIds:
+    """Images without drawio in the name and carrying no data-* identifiers must resolve locally.
+
+    Confluence emits some ``confluence-embedded-image`` tags with no
+    ``data-media-id`` / ``data-linked-resource-*`` / ``data-encoded-xml``
+    attributes at all. In such scenario, the download URL in ``src``/``data-image-src`` is the
+    only link back to the attachment. Those must be resolved by filename so the
+    markdown points at the exported file instead of an absolute Confluence URL, even when
+    the file name does not end with `.drawio.png`.
+    """
+
+    # The HTML below is taken verbatim from a real page export
+    # The *-drawio.png-case is handled specially in the code, hence the two different forms
+    _HTML = (
+        """<span class="confluence-embedded-file-wrapper image-left-wrapper">
+            <img class="confluence-embedded-image confluence-external-resource image-left"
+                data-image-src="https://example.com/wiki/download/attachments/123456/bar.drawio.png?api=v2&amp;version=16"
+                loading="lazy"
+                src="https://example.com/wiki/download/attachments/123456/bar.drawio.png?api=v2&amp;version=16"
+                width="1494"/>
+            <img class="confluence-embedded-image confluence-external-resource image-left"
+                data-image-src="https://example.com/wiki/download/attachments/123456/foo.png?api=v2&amp;version=7"
+                loading="lazy" src="https://example.com/wiki/download/attachments/123456/foo.png?api=v2&amp;version=7"
+                width="1557"/>
+        "</span>"""
+    )
+
+    def _convert(self, html: str, attachments: list[Attachment]) -> str:
+        page = _make_page(body=html, body_export=html, attachments=attachments)
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.attachment_href = "relative"
+            s.export.attachment_path = (
+                "{space_name}/media/{attachment_title}{attachment_extension}"
+            )
+            s.export.page_href = "relative"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            s.export.image_captions = False
+            return Page.Converter(page).convert(html).strip()
+
+    def test_download_url_resolves_to_exported_attachment(self) -> None:
+        att = _make_attachment("xxxxx", "aaaaaaaaa", title="foo.png")
+        att2 = _make_attachment("yyyyy", "bbbbbbbbb", title = "bar.drawio.png")
+
+        result = self._convert(self._HTML, [att, att2])
+
+        assert "example.com" not in result
+        assert "wiki/download/attachments" not in result
+        assert "[](media/foo.png)" in result
+        assert "[](media/bar.drawio.png)" in result
+
+    def test_falls_back_to_url_when_attachment_is_unknown(self) -> None:
+        # No matching attachment: the original URL must be preserved, not dropped.
+        result = self._convert(self._HTML, [])
+
+        assert "https://example.com/wiki/download/attachments/123456/foo.png" in result
+
+    def test_resolves_via_data_image_src_when_src_is_absent(self) -> None:
+        att = _make_attachment(
+            "107a200c", "107a200c-ba2a-4a06-88f3-111ad53c8321", title="foo.png"
+        )
+        html = """
+            <img class="confluence-embedded-image"
+                data-image-src="https://example.com/wiki/download/attachments/983041/foo.png?api=v2&amp;version=7"/>
+        """
+        result = self._convert(html, [att])
+
+        assert "example.com" not in result
+        assert "foo.png" in result
+
+
 class TestTransformErrorImg:
     """transform-error SVG images must resolve via data-encoded-xml."""
 
