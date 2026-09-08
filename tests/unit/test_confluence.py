@@ -1908,6 +1908,62 @@ class TestAttachmentTemplateVars:
         assert path1 != path2
 
 
+class TestAttachmentExtensionFromTitle:
+    """The title's own extension wins over mimetypes guessing.
+
+    The attachment title is the original filename chosen at upload time, so
+    file types unknown to the stdlib (e.g. .eddx mind maps, .msi installers)
+    must keep their extension instead of being exported as .bin.
+    """
+
+    def test_unregistered_mime_uses_title_extension(self) -> None:
+        """.eddx is not in the stdlib MIME database; the title provides it."""
+        att = _make_attachment(
+            "content-1", "uuid-1", title="LightAI_1.eddx", media_type="application/octet-stream"
+        )
+        assert att.extension == ".eddx"
+
+    def test_multi_dot_title_uses_last_suffix(self) -> None:
+        """Only the last suffix counts, like Path.suffix would."""
+        att = _make_attachment(
+            "content-2", "uuid-2", title="archive.tar.gz", media_type="application/octet-stream"
+        )
+        assert att.extension == ".gz"
+
+    def test_original_case_preserved(self) -> None:
+        """The extension keeps the casing the uploader chose."""
+        att = _make_attachment("content-3", "uuid-3", title="DOC.PDF", media_type="application/pdf")
+        assert att.extension == ".PDF"
+
+    def test_title_without_extension_falls_back_to_mime(self) -> None:
+        """Titles without an extension still resolve via the media type."""
+        att = _make_attachment("content-4", "uuid-4", title="screenshot", media_type="image/png")
+        assert att.extension == ".png"
+
+    def test_title_without_extension_and_unknown_mime_is_empty(self) -> None:
+        """No title extension and an unknown media type yields no extension."""
+        att = _make_attachment(
+            "content-5", "uuid-5", title="noext", media_type="application/x-unknown-type"
+        )
+        assert att.extension == ""
+
+    def test_template_vars_use_title_extension(self) -> None:
+        """{attachment_title}{attachment_extension} rebuilds the original filename."""
+        att = _make_attachment(
+            "content-6", "uuid-6", title="LightAI_1.eddx", media_type="application/octet-stream"
+        )
+        assert att._template_vars["attachment_extension"] == ".eddx"
+        assert att._template_vars["attachment_title"] == "LightAI_1"
+
+    def test_drawio_special_case_still_wins(self) -> None:
+        """The draw.io comment-based mapping keeps priority over the title."""
+        att = _make_attachment(
+            "content-7", "uuid-7", title="diagram", media_type="application/vnd.jgraph.mxfile"
+        )
+        att.comment = "draw.io diagram"
+        assert att.extension == ".drawio"
+
+
 class TestWikiLinkDisambiguation:
     """Wiki page links use a vault-relative path when titles collide across spaces."""
 

@@ -745,6 +745,13 @@ class Attachment(Document):
         if self.comment == "draw.io preview" and self.media_type == "image/png":
             return ".drawio.png"
 
+        # The attachment title is the original filename chosen at upload time,
+        # so its extension takes precedence over a mimetypes guess. This keeps
+        # the correct extension for file types unknown to the stdlib (e.g.
+        # .eddx mind maps), which would otherwise be exported as .bin.
+        title_ext = Path(self.title).suffix
+        if title_ext:
+            return title_ext
         return mimetypes.guess_extension(self.media_type) or ""
 
     @property
