@@ -13,6 +13,7 @@ import pytest
 from requests import HTTPError
 
 from confluence_markdown_exporter.confluence import Attachment
+from confluence_markdown_exporter.confluence import JiraIssue
 from confluence_markdown_exporter.confluence import Page
 from confluence_markdown_exporter.confluence import Space
 from confluence_markdown_exporter.confluence import User
@@ -209,6 +210,131 @@ class TestAttachmentLinkConversion:
             "[Video Agenzia Entrate (2).mp4]"
             "(attachments/f5a14888-2775-4394-b5a4-ac0ffc0c39f5.mp4)"
         )
+
+
+class TestJiraIssueConversion:
+    """Jira macros should optionally include the current issue status."""
+
+    html = (
+        '<span data-macro-name="jira" data-jira-key="TEST-123">'
+        '<a class="jira-issue-key" '
+        'href="https://example.atlassian.net/browse/TEST-123">TEST-123</a>'
+        "</span>"
+    )
+
+    @staticmethod
+    def _issue(status: str = "In Progress") -> JiraIssue:
+        return JiraIssue(
+            key="TEST-123",
+            summary="Fix login timeout",
+            description=None,
+            status=status,
+        )
+
+    def test_status_is_parsed_from_jira_response(
+        self, jira_issue_response: dict[str, object]
+    ) -> None:
+        assert JiraIssue.from_json(jira_issue_response).status == "Open"
+
+    def test_disabled_enrichment_does_not_fetch_issue(self) -> None:
+        jira_settings = SimpleNamespace(
+            export=SimpleNamespace(enable_jira_enrichment=False)
+        )
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.get_settings",
+                return_value=jira_settings,
+            ),
+            patch.object(JiraIssue, "_fetch_cached") as fetch_issue,
+        ):
+            result = JiraIssue.from_key(
+                "TEST-123", "https://example.atlassian.net"
+            )
+
+        assert result is None
+        fetch_issue.assert_not_called()
+
+    def test_status_omitted_by_default(self, converter: Page.Converter) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(JiraIssue, "from_key", return_value=self._issue()),
+        ):
+            s.export.include_jira_status = False
+            result = converter.convert(self.html).strip()
+
+        assert result == (
+            "[[TEST-123] Fix login timeout](https://example.atlassian.net/browse/TEST-123)"
+        )
+
+    def test_status_included_when_enabled(self, converter: Page.Converter) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(JiraIssue, "from_key", return_value=self._issue()),
+        ):
+            s.export.include_jira_status = True
+            result = converter.convert(self.html).strip()
+
+        assert result == (
+            "[[TEST-123] Fix login timeout (In Progress)]"
+            "(https://example.atlassian.net/browse/TEST-123)"
+        )
+
+    def test_status_is_safe_for_markdown_link_text(
+        self, converter: Page.Converter
+    ) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(
+                JiraIssue,
+                "from_key",
+                return_value=self._issue(status="Ready [QA]\\review\nnext"),
+            ),
+        ):
+            s.export.include_jira_status = True
+            result = converter.convert(self.html).strip()
+
+        assert result == (
+            r"[[TEST-123] Fix login timeout (Ready \[QA\]\\review next)]"
+            "(https://example.atlassian.net/browse/TEST-123)"
+        )
+
+    @pytest.mark.parametrize("status", ["", "   "])
+    def test_blank_status_is_not_appended(
+        self, converter: Page.Converter, status: str
+    ) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(JiraIssue, "from_key", return_value=self._issue(status=status)),
+        ):
+            s.export.include_jira_status = True
+            result = converter.convert(self.html).strip()
+
+        assert result == (
+            "[[TEST-123] Fix login timeout](https://example.atlassian.net/browse/TEST-123)"
+        )
+
+    def test_missing_enrichment_keeps_key_only_fallback(
+        self, converter: Page.Converter
+    ) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(JiraIssue, "from_key", return_value=None),
+        ):
+            s.export.include_jira_status = True
+            result = converter.convert(self.html).strip()
+
+        assert result == "[[TEST-123]](https://example.atlassian.net/browse/TEST-123)"
+
+    def test_http_error_keeps_key_only_fallback(self, converter: Page.Converter) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(JiraIssue, "from_key", side_effect=HTTPError),
+        ):
+            s.export.include_jira_status = True
+            result = converter.convert(self.html).strip()
+
+        assert result == "[[TEST-123]](https://example.atlassian.net/browse/TEST-123)"
+
 
 def _export_settings(tmp_path: Path) -> SimpleNamespace:
     return SimpleNamespace(

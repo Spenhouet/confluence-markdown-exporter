@@ -616,6 +616,15 @@ class ExportConfig(BaseModel):
             "Requires Jira auth to be configured."
         ),
     )
+    include_jira_status: bool = Field(
+        default=False,
+        title="Include Jira Issue Status",
+        description=(
+            "Whether to include the current Jira issue status in enriched issue links. "
+            "When enabled, the status is appended after the issue summary. "
+            "Requires Jira enrichment and Jira auth to be configured."
+        ),
+    )
     comments_export: Literal["none", "inline", "footer", "all"] = Field(
         default="none",
         title="Export Comments",
