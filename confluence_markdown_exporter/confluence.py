@@ -2279,7 +2279,7 @@ class Page(Document):
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = str(el.get("data-linked-resource-id", ""))
                 if page_id and page_id != "null":
-                    return self.convert_page_link(int(page_id))
+                    return self.convert_page_link(int(page_id), text)
             if "attachment" in str(el.get("data-linked-resource-type")):
                 link = self.convert_attachment_link(el, text, parent_tags)
                 # convert_attachment_link may return None if the attachment meta is incomplete
@@ -2300,11 +2300,14 @@ class Page(Document):
                         ),
                         None,
                     )
+                    # A bare URL as anchor text carries no author intent; let the
+                    # target page title label the link instead.
+                    label = "" if text.strip() == href_str.strip() else text
                     if page_id_param and page_id_param.isdigit():
-                        return self.convert_page_link(int(page_id_param))
+                        return self.convert_page_link(int(page_id_param), label)
                     if match := parse_confluence_path(parsed_href.path):
                         if match.page_id:
-                            return self.convert_page_link(match.page_id)
+                            return self.convert_page_link(match.page_id, label)
             if (href := href_str).startswith("#"):
                 if settings.export.page_href == "wiki":
                     return f"[[#{text}]]"
@@ -2312,7 +2315,13 @@ class Page(Document):
 
             return super().convert_a(el, text, parent_tags)
 
-        def convert_page_link(self, page_id: int) -> str:
+        def convert_page_link(self, page_id: int, text: str = "") -> str:
+            """Render a link to another page.
+
+            ``text`` is the anchor text as it appears on the source page. Confluence
+            authors routinely adjust it (plural forms, declension, shorter labels);
+            keep it and only fall back to the target page title when it is empty.
+            """
             if not page_id:
                 msg = "Page link does not have valid page_id."
                 raise ValueError(msg)
@@ -2328,14 +2337,18 @@ class Page(Document):
 
             PageTitleRegistry.register(int(page.id), page.title)
 
+            label = text.strip() or page.title
+
             if settings.export.page_href == "wiki":
                 if PageTitleRegistry.is_ambiguous(page.title):
                     vault_path = page.export_path.with_suffix("").as_posix()
-                    return f"[[{vault_path}|{page.title}]]"
+                    return f"[[{vault_path}|{label}]]"
+                if label != page.title:
+                    return f"[[{page.title}|{label}]]"
                 return f"[[{page.title}]]"
 
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
-            return f"[{page.title}]({page_path.replace(' ', '%20')})"
+            return f"[{label}]({page_path.replace(' ', '%20')})"
 
         def _format_attachment_link(self, attachment: Attachment) -> str:
             if settings.export.attachment_href == "wiki":
