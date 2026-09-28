@@ -2246,7 +2246,16 @@ class Page(Document):
             if not issue:
                 return f"[[{issue_key}]]({link.get('href')})"
 
-            return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
+            issue_status = " ".join(issue.status.split())
+            issue_status = (
+                issue_status.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+            )
+            status = (
+                f" ({issue_status})"
+                if settings.export.include_jira_status and issue_status
+                else ""
+            )
+            return f"[[{issue.key}] {issue.summary}{status}]({link.get('href')})"
 
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # type: ignore[override]
             if not text:
