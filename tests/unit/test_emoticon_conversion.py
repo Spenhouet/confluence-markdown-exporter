@@ -146,3 +146,13 @@ class TestEmoticonConversion:
         )
         # Falls back to alt text when data-emoticon-name is not recognized
         assert converter.convert(html).strip() == "(Unknown)"
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [("thumbs-up", "👍"), ("information", "\u2139\ufe0f"), ("yellow-star", "⭐")],
+    )
+    def test_serverdc_builtin_emoticon_names(
+        self, converter: Page.Converter, name: str, expected: str
+    ) -> None:
+        html = f'<img class="emoticon emoticon-{name}" data-emoticon-name="{name}" alt="(x)" />'
+        assert converter.convert(html).strip() == expected
