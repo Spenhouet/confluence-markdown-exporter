@@ -2521,10 +2521,41 @@ class Page(Document):
             "atlassian-wink": "😉",
         }
 
+        # Server/DC emoticons carry `data-emoticon-name` instead of the Cloud
+        # `data-emoji-*` attributes. Keys are Confluence's built-in emoticon names.
+        _EMOTICON_SERVERDC_NAMES: ClassVar[dict[str, str]] = {
+            "smile": "😊",
+            "sad": "😞",
+            "cheeky": "😛",
+            "laugh": "😁",
+            "wink": "😉",
+            "thumbs-up": "👍",
+            "thumbs-down": "👎",
+            "yes": "👍",
+            "no": "👎",
+            "information": "\u2139\ufe0f",
+            "tick": "✅",
+            "cross": "❌",
+            "warning": "⚠️",
+            "plus": "\u2795",
+            "minus": "\u2796",
+            "question": "❓",
+            "light-on": "💡",
+            "light-off": "💡",
+            "yellow-star": "⭐",
+            "red-star": "⭐",
+            "green-star": "⭐",
+            "blue-star": "⭐",
+            "heart": "❤️",
+            "broken-heart": "💔",
+        }
+
         def _convert_emoticon(self, el: BeautifulSoup) -> str | None:
             classes = el.get("class") or []
             if "emoticon" not in classes:
                 return None
+
+            # Try Cloud format first (data-emoji-id, data-emoji-fallback, etc.)
             emoji_id = str(el.get("data-emoji-id", ""))
             fallback = str(el.get("data-emoji-fallback", ""))
             if fallback and not fallback.startswith(":"):
@@ -2539,6 +2570,12 @@ class Page(Document):
                 if emoji_id in self._ATLASSIAN_EMOTICONS:
                     return self._ATLASSIAN_EMOTICONS[emoji_id]
             shortname = str(el.get("data-emoji-shortname", ""))
+
+            # Fallback to Server/DC format (data-emoticon-name)
+            emoticon_name = str(el.get("data-emoticon-name", ""))
+            if emoticon_name in self._EMOTICON_SERVERDC_NAMES:
+                return self._EMOTICON_SERVERDC_NAMES[emoticon_name]
+
             return shortname or fallback or str(el.get("alt", "")) or None
 
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901, PLR0911, PLR0912
