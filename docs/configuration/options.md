@@ -35,6 +35,10 @@ How to generate links to pages in Markdown. Options: `relative` (default), `abso
 | `absolute` | `[Page Title](/space/path/to/page.md)` |
 | `wiki`     | `[[Page Title]]`                       |
 
+The link label is the link text as written on the Confluence page. When it differs from the target
+page title, `wiki` emits an alias (`[[Page Title|link text]]`). If the link has no text, or the text
+is just the target URL, the page title is used instead.
+
 ### export.page_path
 
 Path template for exported pages.
@@ -114,6 +118,8 @@ Controls the visual alignment and space padding of Markdown table columns.
 ### export.page_properties_format
 
 Controls how Confluence Page Properties macros (key-value tables) are rendered. Duplicate property keys are automatically disambiguated by appending a counter (e.g. `status`, `status_2`, `status_3`).
+
+YAML front matter preserves readable Unicode text (for example, `city: Казань`) in property values, page labels, and page metadata.
 
 | Value                   | Description                                                                                                                                  |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -252,6 +258,13 @@ Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links
 - Default: `True`
 - ENV Var: `CME_EXPORT__ENABLE_JIRA_ENRICHMENT`
 
+### export.include_jira_status
+
+Append the current Jira issue status to enriched issue links. For example, an issue link is exported as `[[TEST-123] Fix login timeout (In Progress)](https://example.atlassian.net/browse/TEST-123)`. Requires `export.enable_jira_enrichment` and Jira auth to be configured.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__INCLUDE_JIRA_STATUS`
+
 ### export.comments_export
 
 Which comments to export to a sidecar `.comments.md` file placed next to the exported page file, using the same path stem.
@@ -338,7 +351,9 @@ Skip exporting pages that have not changed since last export. Uses a lockfile to
 
 ### export.cleanup_stale
 
-After export, delete local files for pages removed from Confluence or whose export path has changed.
+After export, delete local files for pages removed from Confluence or whose export path has changed. Renaming or moving a page in Confluence changes its export path, so the file at the previous path is removed along with its `.comments.md` sidecar. Renaming a parent page also changes the path of every descendant, because `{ancestor_titles}` is part of the default `export.page_path`.
+
+The old file is kept when another page now occupies that exact path, and when the old and new paths are the same file on disk. The latter happens on a case-only rename on a case-insensitive filesystem such as the macOS or Windows default.
 
 - Default: `True`
 - ENV Var: `CME_EXPORT__CLEANUP_STALE`
