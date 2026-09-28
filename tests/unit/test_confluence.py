@@ -31,6 +31,18 @@ from confluence_markdown_exporter.confluence import _has_child_pages
 from confluence_markdown_exporter.confluence import _page_id_by_title
 
 
+@pytest.fixture(autouse=True)
+def _link_target_via_from_id() -> Iterator[None]:
+    """Resolve link targets through Page.from_id, which these tests patch."""
+    from confluence_markdown_exporter import confluence
+
+    def resolve(page_id: int, base_url: str) -> object:
+        return confluence.Page.from_id(page_id, base_url)
+
+    with patch.object(confluence, "_link_target", side_effect=resolve):
+        yield
+
+
 class MockPage:
     """Minimal page object for Converter tests."""
 

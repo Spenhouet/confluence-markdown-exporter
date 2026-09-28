@@ -602,6 +602,24 @@ def _page_path_template(page_id: int, base_url: str) -> str:
     return settings.export.page_path
 
 
+@functools.lru_cache(maxsize=10000)
+def _link_target(page_id: int, base_url: str) -> "Descendant | None":
+    """Fetch just enough of a linked page to build a link to it.
+
+    Links only need the title, web URL and export path, so skip the page bodies
+    and attachment listing that Page.from_id fetches. Returns None when the page
+    cannot be read.
+    """
+    try:
+        data = get_thread_confluence(base_url).get_page_by_id(page_id, expand="ancestors,version")
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not fetch linked page id=%s", page_id, exc_info=True)
+        return None
+    if not isinstance(data, dict) or not data.get("id"):
+        return None
+    return Descendant.from_json(data, base_url)
+
+
 class Organization(BaseModel):
     base_url: str
     spaces: list["Space"]
@@ -1112,6 +1130,7 @@ def _without_homepage(ancestors: list["Ancestor"], space: Space) -> list["Ancest
 
 class Descendant(Document):
     id: int
+    web_url: str = ""
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -1136,6 +1155,7 @@ class Descendant(Document):
             base_url=base_url,
             id=data.get("id", 0),
             title=data.get("title", ""),
+            web_url=_get_web_url(data),
             space=space,
             ancestors=_without_homepage(
                 [Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])],
@@ -2629,9 +2649,9 @@ class Page(Document):
                 msg = "Page link does not have valid page_id."
                 raise ValueError(msg)
 
-            page = Page.from_id(page_id, self.page.base_url)
+            page = _link_target(page_id, self.page.base_url)
 
-            if page.title == "Page not accessible":
+            if page is None or page.title == "Page not accessible":
                 logger.warning(
                     f"Confluence page link (ID: {page_id}) is not accessible, "
                     f"referenced from page '{self.page.title}' (ID: {self.page.id})"
