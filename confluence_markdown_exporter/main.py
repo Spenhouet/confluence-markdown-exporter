@@ -68,7 +68,7 @@ _QUICKSTART_EPILOG = (
     "- Export a space: `cme spaces https://company.atlassian.net/wiki/spaces/MYSPACE`\n\n"
     "- Export everything: `cme orgs https://company.atlassian.net`\n\n"
     "- Each command also has a singular alias"
-    " (`page`, `space`, `org`) that behaves identically.\n\n"
+    " (`page`, `folder`, `space`, `org`) that behaves identically.\n\n"
 )
 
 _PAGE_URL_FORMATS = (
@@ -298,9 +298,66 @@ app.command(
 
 @app.command(
     help=(
+        "Export all pages in one or more Confluence Cloud **folders** by URL to Markdown.\n\n"
+        "Exports every page beneath each folder, including pages in nested folders."
+    ),
+    epilog=(
+        "**Examples:**\n\n"
+        "- `cme folders https://company.atlassian.net/wiki/spaces/KEY/folder/123`\n\n"
+        "- `cme folders https://...folder1 https://...folder2` — export multiple folders\n\n"
+        "- `cme folder URL` — singular alias, identical behaviour\n\n"
+    ),
+)
+def folders(
+    folder_urls: Annotated[
+        list[str],
+        typer.Argument(
+            help=(
+                "One or more Confluence folder URLs. "
+                "Example: https://company.atlassian.net/wiki/spaces/KEY/folder/123"
+            ),
+            metavar="FOLDER_URL",
+        ),
+    ],
+) -> None:
+    from confluence_markdown_exporter.confluence import Folder
+    from confluence_markdown_exporter.confluence import sync_removed_pages
+
+    _init_logging()
+    with measure(f"Export folders {', '.join(folder_urls)}"):
+        LockfileManager.init()
+
+        exported_urls: set[str] = set()
+        for folder_url in folder_urls:
+            folder = Folder.from_url(folder_url)
+            folder.export()
+            exported_urls.add(folder.base_url)
+
+        for base_url in exported_urls:
+            sync_removed_pages(base_url)
+
+    _print_summary()
+
+
+app.command(
+    name="folder",
+    help=(
+        "Alias for `folders`. Export all pages in a Confluence folder by URL to Markdown.\n\n"
+        "See `cme folders --help` for full documentation."
+    ),
+    epilog=(
+        "**Example:**\n\n- `cme folder https://company.atlassian.net/wiki/spaces/KEY/folder/123`\n\n"
+    ),
+)(folders)
+
+
+@app.command(
+    help=(
         "Export **all pages** in one or more Confluence spaces by URL to Markdown.\n\n"
-        "Fetches every page in each space via the Confluence API and writes Markdown files "
-        "to the configured output directory. "
+        "Fetches the homepage of each space and every page beneath it via the Confluence API "
+        "and writes Markdown files to the configured output directory. "
+        "Set `export.only_homepage_descendants=false` to also export pages outside the "
+        "homepage tree. "
         "Pages that have not changed since the last export are skipped by default."
     ),
     epilog=(

@@ -4,9 +4,9 @@ title: Usage
 
 # Usage
 
-Run the exporter with the desired Confluence page URL or space URL. Execute the console application by typing `confluence-markdown-exporter` (or its shorter alias `cme`) followed by one of the commands `pages`, `pages-with-descendants`, `spaces`, `orgs`, or `config`. Add `--help` to any command for additional information.
+Run the exporter with the desired Confluence page URL or space URL. Execute the console application by typing `confluence-markdown-exporter` (or its shorter alias `cme`) followed by one of the commands `pages`, `pages-with-descendants`, `folders`, `spaces`, `orgs`, or `config`. Add `--help` to any command for additional information.
 
-All export commands accept one or more URLs as space-separated arguments. Each command also has a singular alias (`page`, `page-with-descendants`, `space`, `org`) that behaves identically.
+All export commands accept one or more URLs as space-separated arguments. Each command also has a singular alias (`page`, `page-with-descendants`, `folder`, `space`, `org`) that behaves identically.
 
 ## Export pages
 
@@ -40,6 +40,20 @@ cme pages-with-descendants <page-url-1> <page-url-2> ...
 cme page-with-descendants <page-url>
 ```
 
+## Export folders
+
+Export every page in one or more Confluence Cloud folders by URL, including pages in nested folders:
+
+```sh
+cme folders <folder-url>
+cme folders <folder-url-1> <folder-url-2> ...
+
+# Singular alias (identical behaviour):
+cme folder <folder-url>
+```
+
+Folder URLs look like `https://company.atlassian.net/wiki/spaces/SPACEKEY/folder/123456789`. Folders exist on Confluence Cloud only.
+
 ## Export spaces
 
 Export all Confluence pages of one or more spaces by URL:
@@ -51,6 +65,8 @@ cme spaces <space-url-1> <space-url-2> ...
 # Singular alias (identical behaviour):
 cme space <space-url>
 ```
+
+A space export covers the space homepage and every page beneath it. Pages outside that tree, such as a second root page, are skipped and a warning reports how many. Set [`export.only_homepage_descendants`](configuration/options.md#exportonly_homepage_descendants) to `false` to include them.
 
 Supported space URL formats:
 

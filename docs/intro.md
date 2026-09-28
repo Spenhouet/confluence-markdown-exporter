@@ -8,12 +8,12 @@ title: Introduction
 
 > Export Confluence pages to Markdown for Obsidian, Gollum, Azure DevOps, Foam, Dendron and any other Markdown-based platform.
 
-Exports individual pages, pages with descendants, or entire Confluence spaces via the Atlassian API into clean Markdown. Skips unchanged pages by default, re-exporting only what has changed since the last run.
+Exports individual pages, pages with descendants, folders, or entire Confluence spaces via the Atlassian API into clean Markdown. Skips unchanged pages by default, re-exporting only what has changed since the last run.
 
 ## What's in these docs
 
 - **[Installation](installation.md)**: install and update the CLI in one command
-- **[Usage](usage.md)**: export pages, descendants, spaces, or organisations
+- **[Usage](usage.md)**: export pages, descendants, folders, spaces, or organisations
 - **[Features](features.md)**: supported Confluence content, macros, and add-ons
 - **[Configuration](configuration/index.md)**: every option with defaults and ENV vars
 - **[Target systems](configuration/target-systems.md)**: Obsidian, Azure DevOps, and more

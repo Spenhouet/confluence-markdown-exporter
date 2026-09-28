@@ -20,7 +20,7 @@
 
 ## What it does
 
-Exports individual pages, pages with descendants, or entire Confluence spaces via the Atlassian API into clean Markdown. Skips unchanged pages by default, re-exporting only what has changed since the last run.
+Exports individual pages, pages with descendants, folders, or entire Confluence spaces via the Atlassian API into clean Markdown. Skips unchanged pages by default, re-exporting only what has changed since the last run.
 
 Supported targets include Obsidian, Gollum, Azure DevOps (ADO) wikis, Foam, Dendron, and anything else that consumes Markdown.
 
@@ -71,6 +71,9 @@ cme pages <page-url>
 # A page and all its descendants
 cme pages-with-descendants <page-url>
 
+# All pages in a folder (Confluence Cloud)
+cme folders <folder-url>
+
 # An entire space
 cme spaces <space-url>
 
@@ -85,7 +88,7 @@ Output goes to the configured `export.output_path` (current directory by default
 The full documentation lives at **<https://spenhouet.github.io/confluence-markdown-exporter/>** and includes:
 
 - [Installation](https://spenhouet.github.io/confluence-markdown-exporter/installation) (curl / PowerShell / pip / uv)
-- [Usage guide](https://spenhouet.github.io/confluence-markdown-exporter/usage): pages, descendants, spaces, orgs, output layout
+- [Usage guide](https://spenhouet.github.io/confluence-markdown-exporter/usage): pages, descendants, folders, spaces, orgs, output layout
 - [Feature list](https://spenhouet.github.io/confluence-markdown-exporter/features): supported Confluence content, macros, and add-ons
 - [Configuration](https://spenhouet.github.io/confluence-markdown-exporter/configuration): config commands, ENV vars, full option reference
 - [Target-system presets](https://spenhouet.github.io/confluence-markdown-exporter/configuration/target-systems): Obsidian, Azure DevOps, …
