@@ -15,6 +15,13 @@ Controls output verbosity: `DEBUG` (every step), `INFO` (key milestones), `WARNI
 - Default: `INFO`
 - ENV Var: `CME_EXPORT__LOG_LEVEL`
 
+### export.save_log_to_file
+
+Also write log records to `cme.log` next to the config file (see `cme config path`). Useful for capturing long `DEBUG` runs.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__SAVE_LOG_TO_FILE`
+
 ### export.output_path
 
 The directory where all exported files and folders will be written. Used as the base for relative and absolute links.
@@ -373,6 +380,13 @@ confluence_webui_url: "https://example.atlassian.net/wiki/spaces/TEAM/pages/123"
 ---
 
 ## Inline comments
+
+### export.comment_headings
+
+Whether each comment in a `.comments.md` sidecar gets a `### <excerpt>` heading. The excerpt comes from the commented text (inline comments) or the comment body (page comments), with Markdown links reduced to their text and cut at a word boundary after 60 characters. Set to `false` to list comments under the `## Inline comments` / `## Page comments` sections without individual headings.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__COMMENT_HEADINGS`
 
 ### marked excerpt
 > marked excerpt
