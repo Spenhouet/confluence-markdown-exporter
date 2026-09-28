@@ -35,6 +35,10 @@ How to generate links to pages in Markdown. Options: `relative` (default), `abso
 | `absolute` | `[Page Title](/space/path/to/page.md)` |
 | `wiki`     | `[[Page Title]]`                       |
 
+The link label is the link text as written on the Confluence page. When it differs from the target
+page title, `wiki` emits an alias (`[[Page Title|link text]]`). If the link has no text, or the text
+is just the target URL, the page title is used instead.
+
 ### export.page_path
 
 Path template for exported pages.
