@@ -12,6 +12,7 @@ from pydantic import SecretStr
 from confluence_markdown_exporter.api_clients import ApiClientFactory
 from confluence_markdown_exporter.api_clients import AuthNotConfiguredError
 from confluence_markdown_exporter.api_clients import ConfluenceRef
+from confluence_markdown_exporter.api_clients import decode_tiny_link_page_id
 from confluence_markdown_exporter.api_clients import get_confluence_instance
 from confluence_markdown_exporter.api_clients import parse_confluence_path
 from confluence_markdown_exporter.api_clients import response_hook
@@ -136,8 +137,71 @@ _PARSE_CONFLUENCE_PATH_CASES = [
         "/spaces/~jane.doe/overview",
         ConfluenceRef(space_key="~jane.doe"),
     ),
-
+    # Tiny links (the "Copy link" shortlink) carry an encoded page id and no space key.
+    (
+        "https://company.atlassian.net/wiki/x/Fc1bBw",
+        ConfluenceRef(page_id=123456789),
+    ),
+    (
+        "/wiki/x/Fc1bBw",
+        ConfluenceRef(page_id=123456789),
+    ),
+    (
+        "/x/Fc1bBw",
+        ConfluenceRef(page_id=123456789),
+    ),
+    (
+        "/ex/confluence/abc-123/wiki/x/Fc1bBw",
+        ConfluenceRef(page_id=123456789),
+    ),
+    (
+        "/wiki/x/FBqZvhw",
+        ConfluenceRef(page_id=123456789012),
+    ),
+    (
+        "/wiki/x/not-a-tiny-link-identifier",
+        None,
+    ),
+    # The identifier is well-formed but decodes to a negative number, so it is not a page id.
+    (
+        "/wiki/x/----------8",
+        None,
+    ),
 ]
+
+
+class TestDecodeTinyLinkPageId:
+    """Test cases for decode_tiny_link_page_id function."""
+
+    @pytest.mark.parametrize(
+        ("identifier", "expected"),
+        [
+            ("AQ", 1),
+            ("Fc1bBw", 123456789),
+            ("6hawTAI", 9876543210),
+            # Cloud page ids are around 12 digits
+            ("FBqZvhw", 123456789012),
+            # 11 characters is the longest identifier (no trailing "A" to strip)
+            ("---------38", 9223372036854775807),
+            # "-" and "_" stand in for the URL-unsafe base64 "/" and "+"
+            ("-_", 57599),
+        ],
+    )
+    def test_decodes_known_identifiers(self, identifier: str, expected: int) -> None:
+        assert decode_tiny_link_page_id(identifier) == expected
+
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "",
+            "not-a-tiny-link-identifier",
+            "Fc1b!w",
+            # decodes to -1: a page id must be positive
+            "----------8",
+        ],
+    )
+    def test_rejects_invalid_identifiers(self, identifier: str) -> None:
+        assert decode_tiny_link_page_id(identifier) is None
 
 
 class TestParseConfluencePath:

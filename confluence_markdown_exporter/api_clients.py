@@ -1,5 +1,8 @@
+import base64
+import binascii
 import logging
 import re
+import struct
 import urllib.parse
 from threading import Lock
 from threading import local
@@ -97,7 +100,8 @@ def _decode_url_part(v: str | None) -> None | str:
 
 
 class ConfluenceRef(BaseModel):
-    space_key: Annotated[str, AfterValidator(_decode_url_part)]
+    # A tiny link carries only a page id, so the space key is optional.
+    space_key: Annotated[str | None, AfterValidator(_decode_url_part)] = None
     page_id: int | None = None
     page_title: Annotated[str | None, AfterValidator(_decode_url_part)] = None
 
@@ -117,19 +121,46 @@ _SERVER_URL_RE = re.compile(
     r"(?:/(?P<page_title>[^/?#]+))?/?$"
 )
 
+# 3) Tiny link [/wiki]/x/{tiny_id}: the "Copy link" shortlink, which encodes the page id
+_TINY_URL_RE = re.compile(
+    r"^(?:/ex/confluence/[^/]+)?(?:/wiki)?/x/(?P<tiny_id>[A-Za-z0-9_-]{1,11})$"
+)
+
+
+def decode_tiny_link_page_id(identifier: str) -> int | None:
+    """Decode the identifier of a Confluence tiny link (``/wiki/x/{identifier}``) to a page id.
+
+    The identifier is the page id as a little-endian 64-bit integer, base64 encoded with
+    ``/`` and ``+`` replaced by ``-`` and ``_``, and trailing ``A`` and ``=`` characters
+    stripped. Returns ``None`` when the identifier cannot be decoded.
+    """
+    if not identifier or not re.fullmatch(r"[A-Za-z0-9_-]{1,11}", identifier):
+        return None
+    padded = identifier.replace("-", "/").replace("_", "+").ljust(11, "A") + "="
+    try:
+        (page_id,) = struct.unpack("<q", base64.b64decode(padded, validate=True))
+    except (binascii.Error, struct.error):
+        return None
+    return page_id if page_id > 0 else None
+
 
 def parse_confluence_path(path: str) -> ConfluenceRef | None:
     """Parse only the path portion of a Confluence URL and return a ConfluenceRef dict.
 
     Matching order:
-      1) Cloud [/wiki]/spaces/{space_key}[/pages/{page_id}[/{page_title}]]
-      2) Server [/display]/{space_key}[/{page_title}]
+      1) Tiny link [/wiki]/x/{tiny_id}
+      2) Cloud [/wiki]/spaces/{space_key}[/pages/{page_id}[/{page_title}]]
+      3) Server [/display]/{space_key}[/{page_title}]
     """
     if not path:
         return None
     if not path.startswith("/"):
         path = "/" + path
     path = path.rstrip("/")
+
+    if m := _TINY_URL_RE.match(path):
+        page_id = decode_tiny_link_page_id(m.group("tiny_id"))
+        return ConfluenceRef(page_id=page_id) if page_id else None
 
     if m := _CLOUD_URL_RE.match(path) or _SERVER_URL_RE.match(path):
         return ConfluenceRef.model_validate(m.groupdict())
