@@ -2883,11 +2883,16 @@ class Page(Document):
             # Extract mermaid diagram from DrawIO file
             return load_and_parse_drawio(str(drawio_filepath))
 
-        def _extract_macro_param_from_storage(  # noqa: C901
+        def _extract_macro_param_from_storage(
             self, el: BeautifulSoup, macro_name: str, param_name: str
         ) -> str | None:
-            """Extract a macro parameter value from storage matching macro-id/position."""
-            if not self.page.body_storage:
+            """Read a macro parameter from body.storage for a rendered macro element.
+
+            The storage macro is matched by macro-id when the view carries one,
+            otherwise by the element's position among same-class view elements.
+            """
+            storage_macros = self._storage_macros_by_name(macro_name)
+            if not storage_macros:
                 return None
 
             macro_id = el.get("data-macro-id")
@@ -2896,38 +2901,21 @@ class Page(Document):
                 if isinstance(child, Tag):
                     macro_id = child.get("data-macroid")
 
-            try:
-                wrapped = f"<root>{self.page.body_storage}</root>"
-                soup = BeautifulSoup(wrapped, "xml")
-                storage_macros: list[Tag] = [
-                    macro
-                    for macro in soup.find_all("structured-macro")
-                    if isinstance(macro, Tag)
-                    and (macro.get("name") or _ac_attr(macro, "name")) == macro_name
-                ]
-
-                if macro_id:
-                    for macro in storage_macros:
-                        if macro.get("macro-id") == macro_id:
-                            param = macro.find("parameter", {"name": param_name})
-                            if isinstance(param, Tag):
-                                return param.get_text(strip=True)
-
+            target = None
+            if macro_id:
+                target = next((m for m in storage_macros if m.get("macro-id") == macro_id), None)
+            if target is None:
                 view_soup = BeautifulSoup(self.page.body_view or "", "html.parser")
                 view_elements = view_soup.find_all(el.name, class_=el.get("class"))
                 if el in view_elements:
                     idx = view_elements.index(el)
                     if idx < len(storage_macros):
-                        param = storage_macros[idx].find("parameter", {"name": param_name})
-                        if isinstance(param, Tag):
-                            return param.get_text(strip=True)
+                        target = storage_macros[idx]
+            if target is None:
+                return None
 
-            except Exception as e:  # noqa: BLE001
-                logger.debug(
-                    f"Error extracting {macro_name} parameter '{param_name}' from storage: {e}"
-                )
-
-            return None
+            param = target.find("parameter", {"name": param_name})
+            return param.get_text(strip=True) if isinstance(param, Tag) else None
 
         def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert DrawIO diagrams to markdown image/file links.

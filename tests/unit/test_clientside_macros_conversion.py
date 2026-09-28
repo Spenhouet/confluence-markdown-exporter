@@ -10,6 +10,17 @@ from confluence_markdown_exporter.confluence import Page
 Converter = Page.Converter
 
 
+def _bind_storage_helpers(converter: MagicMock) -> None:
+    """Route the storage lookups of a mocked converter to the real implementations."""
+    converter._storage_macros_cache = {}
+    converter._storage_macros_by_name = lambda name: Converter._storage_macros_by_name(
+        converter, name
+    )
+    converter._extract_macro_param_from_storage = (
+        lambda el, m, p: Converter._extract_macro_param_from_storage(converter, el, m, p)
+    )
+
+
 class SimplePageForTesting:
     """Minimal Page-like object for testing."""
 
@@ -117,11 +128,7 @@ class TestGliffyConversion:
         converter = MagicMock(spec=Converter)
         converter.page = page
         converter.options = {"href_mode": href_mode}
-        converter._extract_macro_param_from_storage = (
-            lambda el, m, p: Page.Converter._extract_macro_param_from_storage(
-                converter, el, m, p
-            )
-        )
+        _bind_storage_helpers(converter)
         converter.convert_img = lambda _el, _t, _p: "![my_diagram](attachments/my_diagram.png)"
 
         # Call convert_gliffy
@@ -145,11 +152,7 @@ class TestGliffyConversion:
 
         converter = MagicMock(spec=Converter)
         converter.page = page
-        converter._extract_macro_param_from_storage = (
-            lambda el, m, p: Page.Converter._extract_macro_param_from_storage(
-                converter, el, m, p
-            )
-        )
+        _bind_storage_helpers(converter)
 
         dummy_div = BeautifulSoup("<div></div>", "html.parser").div
         result = Converter.convert_gliffy(converter, dummy_div, "", [])
@@ -163,11 +166,7 @@ class TestGliffyConversion:
 
         converter = MagicMock(spec=Converter)
         converter.page = page
-        converter._extract_macro_param_from_storage = (
-            lambda el, m, p: Page.Converter._extract_macro_param_from_storage(
-                converter, el, m, p
-            )
-        )
+        _bind_storage_helpers(converter)
 
         dummy_div = BeautifulSoup("<div></div>", "html.parser").div
         result = Converter.convert_gliffy(converter, dummy_div, "", [])
@@ -238,11 +237,7 @@ class TestDrawIOServerDCFallback:
         converter.page = page
         converter.options = {"href_mode": "relative"}
         converter._get_path_for_href = MagicMock(return_value="attachments/architecture.drawio")
-        converter._extract_macro_param_from_storage = (
-            lambda el, m, p: Page.Converter._extract_macro_param_from_storage(
-                converter, el, m, p
-            )
-        )
+        _bind_storage_helpers(converter)
         converter._convert_drawio_embedded_mermaid = MagicMock(return_value=None)
         converter.convert_img = (
             lambda _el, _t, _p: "![architecture](attachments/architecture.png)"
