@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
+from confluence_markdown_exporter.utils.app_data_store import ConfigModel
 from confluence_markdown_exporter.utils.app_data_store import ConnectionConfig
 from confluence_markdown_exporter.utils.app_data_store import ExportConfig
 from confluence_markdown_exporter.utils.config_interactive import _prompt_for_new_value
@@ -41,3 +42,14 @@ def test_optional_field_prompt_default(current: object, expected_default: str) -
     assert text.call_args.kwargs["default"] == expected_default
     validate = text.call_args.kwargs["validate"]
     assert validate("") is True
+
+
+def test_config_get_prints_null_for_unset_optional(capsys: pytest.CaptureFixture[str]) -> None:
+    from confluence_markdown_exporter.config import get
+
+    with patch(
+        "confluence_markdown_exporter.config.get_settings",
+        return_value=ConfigModel(),
+    ):
+        get("export.page_path_if_parent")
+    assert capsys.readouterr().out.strip() == "null"
