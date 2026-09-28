@@ -184,6 +184,16 @@ class TestEnvVarOverrides:
             settings = get_settings()
         assert settings.export.enable_jira_enrichment is False
 
+    def test_include_jira_status_default_false(self) -> None:
+        """Jira issue status is omitted by default to preserve existing output."""
+        assert ExportConfig().include_jira_status is False
+
+    def test_include_jira_status_env_override(self) -> None:
+        """CME_EXPORT__INCLUDE_JIRA_STATUS=true enables Jira issue statuses."""
+        with patch.dict(os.environ, {"CME_EXPORT__INCLUDE_JIRA_STATUS": "true"}):
+            settings = get_settings()
+        assert settings.export.include_jira_status is True
+
     def test_lockfile_name_env_override(self) -> None:
         """CME_EXPORT__LOCKFILE_NAME overrides lockfile_name."""
         with patch.dict(os.environ, {"CME_EXPORT__LOCKFILE_NAME": "my-lock.json"}):
