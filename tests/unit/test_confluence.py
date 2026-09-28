@@ -6,13 +6,17 @@ import logging
 import types
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+import yaml
 from requests import HTTPError
 
 from confluence_markdown_exporter.confluence import Attachment
+from confluence_markdown_exporter.confluence import JiraIssue
+from confluence_markdown_exporter.confluence import Label
 from confluence_markdown_exporter.confluence import Page
 from confluence_markdown_exporter.confluence import Space
 from confluence_markdown_exporter.confluence import User
@@ -124,6 +128,7 @@ def _make_attachment(
     file_id: str,
     title: str = "file.png",
     media_type: str = "image/png",
+    comment: str = "",
 ) -> Attachment:
     space = Space(base_url="https://example.com", key="TS", name="Test", description="", homepage=0)
     version = Version(
@@ -145,7 +150,7 @@ def _make_attachment(
         file_id=file_id,
         collection_name="",
         download_link="/download",
-        comment="",
+        comment=comment,
     )
 
 
@@ -210,6 +215,131 @@ class TestAttachmentLinkConversion:
             "(attachments/f5a14888-2775-4394-b5a4-ac0ffc0c39f5.mp4)"
         )
 
+
+class TestJiraIssueConversion:
+    """Jira macros should optionally include the current issue status."""
+
+    html = (
+        '<span data-macro-name="jira" data-jira-key="TEST-123">'
+        '<a class="jira-issue-key" '
+        'href="https://example.atlassian.net/browse/TEST-123">TEST-123</a>'
+        "</span>"
+    )
+
+    @staticmethod
+    def _issue(status: str = "In Progress") -> JiraIssue:
+        return JiraIssue(
+            key="TEST-123",
+            summary="Fix login timeout",
+            description=None,
+            status=status,
+        )
+
+    def test_status_is_parsed_from_jira_response(
+        self, jira_issue_response: dict[str, object]
+    ) -> None:
+        assert JiraIssue.from_json(jira_issue_response).status == "Open"
+
+    def test_disabled_enrichment_does_not_fetch_issue(self) -> None:
+        jira_settings = SimpleNamespace(
+            export=SimpleNamespace(enable_jira_enrichment=False)
+        )
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.get_settings",
+                return_value=jira_settings,
+            ),
+            patch.object(JiraIssue, "_fetch_cached") as fetch_issue,
+        ):
+            result = JiraIssue.from_key(
+                "TEST-123", "https://example.atlassian.net"
+            )
+
+        assert result is None
+        fetch_issue.assert_not_called()
+
+    def test_status_omitted_by_default(self, converter: Page.Converter) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(JiraIssue, "from_key", return_value=self._issue()),
+        ):
+            s.export.include_jira_status = False
+            result = converter.convert(self.html).strip()
+
+        assert result == (
+            "[[TEST-123] Fix login timeout](https://example.atlassian.net/browse/TEST-123)"
+        )
+
+    def test_status_included_when_enabled(self, converter: Page.Converter) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(JiraIssue, "from_key", return_value=self._issue()),
+        ):
+            s.export.include_jira_status = True
+            result = converter.convert(self.html).strip()
+
+        assert result == (
+            "[[TEST-123] Fix login timeout (In Progress)]"
+            "(https://example.atlassian.net/browse/TEST-123)"
+        )
+
+    def test_status_is_safe_for_markdown_link_text(
+        self, converter: Page.Converter
+    ) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(
+                JiraIssue,
+                "from_key",
+                return_value=self._issue(status="Ready [QA]\\review\nnext"),
+            ),
+        ):
+            s.export.include_jira_status = True
+            result = converter.convert(self.html).strip()
+
+        assert result == (
+            r"[[TEST-123] Fix login timeout (Ready \[QA\]\\review next)]"
+            "(https://example.atlassian.net/browse/TEST-123)"
+        )
+
+    @pytest.mark.parametrize("status", ["", "   "])
+    def test_blank_status_is_not_appended(
+        self, converter: Page.Converter, status: str
+    ) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(JiraIssue, "from_key", return_value=self._issue(status=status)),
+        ):
+            s.export.include_jira_status = True
+            result = converter.convert(self.html).strip()
+
+        assert result == (
+            "[[TEST-123] Fix login timeout](https://example.atlassian.net/browse/TEST-123)"
+        )
+
+    def test_missing_enrichment_keeps_key_only_fallback(
+        self, converter: Page.Converter
+    ) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(JiraIssue, "from_key", return_value=None),
+        ):
+            s.export.include_jira_status = True
+            result = converter.convert(self.html).strip()
+
+        assert result == "[[TEST-123]](https://example.atlassian.net/browse/TEST-123)"
+
+    def test_http_error_keeps_key_only_fallback(self, converter: Page.Converter) -> None:
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch.object(JiraIssue, "from_key", side_effect=HTTPError),
+        ):
+            s.export.include_jira_status = True
+            result = converter.convert(self.html).strip()
+
+        assert result == "[[TEST-123]](https://example.atlassian.net/browse/TEST-123)"
+
+
 def _export_settings(tmp_path: Path) -> SimpleNamespace:
     return SimpleNamespace(
         export=SimpleNamespace(
@@ -237,6 +367,64 @@ def _export_settings(tmp_path: Path) -> SimpleNamespace:
 
 class TestMarkdownExport:
     """Markdown file export behaviour."""
+
+    @pytest.mark.parametrize(
+        "page_properties_format",
+        ["frontmatter", "frontmatter_and_table", "meta-bind-view-fields"],
+    )
+    def test_frontmatter_preserves_unicode(
+        self, tmp_path: Path, page_properties_format: str
+    ) -> None:
+        """Export readable Unicode and preserve YAML values in every front matter mode."""
+        page = _make_page(
+            """
+            <div data-macro-name="details">
+                <table>
+                    <tr><th>City</th><td>Казань</td></tr>
+                    <tr><th>Summary</th><td>Москва: &quot;Привет&quot;</td></tr>
+                    <tr><th>Languages</th><td>日本語, français</td></tr>
+                </table>
+            </div>
+            <p>Page body</p>
+            """,
+            "",
+            [],
+        )
+        page.labels = [Label(id="1", name="документация", prefix="global")]
+        page.history.created_by.display_name = "Иван Иванов"
+        page.version.by.display_name = "Анна Петрова"
+        settings = _export_settings(tmp_path)
+        settings.export.page_properties_format = page_properties_format
+        settings.export.page_metadata_in_frontmatter = True
+        settings.export.table_column_width = "mixed"
+
+        with patch("confluence_markdown_exporter.confluence.settings", settings):
+            page.export_markdown()
+
+        markdown = (tmp_path / "Test Page.md").read_text(encoding="utf-8")
+        assert markdown.startswith("---\n")
+        front_matter, body = markdown.removeprefix("---\n").split("\n---\n", 1)
+        for text in (
+            "Казань",
+            "Москва",
+            "Привет",
+            "日本語",
+            "français",
+            "документация",
+            "Иван Иванов",
+            "Анна Петрова",
+        ):
+            assert text in front_matter
+        for escape in (r"\u", r"\U", r"\x"):
+            assert escape not in front_matter
+        properties = yaml.safe_load(front_matter)
+        assert properties["city"] == "Казань"
+        assert properties["summary"] == 'Москва: "Привет"'
+        assert properties["languages"] == "日本語, français"
+        assert properties["tags"] == ["документация"]
+        assert properties["confluence_created_by"] == "Иван Иванов"
+        assert properties["confluence_last_modified_by"] == "Анна Петрова"
+        assert "Page body" in body
 
     def test_nested_tables_are_always_preserved_as_html_in_main_markdown(
         self, tmp_path: Path
@@ -1370,6 +1558,7 @@ class TestInlineCommentsFrontMatter:
         ]
         page._fetch_page_comments = list
         page._fetch_comment_replies = lambda _cid: []
+        page._truncate_excerpt = Page._truncate_excerpt
         page._render_inline_comments = types.MethodType(Page._render_inline_comments, page)
         page._render_page_comments = types.MethodType(Page._render_page_comments, page)
 
@@ -1379,6 +1568,7 @@ class TestInlineCommentsFrontMatter:
         ):
             s.export.output_path = Path("out")
             s.export.comments_export = "inline"
+            s.export.comment_headings = True
             Page.export_comments_sidecar(page)
 
         assert mock_save.called
@@ -1398,6 +1588,69 @@ class TestInlineCommentsFrontMatter:
         assert "\nsource:" not in content
 
 
+class TestCommentHeadingsConfig:
+    """Test comment_headings setting toggling excerpt headings."""
+
+    def test_comment_headings_disabled(self) -> None:
+        page = MockPage()
+        page.id = 123
+        page.title = "My Page"
+        page.space = MagicMock()
+        page.space.key = "TEAM"
+        page.base_url = "https://example.atlassian.net"
+        page.export_path = Path("TEAM/My Page.md")
+        page._marked_texts = {"ref-1": "marked excerpt"}
+        page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN.default
+        page._fetch_inline_comments = lambda: [
+            {
+                "id": "c1",
+                "extensions": {"inlineProperties": {"markerRef": "ref-1"}},
+                "history": {
+                    "createdBy": {"displayName": "Alice"},
+                    "createdDate": "2026-04-01T10:00:00Z",
+                },
+                "body": {"view": {"value": "<p>nice</p>"}},
+            }
+        ]
+        page._fetch_page_comments = lambda: [
+            {
+                "id": "c2",
+                "history": {
+                    "createdBy": {"displayName": "Bob"},
+                    "createdDate": "2026-04-02T10:00:00Z",
+                },
+                "body": {"view": {"value": "<p>footer comment</p>"}},
+            }
+        ]
+        page._fetch_comment_replies = lambda _cid: []
+        page._truncate_excerpt = Page._truncate_excerpt
+        page._render_inline_comments = types.MethodType(Page._render_inline_comments, page)
+        page._render_page_comments = types.MethodType(Page._render_page_comments, page)
+
+        with (
+            patch("confluence_markdown_exporter.confluence.save_file") as mock_save,
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.output_path = Path("out")
+            s.export.comments_export = "all"
+            s.export.comment_headings = False
+            Page.export_comments_sidecar(page)
+
+        assert mock_save.called
+        content = mock_save.call_args[0][1]
+
+        # Section headings remain
+        assert "## Inline comments" in content
+        assert "## Page comments" in content
+        # Excerpt '### ' headings must not be present
+        assert "### " not in content
+        # Authors and bodies are present
+        assert "**Alice** · 2026-04-01" in content
+        assert "nice" in content
+        assert "**Bob** · 2026-04-02" in content
+        assert "footer comment" in content
+
+
 def _make_comments_page(
     *,
     inline_comments: list[dict] | None = None,
@@ -1413,7 +1666,8 @@ def _make_comments_page(
     page.base_url = "https://example.atlassian.net"
     page.export_path = Path("TEAM/My Page.md")
     page._marked_texts = marked_texts or {}
-    page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN.default
+    page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN
+    page._truncate_excerpt = Page._truncate_excerpt
     page._fetch_inline_comments = lambda: list(inline_comments or [])
     page._fetch_page_comments = lambda: list(page_comments or [])
     replies_map = replies or {}
@@ -1579,6 +1833,36 @@ class TestPageCommentsSidecarBody:
 
         ids = [c["id"] for c in results]
         assert ids == ["open1", "open2"]
+
+
+class TestCommentExcerptTruncation:
+    """Test clean truncation of comment excerpt headings (Issue #301)."""
+
+    def test_truncate_excerpt_strips_markdown_links(self) -> None:
+        text = "siehe auch US [SSMPA-2656](https://jira.example.com/browse/SSMPA-2656) fuer Details"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "siehe auch US SSMPA-2656 fuer Details"
+
+    def test_truncate_excerpt_strips_markdown_images(self) -> None:
+        text = "siehe Bild ![Screenshot](https://example.com/img.png) und Text"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "siehe Bild Screenshot und Text"
+
+    def test_truncate_excerpt_strips_wiki_links(self) -> None:
+        text = "siehe [[Page Title|Display Text]] oder [[Simple Page]]"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "siehe Display Text oder Simple Page"
+
+    def test_truncate_excerpt_word_boundary(self) -> None:
+        text = "Das ist ein sehr langer Kommentartext der definitiv gekuerzt werden muss"
+        result = Page._truncate_excerpt(text, max_len=30)
+        assert result == "Das ist ein sehr langer…"
+        assert not result.endswith(" l…")
+
+    def test_truncate_excerpt_no_truncation_when_short(self) -> None:
+        text = "Kurzer Kommentar"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "Kurzer Kommentar"
 
 
 class TestPagePropertiesReportDataview:
@@ -1950,6 +2234,43 @@ class TestPagePropertiesReportFrozenFetchesAllRows:
         assert "Page B" not in result
 
 
+class TestAttachmentExtension:
+    """draw.io source attachments must resolve to `.drawio` regardless of language.
+
+    `comment` is localized by Confluence, but `media_type` is not.
+    """
+
+    DRAWIO_MEDIA_TYPE = "application/vnd.jgraph.mxfile"
+
+    def test_english_comment_resolves_to_drawio(self) -> None:
+        att = _make_attachment(
+            "1", "guid-1", media_type=self.DRAWIO_MEDIA_TYPE, comment="draw.io diagram"
+        )
+        assert att.extension == ".drawio"
+
+    def test_french_comment_resolves_to_drawio(self) -> None:
+        """The extension must not depend on `comment`'s language.
+
+        Confluence localizes `extensions.comment` (e.g. "diagramme draw.io" in French).
+        """
+        att = _make_attachment(
+            "2", "guid-2", media_type=self.DRAWIO_MEDIA_TYPE, comment="diagramme draw.io"
+        )
+        assert att.extension == ".drawio"
+
+    def test_missing_comment_resolves_to_drawio(self) -> None:
+        att = _make_attachment("3", "guid-3", media_type=self.DRAWIO_MEDIA_TYPE, comment="")
+        assert att.extension == ".drawio"
+
+    def test_drawio_preview_still_requires_comment_match(self) -> None:
+        att = _make_attachment("4", "guid-4", media_type="image/png", comment="draw.io preview")
+        assert att.extension == ".drawio.png"
+
+    def test_regular_png_without_drawio_comment_unaffected(self) -> None:
+        att = _make_attachment("5", "guid-5", media_type="image/png", comment="")
+        assert att.extension == ".png"
+
+
 class TestAttachmentTemplateVars:
     """`attachment_file_id` falls back to the content id when fileId is empty."""
 
@@ -1976,6 +2297,180 @@ class TestAttachmentTemplateVars:
             path2 = att2.export_path
 
         assert path1 != path2
+
+
+class TestAttachmentExtensionFromTitle:
+    """The title's extension is used when the media type does not resolve.
+
+    The attachment title is the original filename chosen at upload time, so
+    file types unknown to the stdlib (e.g. .eddx mind maps, .msi installers)
+    must keep their extension instead of being exported as .bin. Known media
+    types keep their mimetypes extension so existing export paths stay stable.
+    """
+
+    def test_unregistered_mime_uses_title_extension(self) -> None:
+        """.eddx is not in the stdlib MIME database; the title provides it."""
+        att = _make_attachment(
+            "content-1", "uuid-1", title="LightAI_1.eddx", media_type="application/octet-stream"
+        )
+        assert att.extension == ".eddx"
+
+    def test_multi_dot_title_uses_last_suffix(self) -> None:
+        """Only the last suffix counts, like Path.suffix would."""
+        att = _make_attachment(
+            "content-2", "uuid-2", title="archive.tar.gz", media_type="application/octet-stream"
+        )
+        assert att.extension == ".gz"
+
+    def test_known_mime_keeps_mimetypes_extension(self) -> None:
+        """A known media type wins, so export paths do not change."""
+        att = _make_attachment("content-3", "uuid-3", title="DOC.PDF", media_type="application/pdf")
+        assert att.extension == ".pdf"
+
+    def test_unknown_mime_without_guess_uses_title_extension(self) -> None:
+        """A media type unknown to mimetypes also falls back to the title."""
+        att = _make_attachment(
+            "content-8", "uuid-8", title="map.eddx", media_type="application/x-unknown-type"
+        )
+        assert att.extension == ".eddx"
+
+    def test_implausible_title_suffix_is_ignored(self) -> None:
+        """Suffixes with spaces are not file extensions."""
+        att = _make_attachment(
+            "content-9", "uuid-9", title="v1.2 notes", media_type="application/octet-stream"
+        )
+        assert att.extension == ".bin"
+
+    def test_gliffy_media_type(self) -> None:
+        att = _make_attachment(
+            "content-10", "uuid-10", title="workflow", media_type="application/gliffy+json"
+        )
+        assert att.extension == ".gliffy"
+
+    def test_title_without_extension_falls_back_to_mime(self) -> None:
+        """Titles without an extension still resolve via the media type."""
+        att = _make_attachment("content-4", "uuid-4", title="screenshot", media_type="image/png")
+        assert att.extension == ".png"
+
+    def test_title_without_extension_and_unknown_mime_is_empty(self) -> None:
+        """No title extension and an unknown media type yields no extension."""
+        att = _make_attachment(
+            "content-5", "uuid-5", title="noext", media_type="application/x-unknown-type"
+        )
+        assert att.extension == ""
+
+    def test_template_vars_use_title_extension(self) -> None:
+        """{attachment_title}{attachment_extension} rebuilds the original filename."""
+        att = _make_attachment(
+            "content-6", "uuid-6", title="LightAI_1.eddx", media_type="application/octet-stream"
+        )
+        assert att._template_vars["attachment_extension"] == ".eddx"
+        assert att._template_vars["attachment_title"] == "LightAI_1"
+
+    def test_drawio_special_case_still_wins(self) -> None:
+        """The draw.io comment-based mapping keeps priority over the title."""
+        att = _make_attachment(
+            "content-7", "uuid-7", title="diagram", media_type="application/vnd.jgraph.mxfile"
+        )
+        att.comment = "draw.io diagram"
+        assert att.extension == ".drawio"
+class TestAttachmentPageContext:
+    """Attachments carry page_id/page_title from their owning page for page-scoped paths."""
+
+    _SPACE = Space(
+        base_url="https://example.com", key="TS", name="Test", description="", homepage=0
+    )
+
+    _ATTACHMENT_JSON: ClassVar[dict] = {
+        "id": "att-1",
+        "title": "file.png",
+        "extensions": {"fileId": "guid-1"},
+        "_expandable": {"space": "/rest/api/space/TS"},
+        "_links": {"download": "/download/att-1"},
+        "container": {},
+    }
+
+    def test_from_json_without_page_context_defaults_to_empty(self) -> None:
+        """Backward compatible: page_id/page_title default to '' when not passed."""
+        with patch(
+            "confluence_markdown_exporter.confluence.Space.from_key", return_value=self._SPACE
+        ):
+            attachment = Attachment.from_json(self._ATTACHMENT_JSON, "https://example.com")
+
+        assert attachment.page_id == ""
+        assert attachment.page_title == ""
+        assert attachment._template_vars["page_id"] == ""
+        assert attachment._template_vars["page_title"] == ""
+
+    def test_from_json_sets_page_context_when_provided(self) -> None:
+        with patch(
+            "confluence_markdown_exporter.confluence.Space.from_key", return_value=self._SPACE
+        ):
+            attachment = Attachment.from_json(
+                self._ATTACHMENT_JSON, "https://example.com", page_id="42", page_title="My Page"
+            )
+
+        assert attachment.page_id == "42"
+        assert attachment.page_title == "My Page"
+        assert attachment._template_vars["page_id"] == "42"
+        assert attachment._template_vars["page_title"] == "My Page"
+
+    def test_from_page_id_propagates_page_context_to_attachments(self) -> None:
+        fake_response = {"results": [self._ATTACHMENT_JSON], "size": 1}
+        with (
+            patch("confluence_markdown_exporter.confluence.get_thread_confluence") as mock_client,
+            patch(
+                "confluence_markdown_exporter.confluence.Space.from_key", return_value=self._SPACE
+            ),
+        ):
+            mock_client.return_value.get_attachments_from_content.return_value = fake_response
+            attachments = Attachment.from_page_id(42, "https://example.com", page_title="My Page")
+
+        assert len(attachments) == 1
+        assert attachments[0].page_id == "42"
+        assert attachments[0].page_title == "My Page"
+
+    def test_page_from_json_forwards_its_title_as_attachment_page_title(self) -> None:
+        """Page.from_json() must pass its own title through to Attachment.from_page_id()."""
+        page_data = {
+            "id": 42,
+            "title": "My Page",
+            "_expandable": {"space": "/rest/api/space/TS"},
+            "body": {
+                "view": {"value": ""},
+                "export_view": {"value": ""},
+                "editor2": {"value": ""},
+            },
+            "metadata": {"labels": {"results": []}},
+            "ancestors": [],
+            "version": {},
+        }
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.Attachment.from_page_id",
+                return_value=[],
+            ) as mock_from_page_id,
+            patch(
+                "confluence_markdown_exporter.confluence.Space.from_key", return_value=self._SPACE
+            ),
+        ):
+            Page.from_json(page_data, "https://example.com")
+
+        mock_from_page_id.assert_called_once_with(42, "https://example.com", page_title="My Page")
+
+    def test_page_scoped_attachment_path_template(self) -> None:
+        """attachment_path can now use {page_id}/{page_title}, per attachment."""
+        attachment = _make_attachment("123", "guid-1")
+        attachment.page_id = "42"
+        attachment.page_title = "My Page"
+
+        with patch("confluence_markdown_exporter.confluence.settings") as mock_settings:
+            mock_settings.export.attachment_path = (
+                "{page_id}/{attachment_file_id}{attachment_extension}"
+            )
+            path = attachment.export_path
+
+        assert path == Path("42/guid-1.png")
 
 
 class TestWikiLinkDisambiguation:
@@ -2036,6 +2531,53 @@ class TestWikiLinkDisambiguation:
             result = conv.convert(html).strip()
 
         PageTitleRegistry.reset()
+        assert result == "[[Unique Page|x]]"
+
+    def test_unique_title_falls_back_to_title_without_link_text(self) -> None:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(101, "Unique Page", "ALPHA")
+        PageTitleRegistry.register(target.id, target.title)
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch("confluence_markdown_exporter.confluence.Page.from_id", return_value=target),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = '<a data-linked-resource-type="page" data-linked-resource-id="101"></a>'
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        assert result == "[[Unique Page]]"
+
+    def test_link_text_matching_title_emits_short_wiki_link(self) -> None:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(101, "Unique Page", "ALPHA")
+        PageTitleRegistry.register(target.id, target.title)
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch("confluence_markdown_exporter.confluence.Page.from_id", return_value=target),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = (
+                '<a data-linked-resource-type="page" data-linked-resource-id="101">'
+                "Unique Page</a>"
+            )
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
         assert result == "[[Unique Page]]"
 
     def test_colliding_title_emits_path_qualified_wiki_link(self) -> None:
@@ -2063,7 +2605,7 @@ class TestWikiLinkDisambiguation:
             result = conv.convert(html).strip()
 
         PageTitleRegistry.reset()
-        assert result == "[[ALPHA/Shared Title|Shared Title]]"
+        assert result == "[[ALPHA/Shared Title|x]]"
 
     def test_relative_link_unaffected(self) -> None:
         from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
@@ -2091,7 +2633,7 @@ class TestWikiLinkDisambiguation:
 
         PageTitleRegistry.reset()
         assert "Shared%20Title.md" in result
-        assert result.startswith("[Shared Title](")
+        assert result.startswith("[x](")
 
 
 class TestAbsoluteUrlPageLinks:
@@ -2159,6 +2701,62 @@ class TestAbsoluteUrlPageLinks:
         PageTitleRegistry.reset()
         assert result == "[[Linked Page]]"
 
+    def test_tiny_link_same_host_resolves_page(self) -> None:
+        """A pasted shortlink (`/wiki/x/<id>`) resolves like a full page URL."""
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(123456789, "Linked Page", "STRUCT")
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.Page.from_id",
+                return_value=target,
+            ) as from_id,
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = (
+                '<a href="https://example.com/wiki/x/Fc1bBw" data-card-appearance="inline">'
+                "https://example.com/wiki/x/Fc1bBw</a>"
+            )
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        from_id.assert_called_once_with(123456789, source.base_url)
+        assert result == "[[Linked Page]]"
+
+    def test_tiny_link_with_query_string_resolves_page(self) -> None:
+        """A "Copy link" shortlink carries tracking parameters; only the path picks the page."""
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(123456789, "Linked Page", "STRUCT")
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.Page.from_id",
+                return_value=target,
+            ) as from_id,
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            url = "https://example.com/wiki/x/Fc1bBw?xpis=c2hhcmVkLWxpbms&atlOrigin=abc"
+            html = f'<a href="{url}" data-card-appearance="inline">{url}</a>'
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        from_id.assert_called_once_with(123456789, source.base_url)
+        assert result == "[[Linked Page]]"
+
     def test_absolute_url_different_host_left_alone(self) -> None:
         source = _make_page(body="", body_export="", attachments=[])
         conv = Page.Converter(source)
@@ -2191,7 +2789,7 @@ class TestAbsoluteUrlPageLinks:
             result = conv.convert(html).strip()
 
         PageTitleRegistry.reset()
-        assert result == "[[Legacy Page]]"
+        assert result == "[[Legacy Page|x]]"
 
 
 class TestColumnLayoutConversion:
