@@ -254,6 +254,13 @@ Fetch Jira issue data to enrich Confluence pages. When enabled, Jira issue links
 - Default: `True`
 - ENV Var: `CME_EXPORT__ENABLE_JIRA_ENRICHMENT`
 
+### export.include_jira_status
+
+Append the current Jira issue status to enriched issue links. For example, an issue link is exported as `[[TEST-123] Fix login timeout (In Progress)](https://example.atlassian.net/browse/TEST-123)`. Requires `export.enable_jira_enrichment` and Jira auth to be configured.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__INCLUDE_JIRA_STATUS`
+
 ### export.comments_export
 
 Which comments to export to a sidecar `.comments.md` file placed next to the exported page file, using the same path stem.
