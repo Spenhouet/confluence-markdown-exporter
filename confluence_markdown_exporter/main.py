@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import platform
 import sys
 import urllib.parse
@@ -28,6 +29,19 @@ typer.rich_utils._get_rich_console = get_rich_console
 logger = logging.getLogger(__name__)
 
 
+def _is_interactive() -> bool:
+    """Whether cme may open the interactive config menu.
+
+    Off when CME_NON_INTERACTIVE is set, when CI is set, or when stdin is not a
+    terminal, so wrappers and CI jobs get an error instead of a blocking prompt.
+    """
+    if os.environ.get("CME_NON_INTERACTIVE", "").strip().lower() in {"1", "true", "yes"}:
+        return False
+    if os.environ.get("CI"):
+        return False
+    return sys.stdin is not None and sys.stdin.isatty()
+
+
 class _CmeTyper(typer.Typer):
     """Typer subclass that intercepts AuthNotConfiguredError at the app boundary.
 
@@ -43,6 +57,20 @@ class _CmeTyper(typer.Typer):
         try:
             super().__call__(*args, **kwargs)
         except AuthNotConfiguredError as e:
+            if not _is_interactive():
+                hint = (
+                    " Or disable Jira enrichment with "
+                    "`cme config set export.enable_jira_enrichment=false`."
+                    if e.service == "Jira"
+                    else ""
+                )
+                print(  # noqa: T201
+                    f"Error: {e.service} credentials for {e.url} are missing or invalid. "
+                    f"Configure them with `cme config edit auth.{e.service.lower()}`.{hint}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
             from confluence_markdown_exporter.utils.config_interactive import main_config_menu_loop
 
             console.print(

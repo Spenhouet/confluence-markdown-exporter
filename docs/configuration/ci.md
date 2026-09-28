@@ -15,6 +15,22 @@ Detection is based on two standard environment variables:
 
 Most CI platforms (GitHub Actions, GitLab CI, CircleCI, Jenkins, etc.) set `CI=true` automatically.
 
+## Missing or invalid credentials
+
+In an interactive terminal, missing or rejected credentials open the config menu at the failing instance. In non-interactive runs, cme prints an error to stderr and exits with code `1` instead, so a wrapper or CI job fails fast rather than waiting on a prompt.
+
+A run counts as non-interactive when any of these is true:
+
+- `CME_NON_INTERACTIVE` is set to `1`, `true` or `yes`
+- `CI` is set
+- stdin is not a terminal
+
+A Confluence-only backup does not need Jira credentials. Disable Jira enrichment so Jira issue links are exported without fetching issue data:
+
+```sh
+cme config set export.enable_jira_enrichment=false
+```
+
 ## Controlling log verbosity
 
 You can control output verbosity via the `CME_EXPORT__LOG_LEVEL` env var or the [`export.log_level`](./options.md#exportlog_level) config option:
