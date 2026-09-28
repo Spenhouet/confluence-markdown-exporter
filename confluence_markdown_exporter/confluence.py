@@ -578,6 +578,28 @@ def _page_id_by_title(space_key: str, title: str, base_url: str) -> int | None:
     return None
 
 
+@functools.lru_cache(maxsize=10000)
+def _has_child_pages(page_id: int, base_url: str) -> bool:
+    """Return whether a page (or folder) has at least one descendant page."""
+    try:
+        response = get_thread_confluence(base_url).get(
+            "rest/api/content/search",
+            params={"cql": f"type=page AND ancestor={page_id}", "limit": 1},
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning(f"Could not check child pages of content ID {page_id}.")
+        return False
+    return bool(isinstance(response, dict) and response.get("results"))
+
+
+def _page_path_template(page_id: int, base_url: str) -> str:
+    """Pick export.page_path_if_parent for pages with children, else export.page_path."""
+    parent_template = settings.export.page_path_if_parent
+    if parent_template and _has_child_pages(page_id, base_url):
+        return parent_template
+    return settings.export.page_path
+
+
 class Organization(BaseModel):
     base_url: str
     spaces: list["Space"]
@@ -818,11 +840,21 @@ class Attachment(Document):
             # present and unique.
             "attachment_file_id": self.file_id or str(self.id),
             "attachment_extension": self.extension,
+            "ancestors_without_last": "/".join(
+                sanitize_filename(a.title) for a in self.ancestors[:-1]
+            ),
         }
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(settings.export.attachment_path.replace("{", "${"))
+        template = settings.export.attachment_path
+        parent_template = settings.export.attachment_path_if_parent
+        owner_id = int(self.page_id) if self.page_id else None
+        if owner_id is None and self.ancestors:
+            owner_id = self.ancestors[-1].id
+        if parent_template and owner_id and _has_child_pages(owner_id, self.base_url):
+            template = parent_template
+        filepath_template = Template(template.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
@@ -953,7 +985,8 @@ class Descendant(Document):
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(settings.export.page_path.replace("{", "${"))
+        template = _page_path_template(self.id, self.base_url)
+        filepath_template = Template(template.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
@@ -1061,7 +1094,8 @@ class Page(Document):
 
     @property
     def export_path(self) -> Path:
-        filepath_template = Template(settings.export.page_path.replace("{", "${"))
+        template = _page_path_template(self.id, self.base_url)
+        filepath_template = Template(template.replace("{", "${"))
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @property
