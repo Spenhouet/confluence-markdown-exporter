@@ -10,9 +10,11 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+import yaml
 from requests import HTTPError
 
 from confluence_markdown_exporter.confluence import Attachment
+from confluence_markdown_exporter.confluence import Label
 from confluence_markdown_exporter.confluence import Page
 from confluence_markdown_exporter.confluence import Space
 from confluence_markdown_exporter.confluence import User
@@ -237,6 +239,64 @@ def _export_settings(tmp_path: Path) -> SimpleNamespace:
 
 class TestMarkdownExport:
     """Markdown file export behaviour."""
+
+    @pytest.mark.parametrize(
+        "page_properties_format",
+        ["frontmatter", "frontmatter_and_table", "meta-bind-view-fields"],
+    )
+    def test_frontmatter_preserves_unicode(
+        self, tmp_path: Path, page_properties_format: str
+    ) -> None:
+        """Export readable Unicode and preserve YAML values in every front matter mode."""
+        page = _make_page(
+            """
+            <div data-macro-name="details">
+                <table>
+                    <tr><th>City</th><td>Казань</td></tr>
+                    <tr><th>Summary</th><td>Москва: &quot;Привет&quot;</td></tr>
+                    <tr><th>Languages</th><td>日本語, français</td></tr>
+                </table>
+            </div>
+            <p>Page body</p>
+            """,
+            "",
+            [],
+        )
+        page.labels = [Label(id="1", name="документация", prefix="global")]
+        page.history.created_by.display_name = "Иван Иванов"
+        page.version.by.display_name = "Анна Петрова"
+        settings = _export_settings(tmp_path)
+        settings.export.page_properties_format = page_properties_format
+        settings.export.page_metadata_in_frontmatter = True
+        settings.export.table_column_width = "mixed"
+
+        with patch("confluence_markdown_exporter.confluence.settings", settings):
+            page.export_markdown()
+
+        markdown = (tmp_path / "Test Page.md").read_text(encoding="utf-8")
+        assert markdown.startswith("---\n")
+        front_matter, body = markdown.removeprefix("---\n").split("\n---\n", 1)
+        for text in (
+            "Казань",
+            "Москва",
+            "Привет",
+            "日本語",
+            "français",
+            "документация",
+            "Иван Иванов",
+            "Анна Петрова",
+        ):
+            assert text in front_matter
+        for escape in (r"\u", r"\U", r"\x"):
+            assert escape not in front_matter
+        properties = yaml.safe_load(front_matter)
+        assert properties["city"] == "Казань"
+        assert properties["summary"] == 'Москва: "Привет"'
+        assert properties["languages"] == "日本語, français"
+        assert properties["tags"] == ["документация"]
+        assert properties["confluence_created_by"] == "Иван Иванов"
+        assert properties["confluence_last_modified_by"] == "Анна Петрова"
+        assert "Page body" in body
 
     def test_nested_tables_are_always_preserved_as_html_in_main_markdown(
         self, tmp_path: Path
