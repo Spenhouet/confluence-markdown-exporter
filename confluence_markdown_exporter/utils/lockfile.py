@@ -28,6 +28,18 @@ logger = logging.getLogger(__name__)
 LOCKFILE_VERSION = 2
 
 
+def _try_unlink(path: Path) -> bool:
+    """Delete *path*, returning True if it existed. Never raises."""
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        logger.warning("Failed to delete stale file: %s", path)
+        return False
+    return True
+
+
 class AttachmentEntry(BaseModel):
     """Entry for a single attachment tracked in the lock file."""
 
@@ -306,6 +318,65 @@ class LockfileManager:
         return set(cls._lock.all_pages().keys()) - cls._seen_page_ids
 
     @classmethod
+    def _unlink_page_files(cls, export_path: str) -> bool:
+        """Delete the page file at *export_path* and its comments sidecar.
+
+        Returns True if the page file itself existed and was removed.
+        """
+        if cls._output_path is None:
+            return False
+        target = cls._output_path / export_path
+        removed = _try_unlink(target)
+        _try_unlink(target.parent / f"{target.stem}.comments.md")
+        return removed
+
+    @classmethod
+    def _resolves_to_same_file(cls, old_path: str, new_path: str) -> bool:
+        """Check whether two export paths are the same file on disk.
+
+        Paths are compared as strings elsewhere, but a case-only rename on a
+        case-insensitive filesystem re-exports the page through the very file
+        the old path points at. Deleting it would discard the new content.
+        """
+        if cls._output_path is None:
+            return False
+        try:
+            return (cls._output_path / old_path).samefile(cls._output_path / new_path)
+        except OSError:
+            return False
+
+    @classmethod
+    def _remove_moved_page_files(
+        cls,
+        current_entries: dict[str, PageEntry],
+        path_owners: dict[str, set[str]],
+    ) -> None:
+        """Delete the previous file of every seen page whose export path changed."""
+        for page_id in cls._seen_page_ids:
+            old_entry = cls._all_entries_snapshot.get(page_id)
+            new_entry = current_entries.get(page_id)
+            if old_entry is None or new_entry is None:
+                continue
+            if old_entry.export_path == new_entry.export_path:
+                continue
+            if cls._resolves_to_same_file(old_entry.export_path, new_entry.export_path):
+                logger.debug(
+                    "Old and new path of page %s are the same file — keeping %s",
+                    page_id,
+                    old_entry.export_path,
+                )
+                continue
+            if path_owners.get(old_entry.export_path, set()) - {page_id}:
+                logger.debug(
+                    "Old path of moved page %s is now used by another page — keeping %s",
+                    page_id,
+                    old_entry.export_path,
+                )
+                continue
+            if cls._unlink_page_files(old_entry.export_path):
+                logger.info("Deleted old path for moved page: %s", old_entry.export_path)
+
+    @classmethod
     def remove_pages(cls, deleted_ids: set[str]) -> None:
         """Remove files and lockfile entries for moved or deleted pages.
 
@@ -315,24 +386,24 @@ class LockfileManager:
         if cls._lock is None or cls._lockfile_path is None or cls._output_path is None:
             return
 
-        result_delete_ids: set[str] = set()
+        current_entries = cls._lock.all_pages()
+        path_owners: dict[str, set[str]] = {}
+        for page_id, entry in current_entries.items():
+            path_owners.setdefault(entry.export_path, set()).add(page_id)
 
-        # Handle moved pages: delete old file when export_path changed
-        for page_id in cls._seen_page_ids:
-            if page_id in cls._all_entries_snapshot:
-                old_entry = cls._all_entries_snapshot[page_id]
-                new_entry = cls._lock.get_page(page_id)
-                if new_entry and old_entry.export_path != new_entry.export_path:
-                    (cls._output_path / old_entry.export_path).unlink(missing_ok=True)
-                    logger.info("Deleted old path for moved page: %s", old_entry.export_path)
+        cls._remove_moved_page_files(current_entries, path_owners)
 
         # Remove files and lockfile entries for pages deleted from Confluence
+        result_delete_ids: set[str] = set()
         for page_id in deleted_ids:
-            entry = cls._lock.get_page(page_id)
-            if entry:
-                (cls._output_path / entry.export_path).unlink(missing_ok=True)
+            entry = current_entries.get(page_id)
+            if entry is None:
+                continue
+            result_delete_ids.add(page_id)
+            if path_owners.get(entry.export_path, set()) - {page_id}:
+                logger.debug("Path of deleted page %s is claimed by another page.", page_id)
+            elif cls._unlink_page_files(entry.export_path):
                 logger.info("Deleted removed page: %s", entry.export_path)
-                result_delete_ids.add(page_id)
 
         if result_delete_ids:
             with cls._thread_lock:

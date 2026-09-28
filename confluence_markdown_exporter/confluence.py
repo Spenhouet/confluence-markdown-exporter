@@ -3,6 +3,8 @@
 https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 """
 
+import base64
+import copy
 import functools
 import html
 import json
@@ -11,6 +13,7 @@ import mimetypes
 import os
 import re
 import urllib.parse
+import zlib
 from collections.abc import Set
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
@@ -23,6 +26,7 @@ from typing import Literal
 from typing import TypeAlias
 from typing import cast
 from urllib.parse import unquote
+from urllib.parse import unquote_plus
 from urllib.parse import urlparse
 
 import yaml
@@ -82,6 +86,10 @@ _MAX_UNICODE_CODEPOINT = 0x10FFFF
 # Rows requested per call when fetching all Page Properties Report entries.
 _REPORT_FETCH_PAGE_SIZE = 50
 
+# Upper bound for an inflated `plantumlcloud` payload. Deflate reaches ~1000:1, so an
+# unbounded inflate of remote page content could exhaust memory.
+_MAX_PLANTUML_SOURCE_BYTES = 4 * 1024 * 1024
+
 _RE_RGB_BG = re.compile(r"background-color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
 _RE_RGB_COLOR = re.compile(r"(?<![a-z-])color:\s*rgb\((\d+),\s*(\d+),\s*(\d+)\)")
 _RE_COLORID_CSS = re.compile(r"(?<![>\w])\[data-colorid=(\w+)\]\{color:(#[0-9a-fA-F]+)\}")
@@ -91,9 +99,31 @@ _RE_HEX_COLOR = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 # (in matrix-style tables) to row-label <td>s. Treated as "no user-chosen colour".
 _DEFAULT_HEADER_BGS = frozenset({"#f4f5f7", "#f2f2f2"})
 
+# Storage-format tag names, with and without the `ac:` prefix. Which form is present
+# depends on the parser: `html.parser` keeps the prefix, the `xml` parser strips it.
+_AC_MACRO_TAGS = ["ac:structured-macro", "structured-macro"]
+_AC_PARAMETER_TAGS = ["ac:parameter", "parameter"]
+
 
 def _rgb_to_hex(r: int, g: int, b: int) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _ac_attr(el: Tag, name: str) -> str:
+    """Read a storage-format attribute, with or without the `ac:` prefix."""
+    value = el.get(f"ac:{name}")
+    if value is None:
+        value = el.get(name, "")
+    return str(value)
+
+
+def _normalize_cql(cql: str) -> str:
+    """Normalize a CQL string so it can be used as a lookup key.
+
+    body.storage and body.export_view are produced by different renderers and may
+    differ in incidental whitespace, so collapse it before comparing.
+    """
+    return " ".join(cql.split())
 
 
 def _render_meta_bind_view_fields(props: dict[str, str], mode: str) -> str:
@@ -529,6 +559,25 @@ class History(BaseModel):
         )
 
 
+@functools.lru_cache(maxsize=1000)
+def _page_id_by_title(space_key: str, title: str, base_url: str) -> int | None:
+    """Resolve a page id from its space key and title, or None if not found.
+
+    Server/DC renders cross-space page links as ``/display/SPACE/Title`` without
+    a page id. Cached because the same target is often linked from many pages.
+    """
+    try:
+        page_data = get_thread_confluence(base_url).get_page_by_title(
+            space=space_key, title=title
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Could not resolve page '{title}' in space '{space_key}': {e}")
+        return None
+    if isinstance(page_data, dict) and str(page_data.get("id", "")).isdigit():
+        return int(page_data["id"])
+    return None
+
+
 class Organization(BaseModel):
     base_url: str
     spaces: list["Space"]
@@ -699,6 +748,11 @@ class Document(BaseModel):
         }
 
 
+# A plausible file extension: a dot and 1-10 alphanumerics. Rejects suffixes
+# like ".2 notes" that Path.suffix returns for titles such as "v1.2 notes".
+_TITLE_EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]{1,10}")
+
+
 class Attachment(Document):
     id: str
     file_size: int
@@ -708,15 +762,40 @@ class Attachment(Document):
     collection_name: str
     download_link: str
     comment: str
+    # Populated by from_page_id()/from_json() from the owning page - Document itself has no
+    # page context (only space/homepage/ancestors), unlike Page/Descendant which add page_id/
+    # page_title on top. Kept optional (empty string default) for backward compatibility with
+    # any other from_json() call site that does not know the owning page.
+    page_id: str = ""
+    page_title: str = ""
 
     @property
     def extension(self) -> str:
-        if self.comment == "draw.io diagram" and self.media_type == "application/vnd.jgraph.mxfile":
+        # media_type is unique to draw.io diagram sources, so it alone is a
+        # reliable, locale-independent discriminator. `comment` is not: Confluence
+        # localizes it to the editing user's language (e.g. "diagramme draw.io" in
+        # French vs. "draw.io diagram" in English), so matching it exactly caused
+        # diagrams authored by non-English users to silently lose their extension.
+        if self.media_type == "application/vnd.jgraph.mxfile":
             return ".drawio"
         if self.comment == "draw.io preview" and self.media_type == "image/png":
             return ".drawio.png"
 
-        return mimetypes.guess_extension(self.media_type) or ""
+        if self.media_type == "application/gliffy+json":
+            return ".gliffy"
+
+        guessed = mimetypes.guess_extension(self.media_type)
+        if guessed and guessed != ".bin":
+            return guessed
+
+        # The attachment title is the original filename chosen at upload time.
+        # Fall back to its extension for file types unknown to the stdlib (e.g.
+        # .eddx mind maps sent as application/octet-stream), which would
+        # otherwise be exported as .bin or without any extension.
+        title_ext = Path(self.title).suffix
+        if _TITLE_EXTENSION_RE.fullmatch(title_ext):
+            return title_ext
+        return guessed or ""
 
     @property
     def filename(self) -> str:
@@ -729,6 +808,8 @@ class Attachment(Document):
         title_without_ext = title[: -len(ext)] if ext and title.endswith(ext) else Path(title).stem
         return {
             **super()._template_vars,
+            "page_id": self.page_id,
+            "page_title": sanitize_filename(self.page_title) if self.page_title else "",
             "attachment_id": str(self.id),
             "attachment_title": sanitize_filename(title_without_ext),
             # file_id is a GUID and does not need sanitization. On
@@ -745,7 +826,9 @@ class Attachment(Document):
         return Path(filepath_template.safe_substitute(self._template_vars))
 
     @classmethod
-    def from_json(cls, data: JsonResponse, base_url: str) -> "Attachment":
+    def from_json(
+        cls, data: JsonResponse, base_url: str, *, page_id: str = "", page_title: str = ""
+    ) -> "Attachment":
         extensions = data.get("extensions", {})
         container = data.get("container", {})
         return cls(
@@ -762,6 +845,8 @@ class Attachment(Document):
             collection_name=extensions.get("collectionName", ""),
             download_link=data.get("_links", {}).get("download", ""),
             comment=extensions.get("comment", ""),
+            page_id=page_id,
+            page_title=page_title,
             ancestors=[
                 *[
                     Ancestor.from_json(ancestor, base_url)
@@ -773,7 +858,9 @@ class Attachment(Document):
         )
 
     @classmethod
-    def from_page_id(cls, page_id: int, base_url: str) -> list["Attachment"]:
+    def from_page_id(
+        cls, page_id: int, base_url: str, page_title: str = ""
+    ) -> list["Attachment"]:
         attachments = []
         start = 0
         paging_limit = 50
@@ -791,7 +878,12 @@ class Attachment(Document):
             )
 
             attachments.extend(
-                [cls.from_json(att, base_url) for att in response.get("results", [])]
+                [
+                    cls.from_json(
+                        att, base_url, page_id=str(page_id), page_title=page_title
+                    )
+                    for att in response.get("results", [])
+                ]
             )
 
             size = response.get("size", 0)
@@ -1042,6 +1134,26 @@ class Page(Document):
 
     _COMMENT_TITLE_MAX_LEN = 60
 
+    @classmethod
+    def _truncate_excerpt(cls, text: str, max_len: int = _COMMENT_TITLE_MAX_LEN) -> str:
+        """Strip Markdown links/formatting and truncate text at word boundary."""
+        # Strip Markdown images ![alt](url) -> alt
+        clean = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
+        # Strip Markdown links [text](url) -> text
+        clean = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", clean)
+        # Strip Wiki links [[url|text]] -> text, [[text]] -> text
+        clean = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]+)\]\]", r"\1", clean)
+        # Collapse whitespace
+        clean = re.sub(r"\s+", " ", clean).strip()
+
+        if len(clean) <= max_len:
+            return clean
+
+        truncated = clean[:max_len]
+        if " " in truncated:
+            truncated = truncated.rsplit(" ", 1)[0]
+        return truncated.rstrip(".,:;!? ") + "…"
+
     def _fetch_inline_comments(self) -> list[dict]:
         client = get_thread_confluence(self.base_url)
         results: list[dict] = []
@@ -1158,13 +1270,12 @@ class Page(Document):
             ref = comment.get("extensions", {}).get("inlineProperties", {}).get("markerRef", "")
             marked_md = self._marked_texts.get(ref, "")
 
-            plain = re.sub(r"\s+", " ", marked_md).strip()
-            n = self._COMMENT_TITLE_MAX_LEN
-            short_title = plain[:n] + "…" if len(plain) > n else plain
-            if not short_title:
-                short_title = f"Comment {ref[:8]}"
-            lines.append(f"### {short_title}")
-            lines.append("")
+            if settings.export.comment_headings:
+                short_title = self._truncate_excerpt(marked_md)
+                if not short_title:
+                    short_title = f"Comment {ref[:8]}"
+                lines.append(f"### {short_title}")
+                lines.append("")
 
             if marked_md:
                 lines.extend(
@@ -1210,13 +1321,12 @@ class Page(Document):
                 .strip()
             )
 
-            plain = re.sub(r"\s+", " ", body_md).strip()
-            n = self._COMMENT_TITLE_MAX_LEN
-            short_title = plain[:n] + "…" if len(plain) > n else plain
-            if not short_title:
-                short_title = f"Comment {str(comment.get('id', ''))[:8]}"
-            lines.append(f"### {short_title}")
-            lines.append("")
+            if settings.export.comment_headings:
+                short_title = self._truncate_excerpt(body_md)
+                if not short_title:
+                    short_title = f"Comment {str(comment.get('id', ''))[:8]}"
+                lines.append(f"### {short_title}")
+                lines.append("")
 
             author = comment.get("history", {}).get("createdBy", {}).get("displayName", "Unknown")
             created = comment.get("history", {}).get("createdDate", "")[:10]
@@ -1242,23 +1352,72 @@ class Page(Document):
                     lines.append(r_body_md)
                     lines.append("")
 
+    @staticmethod
+    def _extract_macro_diagrams(macro_type: str, soup: BeautifulSoup) -> set[str]:
+        """Extract diagram attachment names from storage by macro type.
+
+        Args:
+            macro_type: Type of macro (e.g., 'gliffy', 'drawio')
+            soup: Parsed BeautifulSoup storage XML
+
+        Returns:
+            Set of attachment names (includes both diagram name and .png preview)
+        """
+        names: set[str] = set()
+        for macro in soup.find_all("structured-macro"):
+            if not isinstance(macro, Tag) or macro.get("name") != macro_type:
+                continue
+            param = macro.find("parameter", {"name": "diagramName"})
+            if isinstance(param, Tag):
+                diag_name = param.get_text(strip=True)
+                if diag_name:
+                    names.add(diag_name)
+                    names.add(f"{diag_name}.png")
+        return names
+
+    def _clientside_macro_attachment_names(self) -> set[str]:
+        """Extract attachment names referenced in clientside-rendered macros.
+
+        On Confluence Server/DC, some macros (gliffy, drawio) render clientside in
+        body.view but their metadata is available in body.storage.
+
+        Returns:
+            Set of attachment titles that should be exported (e.g., {"diagram1", "diagram1.png"})
+        """
+        if not self.body_storage:
+            return set()
+
+        try:
+            wrapped = f"<root>{self.body_storage}</root>"
+            soup = BeautifulSoup(wrapped, "xml")
+            names = Page._extract_macro_diagrams("gliffy", soup)
+            names.update(Page._extract_macro_diagrams("drawio", soup))
+            return names  # noqa: TRY300
+        except Exception as e:  # noqa: BLE001
+            logger.debug(
+                f"Error parsing clientside macros from storage for page {self.id}: {e}"
+            )
+            return set()
+
     def _attachments_for_export(self) -> list["Attachment"]:
         """Return the subset of attachments that should be exported for this page."""
         if settings.export.attachments_export == "all":
             return list(self.attachments)
+
         bodies = self.body + self.body_export
+        clientside_names = self._clientside_macro_attachment_names()
+
         return [
             a
             for a in self.attachments
-            if (a.filename.endswith(".drawio") and f"diagramName={a.title}" in self.body)
-            or (
-                a.filename.endswith((".drawio.png", ".drawio"))
-                and a.title.replace(" ", "%20") in self.body_export
+            if (
+                a.file_id in bodies
+                or a.id in bodies
+                or a.title in bodies
+                or a.title.replace(" ", "%20") in bodies
+                or a.title in clientside_names
+                or a.title.replace(" ", "%20") in clientside_names
             )
-            or a.file_id in bodies
-            or a.id in bodies
-            or a.title in bodies
-            or a.title.replace(" ", "%20") in bodies
         ]
 
     def export_attachments(self) -> dict[str, AttachmentEntry]:
@@ -1343,7 +1502,9 @@ class Page(Document):
                 Label.from_json(label)
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
-            attachments=Attachment.from_page_id(data.get("id", 0), base_url),
+            attachments=Attachment.from_page_id(
+                data.get("id", 0), base_url, page_title=data.get("title", "")
+            ),
             ancestors=[
                 Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])
             ][1:],
@@ -1478,7 +1639,9 @@ class Page(Document):
             self._image_captions_cache: dict[str, str] | None = None
             self._panel_icon_map_cache: dict[str, str] | None = None
             self._plantuml_index: int = 0
-            self._storage_plantuml_macros_cache: list[Tag] | None = None
+            self._plantumlcloud_index: int = 0
+            self._storage_macros_cache: dict[str, list[Tag]] = {}
+            self._storage_soup_cache: BeautifulSoup | None = None
 
         @property
         def _colorid_map(self) -> dict[str, str]:
@@ -1494,10 +1657,9 @@ class Page(Document):
                 self._colorid_map_cache = cache
             return self._colorid_map_cache
 
-        @property
-        def _storage_plantuml_macros(self) -> list[Tag]:
-            """Cache and return all PlantUML structured-macros from body.storage."""
-            if self._storage_plantuml_macros_cache is None:
+        def _storage_macros_by_name(self, name: str) -> list[Tag]:
+            """Cache and return all structured-macros with the given name from body.storage."""
+            if name not in self._storage_macros_cache:
                 macros: list[Tag] = []
                 if self.page.body_storage:
                     wrapped = f"<root>{self.page.body_storage}</root>"
@@ -1505,10 +1667,10 @@ class Page(Document):
                     macros.extend(
                         macro
                         for macro in soup.find_all("structured-macro")
-                        if isinstance(macro, Tag) and macro.get("name") == "plantuml"
+                        if isinstance(macro, Tag) and macro.get("name") == name
                     )
-                self._storage_plantuml_macros_cache = macros
-            return self._storage_plantuml_macros_cache
+                self._storage_macros_cache[name] = macros
+            return self._storage_macros_cache[name]
 
         @property
         def _image_captions(self) -> dict[str, str]:
@@ -1540,14 +1702,21 @@ class Page(Document):
             return self._panel_icon_map_cache
 
         @staticmethod
-        def _extract_panel_emoji(macro: Tag) -> str | None:
-            params: dict[str, str] = {}
-            for p in macro.find_all("parameter", recursive=False):
-                if not isinstance(p, Tag):
-                    continue
-                name = p.get("name")
-                if name:
-                    params[str(name)] = p.get_text(strip=True)
+        def _macro_params(macro: Tag) -> dict[str, str]:
+            """Map a structured-macro's direct `parameter` children to their values.
+
+            Only direct children: a macro body may hold nested macros with parameters of
+            their own. On a repeated name the last occurrence wins.
+            """
+            return {
+                str(p.get("name")): p.get_text(strip=True)
+                for p in macro.find_all("parameter", recursive=False)
+                if isinstance(p, Tag) and p.get("name")
+            }
+
+        @classmethod
+        def _extract_panel_emoji(cls, macro: Tag) -> str | None:
+            params = cls._macro_params(macro)
             if text := params.get("panelIconText"):
                 return text
             if icon_id := params.get("panelIconId"):
@@ -1562,6 +1731,7 @@ class Page(Document):
         @property
         def markdown(self) -> str:
             html = self._strip_excerpt_include_panel_titles(self.page.html)
+            html = self._inline_app_macro_bodies(html)
             md_body = self.convert(html)
             md_body = self._escape_template_placeholders(md_body)
             markdown = f"{self.front_matter}\n"
@@ -1580,7 +1750,7 @@ class Page(Document):
             if not self.page_properties:
                 return ""
 
-            yml = yaml.dump(self.page_properties, indent=indent).strip()
+            yml = yaml.dump(self.page_properties, indent=indent, allow_unicode=True).strip()
             # Indent the root level list items
             yml = re.sub(r"^( *)(- )", r"\1" + " " * indent + r"\2", yml, flags=re.MULTILINE)
             return f"---\n{yml}\n---\n"
@@ -1740,15 +1910,21 @@ class Page(Document):
                     "warning": self.convert_alert,
                     "details": self.convert_page_properties,
                     "drawio": self.convert_drawio,
+                    "gliffy": self.convert_gliffy,
                     "plantuml": self.convert_plantuml,
+                    "plantumlcloud": self.convert_plantumlcloud,
                     "scroll-ignore": self.convert_hidden_content,
                     "toc": self.convert_toc,
                     "jira": self.convert_jira_table,
                     "attachments": self.convert_attachments,
+                    "viewpdf": self.convert_viewpdf,
                     "markdown": self.convert_markdown,
                     "mohamicorp-markdown": self.convert_markdown,
                     "include": self.convert_include,
                     "excerpt-include": self.convert_include,
+                    "content-tree": self.convert_pagetree,
+                    "pagetree": self.convert_pagetree,
+                    "children": self.convert_pagetree,
                 }
                 if macro_name in macro_handlers:
                     return macro_handlers[macro_name](el, text, parent_tags)
@@ -1756,6 +1932,8 @@ class Page(Document):
             class_handlers = {
                 "expand-container": self.convert_expand_container,
                 "columnLayout": self.convert_column_layout,
+                "content-tree": self.convert_pagetree,
+                "plugin_pagetree": self.convert_pagetree,
             }
             for class_name, handler in class_handlers.items():
                 if class_name in str(el.get("class", "")):
@@ -1963,6 +2141,195 @@ class Page(Document):
 
             return self.process_tag(tocs[0], parent_tags)
 
+        def convert_pagetree(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert a Confluence content-tree / page-tree macro to nested page links.
+
+            The macro renders as an empty JavaScript placeholder in ``body.view``, so its
+            child pages are resolved from the API (``Page.descendants``) and emitted as a
+            nested Markdown bullet list. Honors the ``root`` (``@self`` / ``@home`` / a page
+            title) and tree-depth parameters read from the storage-format XML. Children are
+            ordered by title, since Confluence's manual "position" order is not available via
+            the CQL descendants query.
+            """
+            params = self._extract_pagetree_params(el)
+            root_page = self._resolve_pagetree_root(
+                params.get("root"), params.get("root_space_key")
+            )
+            if root_page is None:
+                return ""
+
+            max_depth = self._pagetree_depth(params)
+            if max_depth is None and str(el.get("data-macro-name", "")) == "children":
+                # The Children Display macro shows only direct children unless `all=true`.
+                if params.get("all", "").strip().lower() != "true":
+                    max_depth = 1
+            lines = self._render_pagetree(root_page.id, root_page.descendants, max_depth)
+            if not lines:
+                return ""
+            return "\n" + "\n".join(lines) + "\n\n"
+
+        _PAGETREE_MACRO_NAMES: ClassVar[set[str]] = {"content-tree", "pagetree", "children"}
+
+        def _extract_pagetree_params(self, el: BeautifulSoup) -> dict[str, str]:
+            """Read the content-tree macro parameters from the storage-format XML.
+
+            BeautifulSoup with the ``xml`` parser strips namespace prefixes, so
+            ``ac:structured-macro`` becomes ``structured-macro`` and ``ac:parameter``
+            becomes ``parameter``. The macro is matched by ``macro-id`` when the rendered
+            div carries one; otherwise the first matching macro is used (class-triggered
+            fallback path).
+            """
+            source = self.page.editor2 or self.page.body_storage
+            if not source:
+                return {}
+
+            macro_id = el.get("data-macro-id")
+            soup = BeautifulSoup(f"<root>{source}</root>", "xml")
+            found_any = False
+            for macro in soup.find_all("structured-macro"):
+                if not isinstance(macro, Tag):
+                    continue
+                if macro.get("name") not in self._PAGETREE_MACRO_NAMES:
+                    continue
+                found_any = True
+                if macro_id and macro.get("macro-id") != macro_id:
+                    continue
+                return self._read_macro_params(macro)
+            if macro_id and found_any:
+                logger.warning(
+                    "Content tree macro (macro-id '%s') not found in storage XML; "
+                    "falling back to defaults.",
+                    macro_id,
+                )
+            return {}
+
+        @staticmethod
+        def _read_macro_params(macro: Tag) -> dict[str, str]:
+            """Read a structured-macro's direct ``parameter`` children into a dict."""
+            params: dict[str, str] = {}
+            for p in macro.find_all("parameter", recursive=False):
+                if not isinstance(p, Tag):
+                    continue
+                name = p.get("name")
+                if not name:
+                    continue
+                # Page-reference params (e.g. `root`) carry their value in a nested
+                # `ri:page` `ri:content-title` attribute rather than as element text; the
+                # referenced page may live in another space (`ri:space-key`).
+                ri_page = p.find("page")
+                if isinstance(ri_page, Tag) and ri_page.get("content-title"):
+                    params[str(name)] = str(ri_page.get("content-title"))
+                    space_key = ri_page.get("space-key")
+                    if space_key:
+                        params[f"{name}_space_key"] = str(space_key)
+                else:
+                    params[str(name)] = p.get_text(strip=True)
+            return params
+
+        @staticmethod
+        def _pagetree_depth(params: dict[str, str]) -> int | None:
+            """Return the number of levels to render, or ``None`` for the full subtree.
+
+            ``depth`` (Children Display macro) expresses the number of levels directly, so
+            it is preferred; ``startDepth`` (Page Tree macro) maps to the same UI "Tree
+            depth" field on the instances observed and is used as a fallback.
+            """
+            for key in ("depth", "expandDepth", "startDepth"):
+                value = params.get(key)
+                if not value:
+                    continue
+                try:
+                    depth = int(value)
+                except ValueError:
+                    continue
+                if depth > 0:
+                    return depth
+            return None
+
+        def _resolve_pagetree_root(
+            self, root_value: str | None, space_key: str | None = None
+        ) -> "Page | None":
+            """Resolve the tree root to a Page (``@self`` / ``@home`` / a page title).
+
+            ``space_key`` is the space of a title-referenced root page (from the macro's
+            ``ri:page`` ``ri:space-key``); when absent the current page's space is used.
+            """
+            root = (root_value or "").strip()
+            if not root or root == "@self":
+                return self.page
+            if root == "@home":
+                homepage_id = self.page.space.homepage
+                if not homepage_id:
+                    logger.warning(
+                        "Content tree macro root is @home but space '%s' has no homepage; "
+                        "skipping.",
+                        self.page.space.key,
+                    )
+                    return None
+                return Page.from_id(homepage_id, self.page.base_url)
+
+            page_id = self._find_page_id_by_title(root, space_key)
+            if page_id is None:
+                logger.warning(
+                    "Content tree macro root page '%s' could not be resolved; skipping.", root
+                )
+                return None
+            return Page.from_id(page_id, self.page.base_url)
+
+        def _find_page_id_by_title(self, title: str, space_key: str | None = None) -> int | None:
+            """Resolve a page id by exact title within a space via CQL (best effort)."""
+            client = get_thread_confluence(self.page.base_url)
+            space = space_key or self.page.space.key
+
+            def _escape(value: str) -> str:
+                return value.replace("\\", "\\\\").replace('"', '\\"')
+
+            cql = f'type=page AND space="{_escape(space)}" AND title="{_escape(title)}"'
+            try:
+                response = cast(
+                    "dict",
+                    client.get("rest/api/content/search", params={"cql": cql, "limit": 1}),
+                )
+            except Exception:
+                logger.exception("Failed to resolve content tree root page '%s'.", title)
+                return None
+            results = response.get("results", [])
+            if not results:
+                return None
+            # CQL title matching can be fuzzy; require an exact title match to be safe.
+            first = results[0]
+            if first.get("title") != title:
+                return None
+            try:
+                return int(first.get("id"))
+            except (TypeError, ValueError):
+                return None
+
+        def _render_pagetree(
+            self, root_id: int, descendants: list["Descendant"], max_depth: int | None
+        ) -> list[str]:
+            """Build a nested bullet list of page links from the root's descendants."""
+            children_by_parent: dict[int, list[Descendant]] = {}
+            for descendant in descendants:
+                if not descendant.id:
+                    continue
+                # `Descendant.from_json` strips only the topmost ancestor, so the last
+                # ancestor is the descendant's immediate parent.
+                parent_id = descendant.ancestors[-1].id if descendant.ancestors else root_id
+                children_by_parent.setdefault(parent_id, []).append(descendant)
+
+            lines: list[str] = []
+
+            def walk(parent_id: int, level: int) -> None:
+                if max_depth is not None and level >= max_depth:
+                    return
+                for child in sorted(children_by_parent.get(parent_id, []), key=lambda c: c.title):
+                    lines.append(f"{'  ' * level}- {self.convert_page_link(child.id)}")
+                    walk(child.id, level + 1)
+
+            walk(root_id, 0)
+            return lines
+
         def convert_hidden_content(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
@@ -1988,7 +2355,16 @@ class Page(Document):
             if not issue:
                 return f"[[{issue_key}]]({link.get('href')})"
 
-            return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
+            issue_status = " ".join(issue.status.split())
+            issue_status = (
+                issue_status.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+            )
+            status = (
+                f" ({issue_status})"
+                if settings.export.include_jira_status and issue_status
+                else ""
+            )
+            return f"[[{issue.key}] {issue.summary}{status}]({link.get('href')})"
 
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # type: ignore[override]
             if not text:
@@ -2046,7 +2422,7 @@ class Page(Document):
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = str(el.get("data-linked-resource-id", ""))
                 if page_id and page_id != "null":
-                    return self.convert_page_link(int(page_id))
+                    return self.convert_page_link(int(page_id), text)
             if "attachment" in str(el.get("data-linked-resource-type")):
                 link = self.convert_attachment_link(el, text, parent_tags)
                 # convert_attachment_link may return None if the attachment meta is incomplete
@@ -2067,19 +2443,43 @@ class Page(Document):
                         ),
                         None,
                     )
+                    # A bare URL as anchor text carries no author intent; let the
+                    # target page title label the link instead.
+                    label = "" if text.strip() == href_str.strip() else text
                     if page_id_param and page_id_param.isdigit():
-                        return self.convert_page_link(int(page_id_param))
+                        return self.convert_page_link(int(page_id_param), label)
                     if match := parse_confluence_path(parsed_href.path):
-                        if match.page_id:
-                            return self.convert_page_link(match.page_id)
+                        page_id = match.page_id
+                        if not page_id and match.space_key and match.page_title:
+                            page_id = _page_id_by_title(
+                                match.space_key, match.page_title, self.page.base_url
+                            )
+                        if page_id:
+                            return self.convert_page_link(page_id, label)
             if (href := href_str).startswith("#"):
                 if settings.export.page_href == "wiki":
                     return f"[[#{text}]]"
                 return f"[{text}](#{github_heading_slug(href[1:])})"
 
+            if href_str and text.replace(r"\_", "_") != href_str:
+                # Parentheses and spaces in the destination end a Markdown link
+                # early (e.g. Kibana URLs with `?_g=()`). Percent-encode them.
+                el["href"] = (
+                    href_str.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+                )
+                # A URL used as link text needs no escaping of its underscores.
+                if text.startswith(("http://", "https://")):
+                    text = text.replace(r"\_", "_")
+
             return super().convert_a(el, text, parent_tags)
 
-        def convert_page_link(self, page_id: int) -> str:
+        def convert_page_link(self, page_id: int, text: str = "") -> str:
+            """Render a link to another page.
+
+            ``text`` is the anchor text as it appears on the source page. Confluence
+            authors routinely adjust it (plural forms, declension, shorter labels);
+            keep it and only fall back to the target page title when it is empty.
+            """
             if not page_id:
                 msg = "Page link does not have valid page_id."
                 raise ValueError(msg)
@@ -2093,23 +2493,29 @@ class Page(Document):
                 )
                 return f"[Page not accessible (ID: {page_id})]"
 
+            label = text.strip() or page.title
+
             ancestor_gate = settings.export.page_href_relative_only_if_ancestor_of
             if isinstance(ancestor_gate, int):
                 ancestors_ids = {anc.id for anc in page.ancestors} | {page.id}
-                is_descendant = ancestor_gate in ancestors_ids
-                if not is_descendant:
-                    return f"[{page.title}]({page.web_url})"
+                if ancestor_gate not in ancestors_ids:
+                    return f"[{label}]({page.web_url})"
 
             PageTitleRegistry.register(int(page.id), page.title)
 
             if settings.export.page_href == "wiki":
+                # Wiki aliases are shown verbatim, so drop the Markdown escapes
+                # markdownify added to the anchor text (e.g. "my\\_page").
+                label = re.sub(r"\\([_*])", r"\1", label)
                 if PageTitleRegistry.is_ambiguous(page.title):
                     vault_path = page.export_path.with_suffix("").as_posix()
-                    return f"[[{vault_path}|{page.title}]]"
+                    return f"[[{vault_path}|{label}]]"
+                if label != page.title:
+                    return f"[[{page.title}|{label}]]"
                 return f"[[{page.title}]]"
 
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
-            return f"[{page.title}]({page_path.replace(' ', '%20')})"
+            return f"[{label}]({page_path.replace(' ', '%20')})"
 
         def _format_attachment_link(self, attachment: Attachment) -> str:
             if settings.export.attachment_href == "wiki":
@@ -2152,6 +2558,25 @@ class Page(Document):
                 return f"[{text}]({href})"
 
             return self._format_attachment_link(attachment)
+
+        def convert_viewpdf(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert the PDF/file preview macro (`viewpdf`) to a Markdown attachment link.
+
+            The macro renders as a clientside preview widget with no static link in
+            body.view/body.export_view, but the wrapping element carries the referenced
+            attachment as `data-attachment-id`/`data-attachment` (URL-encoded filename).
+            """
+            attachment = None
+            if aid := el.get("data-attachment-id"):
+                attachment = self.page.get_attachment_by_id(str(aid))
+            if not attachment and (raw_filename := el.get("data-attachment")):
+                matches = self.page.get_attachments_by_title(unquote_plus(str(raw_filename)))
+                attachment = matches[0] if matches else None
+
+            if attachment is None:
+                return "\n<!-- viewpdf macro: attachment not found -->\n\n"
+
+            return f"\n{self._format_attachment_link(attachment)}\n\n"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
@@ -2208,10 +2633,41 @@ class Page(Document):
             "atlassian-wink": "😉",
         }
 
+        # Server/DC emoticons carry `data-emoticon-name` instead of the Cloud
+        # `data-emoji-*` attributes. Keys are Confluence's built-in emoticon names.
+        _EMOTICON_SERVERDC_NAMES: ClassVar[dict[str, str]] = {
+            "smile": "😊",
+            "sad": "😞",
+            "cheeky": "😛",
+            "laugh": "😁",
+            "wink": "😉",
+            "thumbs-up": "👍",
+            "thumbs-down": "👎",
+            "yes": "👍",
+            "no": "👎",
+            "information": "\u2139\ufe0f",
+            "tick": "✅",
+            "cross": "❌",
+            "warning": "⚠️",
+            "plus": "\u2795",
+            "minus": "\u2796",
+            "question": "❓",
+            "light-on": "💡",
+            "light-off": "💡",
+            "yellow-star": "⭐",
+            "red-star": "⭐",
+            "green-star": "⭐",
+            "blue-star": "⭐",
+            "heart": "❤️",
+            "broken-heart": "💔",
+        }
+
         def _convert_emoticon(self, el: BeautifulSoup) -> str | None:
             classes = el.get("class") or []
             if "emoticon" not in classes:
                 return None
+
+            # Try Cloud format first (data-emoji-id, data-emoji-fallback, etc.)
             emoji_id = str(el.get("data-emoji-id", ""))
             fallback = str(el.get("data-emoji-fallback", ""))
             if fallback and not fallback.startswith(":"):
@@ -2226,6 +2682,12 @@ class Page(Document):
                 if emoji_id in self._ATLASSIAN_EMOTICONS:
                     return self._ATLASSIAN_EMOTICONS[emoji_id]
             shortname = str(el.get("data-emoji-shortname", ""))
+
+            # Fallback to Server/DC format (data-emoticon-name)
+            emoticon_name = str(el.get("data-emoticon-name", ""))
+            if emoticon_name in self._EMOTICON_SERVERDC_NAMES:
+                return self._EMOTICON_SERVERDC_NAMES[emoticon_name]
+
             return shortname or fallback or str(el.get("alt", "")) or None
 
         def convert_img(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901, PLR0911, PLR0912
@@ -2260,6 +2722,17 @@ class Page(Document):
                     drawio_images = self.page.get_attachments_by_title(filename)
                     if len(drawio_images) > 0:
                         attachment = drawio_images[0]
+
+            # Confluence occasionally emits embedded images with no data-media identifiers at
+            # all, leaving the download URL as the only link back to the attachment.
+            # Resolve those by filename so they are exported as local files instead
+            # of an absolute Confluence URL.
+            if attachment is None:
+                for candidate in (url_src, str(el.get("data-image-src", ""))):
+                    if candidate:
+                        attachment = self._attachment_from_download_href(candidate)
+                        if attachment is not None:
+                            break
 
             if attachment is None:
                 href = el.get("href") or text
@@ -2416,33 +2889,120 @@ class Page(Document):
             # Extract mermaid diagram from DrawIO file
             return load_and_parse_drawio(str(drawio_filepath))
 
+        def _extract_macro_param_from_storage(
+            self, el: BeautifulSoup, macro_name: str, param_name: str
+        ) -> str | None:
+            """Read a macro parameter from body.storage for a rendered macro element.
+
+            The storage macro is matched by macro-id when the view carries one,
+            otherwise by the element's position among same-class view elements.
+            """
+            storage_macros = self._storage_macros_by_name(macro_name)
+            if not storage_macros:
+                return None
+
+            macro_id = el.get("data-macro-id")
+            if not macro_id:
+                child = el.find(attrs={"data-macroid": True})
+                if isinstance(child, Tag):
+                    macro_id = child.get("data-macroid")
+
+            target = None
+            if macro_id:
+                target = next((m for m in storage_macros if m.get("macro-id") == macro_id), None)
+            if target is None:
+                view_soup = BeautifulSoup(self.page.body_view or "", "html.parser")
+                view_elements = view_soup.find_all(el.name, class_=el.get("class"))
+                if el in view_elements:
+                    idx = view_elements.index(el)
+                    if idx < len(storage_macros):
+                        target = storage_macros[idx]
+            if target is None:
+                return None
+
+            param = target.find("parameter", {"name": param_name})
+            return param.get_text(strip=True) if isinstance(param, Tag) else None
+
         def convert_drawio(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert DrawIO diagrams to markdown image/file links.
+
+            Supports two strategies:
+            1. Cloud/editor2 format: Extract from HTML pattern `|diagramName=....|`
+            2. Server/DC fallback: Parse from body.storage structured-macros
+            """
+            # Strategy 1: Cloud format
+            drawio_name = None
             if match := re.search(r"\|diagramName=(.+?)\|", str(el)):
                 drawio_name = match.group(1)
-                preview_name = f"{drawio_name}.png"
-                drawio_attachments = self.page.get_attachments_by_title(drawio_name)
-                preview_attachments = self.page.get_attachments_by_title(preview_name)
 
-                if not drawio_attachments or not preview_attachments:
-                    return f"\n<!-- Drawio diagram `{drawio_name}` not found -->\n\n"
+            # Strategy 2: Server/DC fallback
+            if not drawio_name:
+                drawio_name = self._extract_macro_param_from_storage(el, "drawio", "diagramName")
 
-                if settings.export.attachment_href == "wiki":
-                    preview_filename = preview_attachments[0].export_path.name
-                    drawio_filename = drawio_attachments[0].export_path.name
-                    drawio_image_embedding = f"![[{preview_filename}|{drawio_name}]]"
-                    drawio_link = f"[[{drawio_filename}|{drawio_image_embedding}]]"
-                else:
-                    drawio_path = self._get_path_for_href(
-                        drawio_attachments[0].export_path, settings.export.attachment_href
-                    )
-                    preview_path = self._get_path_for_href(
-                        preview_attachments[0].export_path, settings.export.attachment_href
-                    )
-                    drawio_image_embedding = f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
-                    drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
-                return f"\n{drawio_link}\n\n"
+            if not drawio_name:
+                return ""
 
-            return ""
+            # Find and render attachments
+            preview_name = f"{drawio_name}.png"
+            drawio_attachments = self.page.get_attachments_by_title(drawio_name)
+            preview_attachments = self.page.get_attachments_by_title(preview_name)
+
+            if not drawio_attachments or not preview_attachments:
+                return f"\n<!-- DrawIO diagram `{drawio_name}` not found -->\n\n"
+
+            # Render based on href setting
+            if settings.export.attachment_href == "wiki":
+                preview_filename = preview_attachments[0].export_path.name
+                drawio_filename = drawio_attachments[0].export_path.name
+                drawio_image_embedding = f"![[{preview_filename}|{drawio_name}]]"
+                drawio_link = f"[[{drawio_filename}|{drawio_image_embedding}]]"
+            else:
+                drawio_path = self._get_path_for_href(
+                    drawio_attachments[0].export_path, settings.export.attachment_href
+                )
+                preview_path = self._get_path_for_href(
+                    preview_attachments[0].export_path, settings.export.attachment_href
+                )
+                drawio_image_embedding = f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
+                drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
+            return f"\n{drawio_link}\n\n"
+
+        def convert_gliffy(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert Gliffy diagrams to markdown image links.
+
+            On Confluence Server/DC, Gliffy macros render clientside in body.view but
+            the metadata is available in body.storage. This handler extracts diagram names
+            from storage and renders them as markdown image links.
+
+            Args:
+                el: The div element containing the macro
+                text: The processed text content
+                parent_tags: Stack of parent HTML tags
+
+            Returns:
+                Markdown formatted image link or error comment
+            """
+            # Try to extract diagram name from storage
+            gliffy_name = self._extract_macro_param_from_storage(el, "gliffy", "diagramName")
+
+            if not gliffy_name:
+                return "\n<!-- Gliffy diagram not found (no diagramName in storage) -->\n\n"
+
+            # Find preview image attachment
+            preview_name = f"{gliffy_name}.png"
+            preview_attachments = self.page.get_attachments_by_title(preview_name)
+
+            if not preview_attachments:
+                return f"\n<!-- Gliffy diagram `{gliffy_name}` preview image not found -->\n\n"
+
+            # Render as markdown image link
+            if settings.export.attachment_href == "wiki":
+                preview_filename = preview_attachments[0].export_path.name
+                return f"\n![[{preview_filename}|{gliffy_name}]]\n\n"
+            preview_path = self._get_path_for_href(
+                preview_attachments[0].export_path, settings.export.attachment_href
+            )
+            return f"\n![{gliffy_name}]({preview_path.replace(' ', '%20')})\n\n"
 
         def _extract_uml_from_editor2(self, macro_id: str) -> str | None:
             """Extract PlantUML source from editor2 XML by macro-id (Cloud format)."""
@@ -2469,7 +3029,7 @@ class Page(Document):
 
         def _extract_uml_from_storage(self) -> str | None:
             """Extract PlantUML source from body.storage by position (Server format)."""
-            storage_macros = self._storage_plantuml_macros
+            storage_macros = self._storage_macros_by_name("plantuml")
             idx = self._plantuml_index
             self._plantuml_index += 1
             if idx >= len(storage_macros):
@@ -2510,6 +3070,106 @@ class Page(Document):
                 return f"\n```plantuml\n{uml}\n```\n\n"
 
             logger.warning("PlantUML macro could not be resolved from editor2 or body.storage")
+            return "\n<!-- PlantUML diagram (source not found) -->\n\n"
+
+        @staticmethod
+        def _decode_plantumlcloud_data(data: str, *, compressed: bool) -> str | None:
+            """Decode the ``data`` parameter of a ``plantumlcloud`` macro.
+
+            The app stores the diagram source base64-encoded.  When ``compressed`` is
+            set, the payload is additionally raw-deflated (no zlib header).  The text may
+            also be percent-encoded, independently of ``compressed``, so that is detected
+            from the text itself rather than from the parameter.
+
+            Returns ``None`` on any malformed payload so the caller can emit a visible
+            marker; never returns a partially decoded payload.
+            """
+            try:
+                # Not `validate=True`: storage values may be line-wrapped, and rejecting
+                # them here would discard a perfectly decodable diagram.
+                payload = base64.b64decode(data)
+            except ValueError:
+                return None
+
+            if compressed:
+                decompressor = zlib.decompressobj(-zlib.MAX_WBITS)
+                try:
+                    payload = decompressor.decompress(payload, _MAX_PLANTUML_SOURCE_BYTES)
+                except zlib.error:
+                    return None
+                # Not the size guard itself - `max_length` already bounds the inflate, and
+                # the `eof` check below rejects what is left over. This branch only tells
+                # "too large" apart from "truncated" in the log.
+                if decompressor.unconsumed_tail:
+                    logger.warning(
+                        "PlantUML (plantumlcloud) source is larger than %d bytes, skipping it",
+                        _MAX_PLANTUML_SOURCE_BYTES,
+                    )
+                    return None
+                if not decompressor.eof:
+                    # A truncated deflate stream inflates without error, so without this
+                    # check a partial diagram would be exported as if it were complete.
+                    logger.warning("PlantUML (plantumlcloud) payload is truncated, skipping it")
+                    return None
+
+            try:
+                text = payload.decode("utf-8")
+            except UnicodeDecodeError:
+                return None
+
+            # Percent-decode only when the payload actually is encoded: PlantUML sources
+            # use a literal `%` (`%date%`, `%filename()`), which unquote would corrupt.
+            if "@start" not in text:
+                text = unquote(text)
+            return text.strip() or None
+
+        def _extract_uml_from_plantumlcloud(self, macro_id: str | None) -> str | None:
+            """Extract PlantUML source for a `plantumlcloud` macro from body.storage."""
+            macros = self._storage_macros_by_name("plantumlcloud")
+            idx = (
+                next((i for i, m in enumerate(macros) if m.get("macro-id") == macro_id), None)
+                if macro_id
+                else None
+            )
+            if idx is None:
+                if macro_id and all(m.get("macro-id") for m in macros):
+                    # Every stored macro is identifiable, yet none matches: the placeholder
+                    # belongs to another page - an include macro expands the transcluded
+                    # page's view HTML into this one. Falling back to position would emit
+                    # an unrelated diagram, which is worse than none. Storage that carries
+                    # no macro-id at all still falls through to positional matching.
+                    return None
+                idx = self._plantumlcloud_index
+            if idx >= len(macros):
+                return None
+            # Advance the positional cursor past the consumed macro, also on a macro-id
+            # match, so a later macro without a macro-id does not re-resolve this one.
+            self._plantumlcloud_index = max(self._plantumlcloud_index, idx + 1)
+
+            params = self._macro_params(macros[idx])
+            data = params.get("data")
+            if not data:
+                return None
+            compressed = params.get("compressed", "").lower() == "true"
+            return self._decode_plantumlcloud_data(data, compressed=compressed)
+
+        def convert_plantumlcloud(
+            self, el: BeautifulSoup, text: str, parent_tags: list[str]
+        ) -> str:
+            """Convert the `plantumlcloud` macro to a Markdown code block.
+
+            The "Flowchart, PlantUML Diagrams for Confluence" app registers this macro
+            name on Confluence Cloud.  Being a Connect app, it renders only an empty
+            iframe placeholder into `body.view` and writes nothing to `editor2`, so the
+            diagram source is recovered from `body.storage`, where it is kept in the
+            macro's `data` parameter.
+            """
+            macro_id = el.get("data-macro-id")
+            uml = self._extract_uml_from_plantumlcloud(str(macro_id) if macro_id else None)
+            if uml:
+                return f"\n```plantuml\n{uml}\n```\n\n"
+
+            logger.warning("PlantUML (plantumlcloud) macro could not be resolved from body.storage")
             return "\n<!-- PlantUML diagram (source not found) -->\n\n"
 
         def convert_include(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
@@ -2572,6 +3232,140 @@ class Page(Document):
             content = el.find("div", class_="panelContent")
             if isinstance(content, Tag):
                 content.unwrap()
+
+        def _inline_app_macro_bodies(self, html: str) -> str:
+            """Splice Connect app macro bodies back into the rendered view HTML.
+
+            Confluence does not server-render the body of a Connect
+            `dynamicContentMacros` app macro (e.g. the StiltSoft Table Filter) into
+            body.view. It emits an empty `ap-container` placeholder and leaves the app
+            to render the body in an iframe, so a Page Properties Report nested in such
+            a macro never reaches `convert_table`. body.export_view does render the
+            report, with the wrapper stripped, so the placeholder is replaced with that
+            table and the regular report handling then applies unchanged.
+
+            The two are matched on the CQL of the nested `detailssummary` macro in
+            body.storage, because body.export_view carries no macro IDs.
+            """
+            if "ap-container" not in html:
+                return html
+
+            soup = BeautifulSoup(html, "html.parser")
+            # `get_text` ignores <script>/<style> contents (BeautifulSoup models them as
+            # Script/Stylesheet, which are excluded from the string traversal), so the
+            # iframe bootstrap script the placeholder always carries does not count as
+            # rendered content. Only a macro the app did not render server-side matches.
+            placeholders = [
+                el
+                for el in soup.find_all("div", class_="ap-container")
+                if isinstance(el, Tag)
+                and el.get("data-hasbody") == "true"
+                and not el.get_text(strip=True)
+            ]
+            if not placeholders:
+                return html
+
+            export_tables = self._export_report_tables_by_cql()
+            for placeholder in placeholders:
+                # An outer placeholder may have contained this one and been decomposed.
+                if placeholder.parent is None:
+                    continue
+                macro_id = str(placeholder.get("data-macro-id", ""))
+                cqls = self._nested_report_cqls(macro_id)
+                if not cqls:
+                    # Most app macros legitimately wrap no report, so this is not a
+                    # warning; it is logged only to explain a placeholder left in place.
+                    logger.debug(
+                        f"App macro '{macro_id}' on page '{self.page.title}' "
+                        f"(ID: {self.page.id}) has no nested Page Properties Report in "
+                        f"body.storage; leaving the placeholder untouched."
+                    )
+                    continue
+                tables = self._report_tables_for_cqls(cqls, export_tables, macro_id)
+                if not tables:
+                    continue
+                for table in tables:
+                    # Copy: the same table may be referenced by more than one placeholder,
+                    # and inserting a live node moves it rather than duplicating it.
+                    placeholder.insert_before(copy.copy(table))
+                placeholder.decompose()
+            return str(soup)
+
+        def _report_tables_for_cqls(
+            self, cqls: list[str], export_tables: dict[str, Tag], macro_id: str
+        ) -> list[Tag]:
+            """Resolve each nested report's CQL to its rendered body.export_view table."""
+            tables: list[Tag] = []
+            for cql in cqls:
+                table = export_tables.get(_normalize_cql(cql))
+                if table is None:
+                    # The CQL itself is macro configuration and can embed labels or
+                    # free-text filters, so it is kept out of the warning and logged
+                    # only at debug level.
+                    logger.warning(
+                        f"Page Properties Report nested in app macro '{macro_id}' on page "
+                        f"'{self.page.title}' (ID: {self.page.id}) has no matching table in "
+                        f"body.export_view and is omitted from the export."
+                    )
+                    logger.debug(f"Unmatched Page Properties Report CQL: {cql}")
+                    continue
+                tables.append(table)
+            return tables
+
+        def _export_report_tables_by_cql(self) -> dict[str, Tag]:
+            """Index the Page Properties Report tables rendered into body.export_view."""
+            tables: dict[str, Tag] = {}
+            soup = BeautifulSoup(self.page.body_export or "", "html.parser")
+            for table in soup.find_all("table", class_="metadata-summary-macro"):
+                cql = table.get("data-cql") if isinstance(table, Tag) else None
+                if not isinstance(cql, str) or not cql:
+                    continue
+                key = _normalize_cql(cql)
+                if key in tables:
+                    logger.warning(
+                        f"Page '{self.page.title}' (ID: {self.page.id}) has multiple Page "
+                        f"Properties Reports with identical CQL; the first rendered table "
+                        f"is used for all of them."
+                    )
+                    logger.debug(f"Duplicate Page Properties Report CQL: {key}")
+                    continue
+                tables[key] = table
+            return tables
+
+        @property
+        def _storage_soup(self) -> BeautifulSoup:
+            """Cache and return body.storage parsed for macro lookups.
+
+            Parsed with `html.parser` rather than the `xml` parser used elsewhere:
+            storage can contain HTML entities that are undefined in XML (third-party
+            macros emit e.g. `&sbquo;`), which puts lxml into error recovery, where it
+            silently drops unrelated entities such as the `&quot;` wrapping CQL values.
+            That corrupts the CQL and breaks the report lookup. `html.parser` keeps the
+            namespace prefixes, so both the prefixed and unprefixed tag names are
+            accepted by the callers.
+            """
+            if self._storage_soup_cache is None:
+                self._storage_soup_cache = BeautifulSoup(self.page.body_storage, "html.parser")
+            return self._storage_soup_cache
+
+        def _nested_report_cqls(self, macro_id: str) -> list[str]:
+            """Return the CQL of each Page Properties Report nested in an app macro."""
+            if not macro_id or not self.page.body_storage:
+                return []
+
+            for macro in self._storage_soup.find_all(_AC_MACRO_TAGS):
+                if not isinstance(macro, Tag) or _ac_attr(macro, "macro-id") != macro_id:
+                    continue
+                cqls: list[str] = []
+                for nested in macro.find_all(_AC_MACRO_TAGS):
+                    if not isinstance(nested, Tag) or _ac_attr(nested, "name") != "detailssummary":
+                        continue
+                    for param in nested.find_all(_AC_PARAMETER_TAGS):
+                        if isinstance(param, Tag) and _ac_attr(param, "name") == "cql":
+                            cqls.append(param.get_text())
+                            break
+                return cqls
+            return []
 
         def _extract_include_target_title(self, macro_id: str) -> str | None:
             """Resolve the target page title for an `include` / `excerpt-include` macro.
@@ -2889,7 +3683,7 @@ class Page(Document):
             elif style == "wiki":
                 result = path.name
             else:
-                result = os.path.relpath(path, self.page.export_path.parent)
+                result = os.path.relpath(path, self.page.export_path.parent).replace(os.sep, "/")
             return result
 
 
@@ -2978,16 +3772,18 @@ def sync_removed_pages(base_url: str) -> None:
         logger.debug("Stale page cleanup disabled — skipping.")
         return
 
+    # Renamed and moved pages are seen during the run, so they never show up as
+    # unseen. Their old files still need removing, which needs no API call.
+    deleted: set[str] = set()
     unseen = LockfileManager.unseen_ids()
-    if not unseen:
-        logger.debug("No unseen pages in lockfile — nothing to clean up.")
-        return
+    if unseen:
+        with console.status(f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"):
+            deleted = fetch_deleted_page_ids(sorted(unseen), base_url)
+        if deleted:
+            logger.info("Removing %d stale page(s) from local export.", len(deleted))
+    else:
+        logger.debug("No unseen pages in lockfile — skipping existence check.")
 
-    with console.status(f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"):
-        deleted = fetch_deleted_page_ids(sorted(unseen), base_url)
-
-    if deleted:
-        logger.info("Removing %d stale page(s) from local export.", len(deleted))
     LockfileManager.remove_pages(deleted)
 
 
