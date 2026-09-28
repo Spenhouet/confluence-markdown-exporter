@@ -729,6 +729,11 @@ class Document(BaseModel):
         }
 
 
+# A plausible file extension: a dot and 1-10 alphanumerics. Rejects suffixes
+# like ".2 notes" that Path.suffix returns for titles such as "v1.2 notes".
+_TITLE_EXTENSION_RE = re.compile(r"\.[A-Za-z0-9]{1,10}")
+
+
 class Attachment(Document):
     id: str
     file_size: int
@@ -757,7 +762,21 @@ class Attachment(Document):
         if self.comment == "draw.io preview" and self.media_type == "image/png":
             return ".drawio.png"
 
-        return mimetypes.guess_extension(self.media_type) or ""
+        if self.media_type == "application/gliffy+json":
+            return ".gliffy"
+
+        guessed = mimetypes.guess_extension(self.media_type)
+        if guessed and guessed != ".bin":
+            return guessed
+
+        # The attachment title is the original filename chosen at upload time.
+        # Fall back to its extension for file types unknown to the stdlib (e.g.
+        # .eddx mind maps sent as application/octet-stream), which would
+        # otherwise be exported as .bin or without any extension.
+        title_ext = Path(self.title).suffix
+        if _TITLE_EXTENSION_RE.fullmatch(title_ext):
+            return title_ext
+        return guessed or ""
 
     @property
     def filename(self) -> str:
