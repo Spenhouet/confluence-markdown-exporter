@@ -508,6 +508,13 @@ Whether to verify SSL certificates for HTTPS requests. Set to `False` only if yo
 - Default: `True`
 - ENV Var: `CME_CONNECTION_CONFIG__VERIFY_SSL`
 
+### connection_config.ca_bundle
+
+Path to a PEM file with the CA certificates used to verify HTTPS connections. Use it for self-hosted instances whose certificates are issued by an internal root or intermediate CA. The file replaces the default certificate bundle, so include any public CAs that are still needed. Ignored when `connection_config.verify_ssl` is `False`.
+
+- Default: `None`
+- ENV Var: `CME_CONNECTION_CONFIG__CA_BUNDLE`
+
 ### connection_config.use_v2_api
 
 Enable Confluence REST API v2 endpoints. Supported on Atlassian Cloud and Data Center 8+. Disable for self-hosted Server instances.

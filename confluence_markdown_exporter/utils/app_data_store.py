@@ -101,6 +101,16 @@ class ConnectionConfig(AtlassianSdkConnectionConfig):
             "Must be disabled for older self-hosted Confluence Server instances."
         ),
     )
+    ca_bundle: str | None = Field(
+        default=None,
+        title="CA Bundle",
+        description=(
+            "Path to a PEM file with the CA certificates used to verify HTTPS connections, "
+            "e.g. an internal root CA of a self-hosted instance. Replaces the default "
+            "certificate bundle, so include any public CAs you still need. "
+            "Ignored when verify_ssl is false."
+        ),
+    )
     max_workers: int = Field(
         default=20,
         title="Max Workers",

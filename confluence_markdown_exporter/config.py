@@ -61,6 +61,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `connection_config.max_workers` | Parallel export workers (default: 20) |\n\n"
     "| `connection_config.use_v2_api` | Use Confluence REST API v2 (`true`/`false`) |\n\n"
     "| `connection_config.verify_ssl` | Verify SSL certificates (`true`/`false`) |\n\n"
+    "| `connection_config.ca_bundle` | PEM file with CA certificates to trust |\n\n"
     "| `connection_config.timeout` | API request timeout in seconds |\n\n"
     "| `auth.confluence` | Credentials keyed by instance URL — use `cme config edit` |\n\n"
     "| `auth.jira` | Jira credentials keyed by instance URL — use `cme config edit` |\n\n"
