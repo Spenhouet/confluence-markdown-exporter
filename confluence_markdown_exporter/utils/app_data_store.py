@@ -121,6 +121,11 @@ class ConnectionConfig(AtlassianSdkConnectionConfig):
         ),
     )
 
+    @field_validator("ca_bundle", mode="before")
+    @classmethod
+    def _empty_ca_bundle_unsets(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else v
+
 
 class ApiDetails(BaseModel):
     """API authentication credentials for a single instance.
@@ -461,6 +466,17 @@ class ExportConfig(BaseModel):
             "{attachment_title}{attachment_extension}"
         ],
     )
+
+    @field_validator(
+        "page_href_relative_only_if_ancestor_of",
+        "page_path_if_parent",
+        "attachment_path_if_parent",
+        mode="before",
+    )
+    @classmethod
+    def _empty_string_unsets(cls, v: object) -> object:
+        """Treat an empty value (e.g. `cme config set export.page_path_if_parent=`) as unset."""
+        return None if isinstance(v, str) and not v.strip() else v
 
     @field_validator("attachment_path", mode="before")
     @classmethod
