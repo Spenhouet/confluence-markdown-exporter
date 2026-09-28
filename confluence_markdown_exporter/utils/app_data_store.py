@@ -633,6 +633,15 @@ class ExportConfig(BaseModel):
             "API calls per page when enabled."
         ),
     )
+    comment_headings: bool = Field(
+        default=True,
+        title="Include Comment Excerpt Headings",
+        description=(
+            "Whether to include auto-generated '### <excerpt>' headings for each comment "
+            "in exported '.comments.md' sidecar files. "
+            "When set to false, comments are listed without individual '###' excerpt headings."
+        ),
+    )
     convert_status_badges: bool = Field(
         default=True,
         title="Convert Status Badges",
