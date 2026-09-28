@@ -58,6 +58,47 @@ Path template for exported pages.
 - Default: `{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md`
 - ENV Var: `CME_EXPORT__PAGE_PATH`
 
+| Variable            | Value                                          |
+| ------------------- | ---------------------------------------------- |
+| `{space_key}`       | Key of the Confluence space                    |
+| `{space_name}`      | Name of the Confluence space                   |
+| `{homepage_id}`     | ID of the space homepage                       |
+| `{homepage_title}`  | Title of the space homepage                    |
+| `{ancestor_ids}`    | Slash-separated IDs of the ancestor pages      |
+| `{ancestor_titles}` | Slash-separated titles of the ancestor pages   |
+| `{page_id}`         | ID of the page                                 |
+| `{page_title}`      | Title of the page                              |
+
+### export.page_path_if_parent
+
+Overrides `export.page_path` for pages that have child pages.
+
+- Default: `None`, in which case `export.page_path` is used.
+- ENV Var: `CME_EXPORT__PAGE_PATH_IF_PARENT`
+
+Useful for exporting parent pages as `README.md`/`index.md` inside a directory named after the page. Renderers such as GitHub, GitLab, MkDocs and Docusaurus treat that file as the directory's content. Deciding whether a page has children costs one API request per page, so the check only runs when this option is set.
+
+Example usage, together with `export.attachment_path_if_parent`:
+
+```
+export.page_path                 = {ancestor_titles}/{page_title}.md
+export.page_path_if_parent       = {ancestor_titles}/{page_title}/README.md
+export.attachment_path           = {ancestors_without_last}/_assets/{attachment_title}{attachment_extension}
+export.attachment_path_if_parent = {ancestor_titles}/_assets/{attachment_title}{attachment_extension}
+```
+This creates:
+```
+├── _assets
+│   └── diagram_a.png            # linked from PageA
+├── PageB
+│   ├── _assets
+│   │      ├── diagram_b.png     # Linked from PageB  (now PageB/README.md)
+│   │      └── diagram_c.png     # Linked from PageC
+│   ├── PageC.md
+│   └── README.md                # In confluence this was PageB
+└── PageA.md                     # No child pages, so it keeps the regular page_path
+```
+
 ### export.attachment_href
 
 How to generate links to attachments in Markdown. Options: `relative` (default), `absolute`, or `wiki`.
@@ -78,7 +119,32 @@ Path template for attachments.
 - Default: `{space_name}/attachments/{attachment_file_id}{attachment_extension}`
 - ENV Var: `CME_EXPORT__ATTACHMENT_PATH`
 
+| Variable                   | Value                                                                  |
+| -------------------------- | ---------------------------------------------------------------------- |
+| `{space_key}`              | Key of the Confluence space                                            |
+| `{space_name}`             | Name of the Confluence space                                           |
+| `{homepage_id}`            | ID of the space homepage                                               |
+| `{homepage_title}`         | Title of the space homepage                                            |
+| `{ancestor_ids}`           | Slash-separated IDs of the ancestor pages, ending with the owning page |
+| `{ancestor_titles}`        | Slash-separated titles of the ancestor pages, ending with the owning page |
+| `{ancestors_without_last}` | Like `{ancestor_titles}`, without the owning page                      |
+| `{page_id}`                | ID of the page the attachment is on                                    |
+| `{page_title}`             | Title of the page the attachment is on                                 |
+| `{attachment_id}`          | ID of the attachment                                                   |
+| `{attachment_title}`       | Title of the attachment without its extension                          |
+| `{attachment_file_id}`     | File ID of the attachment                                              |
+| `{attachment_extension}`   | File extension including the leading dot                               |
+
 On Confluence Data Center / Server, where the API does not provide `fileId`, `{attachment_file_id}` falls back to the content id, so the default template still produces unique filenames.
+
+### export.attachment_path_if_parent
+
+Overrides `export.attachment_path` for attachments on pages that have child pages.
+
+- Default: `None`, in which case `export.attachment_path` is used
+- ENV Var: `CME_EXPORT__ATTACHMENT_PATH_IF_PARENT`
+
+See `export.page_path_if_parent` for example usage.
 
 ### export.attachments_export
 
