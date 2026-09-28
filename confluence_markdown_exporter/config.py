@@ -55,6 +55,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.image_captions` | Use image captions as markdown alt text (`true`/`false`) |\n\n"
     "| `export.comments_export` | Which comments to export to sidecar "
     "`.comments.md` files: `none` (default), `inline`, `footer`, `all` |\n\n"
+    "| `export.comment_headings` | `### <excerpt>` heading per exported comment |\n\n"
     "| `export.convert_status_badges` | Convert Confluence status badges to `<mark>` elements |\n\n"
     "| `export.convert_text_highlights` | Convert background-color spans to `<mark>` elements |\n\n"
     "| `export.convert_font_colors` | Convert font-color spans to `<font>` elements |\n\n"
