@@ -115,6 +115,8 @@ Controls the visual alignment and space padding of Markdown table columns.
 
 Controls how Confluence Page Properties macros (key-value tables) are rendered. Duplicate property keys are automatically disambiguated by appending a counter (e.g. `status`, `status_2`, `status_3`).
 
+YAML front matter preserves readable Unicode text (for example, `city: Казань`) in property values, page labels, and page metadata.
+
 | Value                   | Description                                                                                                                                  |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `frontmatter`           | Extract to YAML front matter; table is removed from the page body                                                                            |
