@@ -11,6 +11,7 @@ import pytest
 from confluence_markdown_exporter.confluence import Descendant
 from confluence_markdown_exporter.confluence import Folder
 from confluence_markdown_exporter.confluence import Space
+from confluence_markdown_exporter.confluence import _link_target
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -149,3 +150,32 @@ class TestFolder:
         with patch(f"{MODULE}._search_pages", return_value=[]) as search:
             assert folder.pages == []
         search.assert_called_once_with("type=page AND ancestor=123", BASE_URL)
+
+
+class TestLinkTarget:
+    """Link targets are fetched without bodies or attachments (issue #298)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self) -> Iterator[None]:
+        _link_target.cache_clear()
+        yield
+        _link_target.cache_clear()
+
+    def test_fetches_only_ancestors_and_version(self) -> None:
+        data = _page_json(5, "Target", [(100, "Home"), (2, "Parent")])
+        data["_links"] = {"base": f"{BASE_URL}/wiki", "webui": "/spaces/KEY/pages/5/Target"}
+        client = MagicMock()
+        client.get_page_by_id.return_value = data
+        with patch(f"{MODULE}.get_thread_confluence", return_value=client):
+            target = _link_target(5, BASE_URL)
+        client.get_page_by_id.assert_called_once_with(5, expand="ancestors,version")
+        assert target is not None
+        assert target.title == "Target"
+        assert target.web_url == f"{BASE_URL}/wiki/spaces/KEY/pages/5/Target"
+        assert [a.title for a in target.ancestors] == ["Parent"]
+
+    def test_unreadable_page_returns_none(self) -> None:
+        client = MagicMock()
+        client.get_page_by_id.side_effect = ValueError("Expecting value: line 1 column 1")
+        with patch(f"{MODULE}.get_thread_confluence", return_value=client):
+            assert _link_target(5, BASE_URL) is None
