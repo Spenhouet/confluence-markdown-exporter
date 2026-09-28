@@ -862,6 +862,41 @@ class TestParseImageCaptions:
         result = _parse_image_captions(storage)
         assert result == {"a.png": "Caption A", "c.jpg": "Caption C"}
 
+
+class TestLinkSanitization:
+    """Tests for link sanitization and URL anchor text cleanup."""
+
+    def test_kibana_url_parentheses_sanitized(self) -> None:
+        page = MockPage()
+        page.html = (
+            '<a href="https://kibana.example.com/app/kibana#/dashboard/AWW0?_g=()&amp;'
+            '_a=(desc:%27test%27)">Kibana Dashboard</a>'
+        )
+        conv = Page.Converter(page)
+        expected = (
+            "[Kibana Dashboard]"
+            "(https://kibana.example.com/app/kibana#/dashboard/AWW0?_g=%28%29&_a=%28desc:%27test%27%29)"
+        )
+        assert expected in conv.markdown
+
+    def test_url_anchor_text_underscores_not_escaped(self) -> None:
+        page = MockPage()
+        page.html = (
+            '<a href="https://kibana.example.com/app/kibana#/dashboard/AWW0_8x?param=1">'
+            "https://kibana.example.com/app/kibana#/dashboard/AWW0_8x</a>"
+        )
+        conv = Page.Converter(page)
+        expected = (
+            "[https://kibana.example.com/app/kibana#/dashboard/AWW0_8x]"
+            "(https://kibana.example.com/app/kibana#/dashboard/AWW0_8x?param=1)"
+        )
+        assert expected in conv.markdown
+
+
+
+
+
+
     def test_empty_storage_returns_empty(self) -> None:
         from confluence_markdown_exporter.confluence import _parse_image_captions
 
@@ -3158,3 +3193,15 @@ class TestAppMacroNestedPagePropertiesReport:
             s.export.confluence_url_in_frontmatter = "none"
             result = converter.markdown
         assert "Page A" in result
+
+    def test_url_as_text_stays_autolink(self) -> None:
+        page = MockPage()
+        page.html = '<a href="https://example.com/a_(b)">https://example.com/a_(b)</a>'
+        conv = Page.Converter(page)
+        assert "<https://example.com/a_(b)>" in conv.markdown
+
+    def test_link_with_title_keeps_title(self) -> None:
+        page = MockPage()
+        page.html = '<a href="https://example.com/x(1)" title="Tip">Docs</a>'
+        conv = Page.Converter(page)
+        assert '[Docs](https://example.com/x%281%29 "Tip")' in conv.markdown

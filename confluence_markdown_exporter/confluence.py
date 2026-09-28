@@ -2411,6 +2411,16 @@ class Page(Document):
                     return f"[[#{text}]]"
                 return f"[{text}](#{github_heading_slug(href[1:])})"
 
+            if href_str and text.replace(r"\_", "_") != href_str:
+                # Parentheses and spaces in the destination end a Markdown link
+                # early (e.g. Kibana URLs with `?_g=()`). Percent-encode them.
+                el["href"] = (
+                    href_str.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+                )
+                # A URL used as link text needs no escaping of its underscores.
+                if text.startswith(("http://", "https://")):
+                    text = text.replace(r"\_", "_")
+
             return super().convert_a(el, text, parent_tags)
 
         def convert_page_link(self, page_id: int, text: str = "") -> str:
