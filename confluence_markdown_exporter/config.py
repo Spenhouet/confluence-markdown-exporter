@@ -51,6 +51,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.include_jira_status` | Append Jira issue status to enriched links |\n\n"
     "| `export.attachments_export` | Which attachments to download:"
     " `referenced` (default), `all`, `disabled` |\n\n"
+    "| `export.embed_images` | Embed images as base64 data URIs (`true`/`false`) |\n\n"
     "| `export.image_captions` | Use image captions as markdown alt text (`true`/`false`) |\n\n"
     "| `export.comments_export` | Which comments to export to sidecar "
     "`.comments.md` files: `none` (default), `inline`, `footer`, `all` |\n\n"

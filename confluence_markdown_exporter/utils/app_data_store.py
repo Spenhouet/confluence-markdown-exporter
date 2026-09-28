@@ -500,6 +500,17 @@ class ExportConfig(BaseModel):
             "  *Caption text*"
         ),
     )
+    embed_images: bool = Field(
+        default=False,
+        title="Embed Images",
+        description=(
+            "Whether to embed images in the Markdown as base64 data URIs instead of "
+            "linking to the downloaded attachment files. Makes each page self-contained, "
+            "e.g. for feeding it to an LLM, at the cost of much larger files. "
+            "Attachments are still downloaded. Falls back to a link when an image file "
+            "is not available locally."
+        ),
+    )
     page_breadcrumbs: bool = Field(
         default=True,
         title="Page Breadcrumbs",
