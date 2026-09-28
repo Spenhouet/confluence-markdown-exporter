@@ -410,6 +410,139 @@ class TestLockfileManagerCleanup:
 
             assert not old_file.exists()
 
+    def test_cleanup_deletes_comments_sidecar_for_moved_page(self) -> None:
+        """A moved page's '.comments.md' sidecar is deleted along with the page."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            old_file = output / "old" / "Page.md"
+            old_file.parent.mkdir(parents=True)
+            old_file.write_text("old content")
+            old_sidecar = output / "old" / "Page.comments.md"
+            old_sidecar.write_text("old comments")
+            new_sidecar = output / "new" / "Page.comments.md"
+            new_sidecar.parent.mkdir(parents=True)
+            new_sidecar.write_text("new comments")
+
+            lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._all_entries_snapshot = {
+                "100": PageEntry(title="Page", version=1, export_path="old/Page.md"),
+            }
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Page", version=2, export_path="new/Page.md"),
+            })
+            LockfileManager._seen_page_ids = {"100"}
+
+            LockfileManager.remove_pages(set())
+
+            assert not old_file.exists()
+            assert not old_sidecar.exists()
+            assert new_sidecar.read_text() == "new comments"
+
+    def test_cleanup_deletes_comments_sidecar_for_removed_page(self) -> None:
+        """A deleted page's '.comments.md' sidecar is deleted along with the page."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            md_file = output / "space" / "Removed.md"
+            md_file.parent.mkdir(parents=True)
+            md_file.write_text("content")
+            sidecar = output / "space" / "Removed.comments.md"
+            sidecar.write_text("comments")
+
+            lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Removed", version=1, export_path="space/Removed.md"),
+            })
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
+            LockfileManager._seen_page_ids = set()
+
+            LockfileManager.remove_pages({"100"})
+
+            assert not md_file.exists()
+            assert not sidecar.exists()
+
+    def test_cleanup_keeps_old_path_taken_by_another_page(self) -> None:
+        """Two pages swapping export paths keep both freshly exported files."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            (output / "a").mkdir()
+            file_x = output / "a" / "X.md"
+            file_x.write_text("now page 200")
+            file_y = output / "a" / "Y.md"
+            file_y.write_text("now page 100")
+
+            lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._all_entries_snapshot = {
+                "100": PageEntry(title="X", version=1, export_path="a/X.md"),
+                "200": PageEntry(title="Y", version=1, export_path="a/Y.md"),
+            }
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Y", version=2, export_path="a/Y.md"),
+                "200": PageEntry(title="X", version=2, export_path="a/X.md"),
+            })
+            LockfileManager._seen_page_ids = {"100", "200"}
+
+            LockfileManager.remove_pages(set())
+
+            assert file_x.read_text() == "now page 200"
+            assert file_y.read_text() == "now page 100"
+
+    def test_cleanup_keeps_file_on_case_only_rename(self) -> None:
+        """A case-only rename must not delete the freshly exported file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            (output / "a").mkdir()
+            exported = output / "a" / "Page.md"
+            exported.write_text("new content")
+            if not (output / "a" / "PAGE.md").exists():
+                pytest.skip("Filesystem is case-sensitive")
+
+            lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._all_entries_snapshot = {
+                "100": PageEntry(title="Page", version=1, export_path="a/Page.md"),
+            }
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="PAGE", version=2, export_path="a/PAGE.md"),
+            })
+            LockfileManager._seen_page_ids = {"100"}
+
+            LockfileManager.remove_pages(set())
+
+            assert exported.read_text() == "new content"
+
+    def test_cleanup_keeps_path_claimed_by_another_page_on_delete(self) -> None:
+        """A deleted page's file is kept when another page now occupies its path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            md_file = output / "space" / "Notes.md"
+            md_file.parent.mkdir(parents=True)
+            md_file.write_text("now page 200")
+
+            lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Notes", version=1, export_path="space/Notes.md"),
+                "200": PageEntry(title="Notes", version=1, export_path="space/Notes.md"),
+            })
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
+            LockfileManager._seen_page_ids = {"200"}
+
+            LockfileManager.remove_pages({"100"})
+
+            assert md_file.read_text() == "now page 200"
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            pages = saved["orgs"][_TEST_BASE_URL]["spaces"][_TEST_SPACE_KEY]["pages"]
+            assert "100" not in pages
+            assert "200" in pages
+
     def test_cleanup_keeps_page_existing_on_confluence(self) -> None:
         """Unseen pages that still exist on Confluence are kept."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -551,6 +684,110 @@ class TestFetchDeletedPageIds:
         fetch_deleted_page_ids(ids, _TEST_BASE_URL)
 
         assert mock_client.get.call_count == 2
+
+
+class TestSyncRemovedPages:
+    """Test cases for sync_removed_pages, the only caller of remove_pages."""
+
+    @staticmethod
+    def _setup_moved_page(output: Path) -> tuple[Path, Path]:
+        """Stage a renamed page: old file and new file both on disk."""
+        old_file = output / "old" / "Page.md"
+        old_file.parent.mkdir(parents=True)
+        old_file.write_text("old content")
+        new_file = output / "new" / "Page.md"
+        new_file.parent.mkdir(parents=True)
+        new_file.write_text("new content")
+
+        LockfileManager._output_path = output
+        LockfileManager._lockfile_path = output / LOCKFILE_FILENAME
+        LockfileManager._all_entries_snapshot = {
+            "100": PageEntry(title="Page", version=1, export_path="old/Page.md"),
+        }
+        LockfileManager._lock = _lock_with_pages({
+            "100": PageEntry(title="Renamed Page", version=2, export_path="new/Page.md"),
+        })
+        LockfileManager._seen_page_ids = {"100"}
+        return old_file, new_file
+
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_renamed_page_old_file_deleted_when_nothing_unseen(
+        self, mock_settings: MagicMock
+    ) -> None:
+        """A renamed page's old file is deleted even though no page is unseen."""
+        from confluence_markdown_exporter.confluence import sync_removed_pages
+
+        mock_settings.export.cleanup_stale = True
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            old_file, new_file = self._setup_moved_page(output)
+            assert LockfileManager.unseen_ids() == set()
+
+            sync_removed_pages(_TEST_BASE_URL)
+
+            assert not old_file.exists()
+            assert new_file.read_text() == "new content"
+            assert LockfileManager._lock is not None
+            assert LockfileManager._lock.get_page("100") is not None
+
+    @patch("confluence_markdown_exporter.confluence.fetch_deleted_page_ids")
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_existence_check_skipped_when_all_pages_seen(
+        self, mock_settings: MagicMock, mock_fetch: MagicMock
+    ) -> None:
+        """No API existence check is made when every lockfile page was seen."""
+        from confluence_markdown_exporter.confluence import sync_removed_pages
+
+        mock_settings.export.cleanup_stale = True
+        with tempfile.TemporaryDirectory() as tmp:
+            self._setup_moved_page(Path(tmp))
+
+            sync_removed_pages(_TEST_BASE_URL)
+
+            mock_fetch.assert_not_called()
+
+    @patch("confluence_markdown_exporter.confluence.fetch_deleted_page_ids")
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_existence_check_still_runs_for_unseen_pages(
+        self, mock_settings: MagicMock, mock_fetch: MagicMock
+    ) -> None:
+        """Unseen pages are checked against the API and deleted ones removed."""
+        from confluence_markdown_exporter.confluence import sync_removed_pages
+
+        mock_settings.export.cleanup_stale = True
+        mock_fetch.return_value = {"200"}
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            gone_file = output / "old" / "Gone.md"
+            gone_file.parent.mkdir(parents=True)
+            gone_file.write_text("gone")
+
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._lock = _lock_with_pages({
+                "100": PageEntry(title="Kept", version=1, export_path="old/Kept.md"),
+                "200": PageEntry(title="Gone", version=1, export_path="old/Gone.md"),
+            })
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
+            LockfileManager._seen_page_ids = {"100"}
+
+            sync_removed_pages(_TEST_BASE_URL)
+
+            mock_fetch.assert_called_once_with(["200"], _TEST_BASE_URL)
+            assert not gone_file.exists()
+
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_noop_when_cleanup_stale_disabled(self, mock_settings: MagicMock) -> None:
+        """Nothing is deleted when cleanup_stale is disabled."""
+        from confluence_markdown_exporter.confluence import sync_removed_pages
+
+        mock_settings.export.cleanup_stale = False
+        with tempfile.TemporaryDirectory() as tmp:
+            old_file, _ = self._setup_moved_page(Path(tmp))
+
+            sync_removed_pages(_TEST_BASE_URL)
+
+            assert old_file.exists()
 
 
 class TestConfluenceLockSave:
