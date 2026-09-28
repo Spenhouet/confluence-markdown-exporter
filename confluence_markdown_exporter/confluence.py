@@ -29,7 +29,9 @@ from urllib.parse import unquote
 from urllib.parse import unquote_plus
 from urllib.parse import urlparse
 
+import requests
 import yaml
+from atlassian import Confluence as ConfluenceApiSdk
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
 from bs4 import BeautifulSoup
@@ -1013,13 +1015,15 @@ class Attachment(Document):
         logger.debug("Downloading attachment '%s' to %s", self.title, filepath)
         client = get_thread_confluence(self.base_url)
         try:
-            response = client.request(
-                method="GET",
-                path=client.url + self.download_link,
-                absolute=True,
-                advanced_mode=True,
-            )
-            response.raise_for_status()  # Raise error if request fails
+            try:
+                response = self._download(client, client.url + self.download_link)
+            except HTTPError:
+                # Scoped API tokens are rejected on /download/attachments/... links
+                # ("scope does not match"), but may use the REST download endpoint.
+                if not (rest_link := self._rest_download_link()):
+                    raise
+                logger.debug("Retrying download of '%s' via %s", self.title, rest_link)
+                response = self._download(client, client.url + rest_link)
         except HTTPError:
             logger.warning("There is no attachment with title '%s'. Skipping export.", self.title)
             stats.inc_attachments_failed()
@@ -1032,6 +1036,19 @@ class Attachment(Document):
         save_file(filepath, response.content)
         logger.debug("Saved attachment '%s' (%d bytes)", self.title, len(response.content))
         stats.inc_attachments_exported()
+
+    @staticmethod
+    def _download(client: ConfluenceApiSdk, url: str) -> requests.Response:
+        response = client.request(method="GET", path=url, absolute=True, advanced_mode=True)
+        response.raise_for_status()
+        return response
+
+    def _rest_download_link(self) -> str | None:
+        """Return the REST API download path, unless it is the link already tried."""
+        page_id = self.page_id or (str(self.ancestors[-1].id) if self.ancestors else "")
+        if not page_id or self.download_link.startswith("/rest/"):
+            return None
+        return f"/rest/api/content/{page_id}/child/attachment/{self.id}/download"
 
 
 class Ancestor(Document):

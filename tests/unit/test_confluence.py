@@ -3408,3 +3408,68 @@ class TestParentPathTemplates:
             _has_child_pages.cache_clear()
             client.get.return_value = {"results": []}
             assert att.export_path == Path("Root/_assets/diagram.png")
+
+
+class TestAttachmentDownloadFallback:
+    """Scoped API tokens cannot use /download/attachments links (issue #210)."""
+
+    @staticmethod
+    def _attachment(download_link: str) -> Attachment:
+        att = _make_attachment("att42", "fid42", title="image.png")
+        att.download_link = download_link
+        att.page_id = "7"
+        return att
+
+    @staticmethod
+    def _client(*responses: object) -> MagicMock:
+        client = MagicMock()
+        client.url = "https://example.com"
+        client.request.side_effect = list(responses)
+        return client
+
+    @staticmethod
+    def _ok() -> MagicMock:
+        response = MagicMock()
+        response.content = b"png"
+        return response
+
+    @staticmethod
+    def _unauthorized() -> MagicMock:
+        response = MagicMock()
+        response.raise_for_status.side_effect = HTTPError("401 Unauthorized; scope does not match")
+        return response
+
+    def test_retries_via_rest_endpoint(self, tmp_path: Path) -> None:
+        att = self._attachment("/download/attachments/7/image.png?api=v2")
+        client = self._client(self._unauthorized(), self._ok())
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.get_thread_confluence",
+                return_value=client,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.output_path = tmp_path
+            s.export.attachment_path = "{attachment_file_id}{attachment_extension}"
+            s.export.attachment_path_if_parent = None
+            att.export()
+        paths = [c.kwargs["path"] for c in client.request.call_args_list]
+        assert paths[1] == "https://example.com/rest/api/content/7/child/attachment/att42/download"
+        assert (tmp_path / "fid42.png").read_bytes() == b"png"
+
+    def test_no_retry_when_rest_link_already_failed(self, tmp_path: Path) -> None:
+        att = self._attachment("/rest/api/content/7/child/attachment/att42/download")
+        client = self._client(self._unauthorized())
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.get_thread_confluence",
+                return_value=client,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.output_path = tmp_path
+            s.export.attachment_path = "{attachment_file_id}{attachment_extension}"
+            s.export.attachment_path_if_parent = None
+            att.export()
+        assert client.request.call_count == 1
+        assert not (tmp_path / "fid42.png").exists()
