@@ -56,31 +56,31 @@ Pick the install method that fits your environment. All methods produce the same
 === "Linux / macOS"
 
     ```bash
-    curl -LsSf uvx.sh/confluence-markdown-exporter/5.3.0/install.sh | sh
+    curl -LsSf uvx.sh/confluence-markdown-exporter/5.4.0/install.sh | sh
     ```
 
 === "Windows"
 
     ```powershell
-    powershell -ExecutionPolicy ByPass -c "irm https://uvx.sh/confluence-markdown-exporter/5.3.0/install.ps1 | iex"
+    powershell -ExecutionPolicy ByPass -c "irm https://uvx.sh/confluence-markdown-exporter/5.4.0/install.ps1 | iex"
     ```
 
 === "pip"
 
     ```bash
-    pip install confluence-markdown-exporter==5.3.0
+    pip install confluence-markdown-exporter==5.4.0
     ```
 
 === "uv"
 
     ```bash
-    uv tool install confluence-markdown-exporter==5.3.0
+    uv tool install confluence-markdown-exporter==5.4.0
     ```
 
 === "Docker"
 
     ```bash
-    docker pull spenhouet/confluence-markdown-exporter:5.3.0
+    docker pull spenhouet/confluence-markdown-exporter:5.4.0
     ```
 
     Pinned tags are kept available indefinitely; rolling tags (`latest`, `<major>`, `<major>.<minor>`) advance with each release. See [Docker, available tags](docker.md#available-tags).
