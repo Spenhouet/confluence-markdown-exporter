@@ -236,6 +236,11 @@ def get(
     data = json.loads(current_settings.model_dump_json())
     value = jmespath.search(key, data)
     if value is None:
+        parent_key, _, leaf = key.rpartition(".")
+        parent = jmespath.search(parent_key, data) if parent_key else data
+        if isinstance(parent, dict) and leaf in parent:
+            typer.echo("null")  # Unset optional setting
+            return
         typer.echo(f"Key '{key}' not found.", err=True)
         raise typer.Exit(code=1)
     if isinstance(value, dict | list):
