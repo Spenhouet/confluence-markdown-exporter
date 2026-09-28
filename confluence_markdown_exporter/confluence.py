@@ -559,6 +559,25 @@ class History(BaseModel):
         )
 
 
+@functools.lru_cache(maxsize=1000)
+def _page_id_by_title(space_key: str, title: str, base_url: str) -> int | None:
+    """Resolve a page id from its space key and title, or None if not found.
+
+    Server/DC renders cross-space page links as ``/display/SPACE/Title`` without
+    a page id. Cached because the same target is often linked from many pages.
+    """
+    try:
+        page_data = get_thread_confluence(base_url).get_page_by_title(
+            space=space_key, title=title
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Could not resolve page '{title}' in space '{space_key}': {e}")
+        return None
+    if isinstance(page_data, dict) and str(page_data.get("id", "")).isdigit():
+        return int(page_data["id"])
+    return None
+
+
 class Organization(BaseModel):
     base_url: str
     spaces: list["Space"]
@@ -2380,8 +2399,13 @@ class Page(Document):
                     if page_id_param and page_id_param.isdigit():
                         return self.convert_page_link(int(page_id_param), label)
                     if match := parse_confluence_path(parsed_href.path):
-                        if match.page_id:
-                            return self.convert_page_link(match.page_id, label)
+                        page_id = match.page_id
+                        if not page_id and match.space_key and match.page_title:
+                            page_id = _page_id_by_title(
+                                match.space_key, match.page_title, self.page.base_url
+                            )
+                        if page_id:
+                            return self.convert_page_link(page_id, label)
             if (href := href_str).startswith("#"):
                 if settings.export.page_href == "wiki":
                     return f"[[#{text}]]"
@@ -2414,6 +2438,9 @@ class Page(Document):
             label = text.strip() or page.title
 
             if settings.export.page_href == "wiki":
+                # Wiki aliases are shown verbatim, so drop the Markdown escapes
+                # markdownify added to the anchor text (e.g. "my\\_page").
+                label = re.sub(r"\\([_*])", r"\1", label)
                 if PageTitleRegistry.is_ambiguous(page.title):
                     vault_path = page.export_path.with_suffix("").as_posix()
                     return f"[[{vault_path}|{label}]]"
