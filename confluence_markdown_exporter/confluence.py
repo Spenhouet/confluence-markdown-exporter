@@ -26,6 +26,7 @@ from typing import Literal
 from typing import TypeAlias
 from typing import cast
 from urllib.parse import unquote
+from urllib.parse import unquote_plus
 from urllib.parse import urlparse
 
 import yaml
@@ -746,7 +747,12 @@ class Attachment(Document):
 
     @property
     def extension(self) -> str:
-        if self.comment == "draw.io diagram" and self.media_type == "application/vnd.jgraph.mxfile":
+        # media_type is unique to draw.io diagram sources, so it alone is a
+        # reliable, locale-independent discriminator. `comment` is not: Confluence
+        # localizes it to the editing user's language (e.g. "diagramme draw.io" in
+        # French vs. "draw.io diagram" in English), so matching it exactly caused
+        # diagrams authored by non-English users to silently lose their extension.
+        if self.media_type == "application/vnd.jgraph.mxfile":
             return ".drawio"
         if self.comment == "draw.io preview" and self.media_type == "image/png":
             return ".drawio.png"
@@ -1090,6 +1096,26 @@ class Page(Document):
 
     _COMMENT_TITLE_MAX_LEN = 60
 
+    @classmethod
+    def _truncate_excerpt(cls, text: str, max_len: int = _COMMENT_TITLE_MAX_LEN) -> str:
+        """Strip Markdown links/formatting and truncate text at word boundary."""
+        # Strip Markdown images ![alt](url) -> alt
+        clean = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
+        # Strip Markdown links [text](url) -> text
+        clean = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", clean)
+        # Strip Wiki links [[url|text]] -> text, [[text]] -> text
+        clean = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]+)\]\]", r"\1", clean)
+        # Collapse whitespace
+        clean = re.sub(r"\s+", " ", clean).strip()
+
+        if len(clean) <= max_len:
+            return clean
+
+        truncated = clean[:max_len]
+        if " " in truncated:
+            truncated = truncated.rsplit(" ", 1)[0]
+        return truncated.rstrip(".,:;!? ") + "…"
+
     def _fetch_inline_comments(self) -> list[dict]:
         client = get_thread_confluence(self.base_url)
         results: list[dict] = []
@@ -1206,13 +1232,12 @@ class Page(Document):
             ref = comment.get("extensions", {}).get("inlineProperties", {}).get("markerRef", "")
             marked_md = self._marked_texts.get(ref, "")
 
-            plain = re.sub(r"\s+", " ", marked_md).strip()
-            n = self._COMMENT_TITLE_MAX_LEN
-            short_title = plain[:n] + "…" if len(plain) > n else plain
-            if not short_title:
-                short_title = f"Comment {ref[:8]}"
-            lines.append(f"### {short_title}")
-            lines.append("")
+            if settings.export.comment_headings:
+                short_title = self._truncate_excerpt(marked_md)
+                if not short_title:
+                    short_title = f"Comment {ref[:8]}"
+                lines.append(f"### {short_title}")
+                lines.append("")
 
             if marked_md:
                 lines.extend(
@@ -1258,13 +1283,12 @@ class Page(Document):
                 .strip()
             )
 
-            plain = re.sub(r"\s+", " ", body_md).strip()
-            n = self._COMMENT_TITLE_MAX_LEN
-            short_title = plain[:n] + "…" if len(plain) > n else plain
-            if not short_title:
-                short_title = f"Comment {str(comment.get('id', ''))[:8]}"
-            lines.append(f"### {short_title}")
-            lines.append("")
+            if settings.export.comment_headings:
+                short_title = self._truncate_excerpt(body_md)
+                if not short_title:
+                    short_title = f"Comment {str(comment.get('id', ''))[:8]}"
+                lines.append(f"### {short_title}")
+                lines.append("")
 
             author = comment.get("history", {}).get("createdBy", {}).get("displayName", "Unknown")
             created = comment.get("history", {}).get("createdDate", "")[:10]
@@ -1639,7 +1663,7 @@ class Page(Document):
             if not self.page_properties:
                 return ""
 
-            yml = yaml.dump(self.page_properties, indent=indent).strip()
+            yml = yaml.dump(self.page_properties, indent=indent, allow_unicode=True).strip()
             # Indent the root level list items
             yml = re.sub(r"^( *)(- )", r"\1" + " " * indent + r"\2", yml, flags=re.MULTILINE)
             return f"---\n{yml}\n---\n"
@@ -1805,6 +1829,7 @@ class Page(Document):
                     "toc": self.convert_toc,
                     "jira": self.convert_jira_table,
                     "attachments": self.convert_attachments,
+                    "viewpdf": self.convert_viewpdf,
                     "markdown": self.convert_markdown,
                     "mohamicorp-markdown": self.convert_markdown,
                     "include": self.convert_include,
@@ -2242,7 +2267,16 @@ class Page(Document):
             if not issue:
                 return f"[[{issue_key}]]({link.get('href')})"
 
-            return f"[[{issue.key}] {issue.summary}]({link.get('href')})"
+            issue_status = " ".join(issue.status.split())
+            issue_status = (
+                issue_status.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+            )
+            status = (
+                f" ({issue_status})"
+                if settings.export.include_jira_status and issue_status
+                else ""
+            )
+            return f"[[{issue.key}] {issue.summary}{status}]({link.get('href')})"
 
         def convert_pre(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # type: ignore[override]
             if not text:
@@ -2300,7 +2334,7 @@ class Page(Document):
             if "page" in str(el.get("data-linked-resource-type")):
                 page_id = str(el.get("data-linked-resource-id", ""))
                 if page_id and page_id != "null":
-                    return self.convert_page_link(int(page_id))
+                    return self.convert_page_link(int(page_id), text)
             if "attachment" in str(el.get("data-linked-resource-type")):
                 link = self.convert_attachment_link(el, text, parent_tags)
                 # convert_attachment_link may return None if the attachment meta is incomplete
@@ -2321,11 +2355,14 @@ class Page(Document):
                         ),
                         None,
                     )
+                    # A bare URL as anchor text carries no author intent; let the
+                    # target page title label the link instead.
+                    label = "" if text.strip() == href_str.strip() else text
                     if page_id_param and page_id_param.isdigit():
-                        return self.convert_page_link(int(page_id_param))
+                        return self.convert_page_link(int(page_id_param), label)
                     if match := parse_confluence_path(parsed_href.path):
                         if match.page_id:
-                            return self.convert_page_link(match.page_id)
+                            return self.convert_page_link(match.page_id, label)
             if (href := href_str).startswith("#"):
                 if settings.export.page_href == "wiki":
                     return f"[[#{text}]]"
@@ -2333,7 +2370,13 @@ class Page(Document):
 
             return super().convert_a(el, text, parent_tags)
 
-        def convert_page_link(self, page_id: int) -> str:
+        def convert_page_link(self, page_id: int, text: str = "") -> str:
+            """Render a link to another page.
+
+            ``text`` is the anchor text as it appears on the source page. Confluence
+            authors routinely adjust it (plural forms, declension, shorter labels);
+            keep it and only fall back to the target page title when it is empty.
+            """
             if not page_id:
                 msg = "Page link does not have valid page_id."
                 raise ValueError(msg)
@@ -2349,14 +2392,18 @@ class Page(Document):
 
             PageTitleRegistry.register(int(page.id), page.title)
 
+            label = text.strip() or page.title
+
             if settings.export.page_href == "wiki":
                 if PageTitleRegistry.is_ambiguous(page.title):
                     vault_path = page.export_path.with_suffix("").as_posix()
-                    return f"[[{vault_path}|{page.title}]]"
+                    return f"[[{vault_path}|{label}]]"
+                if label != page.title:
+                    return f"[[{page.title}|{label}]]"
                 return f"[[{page.title}]]"
 
             page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
-            return f"[{page.title}]({page_path.replace(' ', '%20')})"
+            return f"[{label}]({page_path.replace(' ', '%20')})"
 
         def _format_attachment_link(self, attachment: Attachment) -> str:
             if settings.export.attachment_href == "wiki":
@@ -2399,6 +2446,25 @@ class Page(Document):
                 return f"[{text}]({href})"
 
             return self._format_attachment_link(attachment)
+
+        def convert_viewpdf(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+            """Convert the PDF/file preview macro (`viewpdf`) to a Markdown attachment link.
+
+            The macro renders as a clientside preview widget with no static link in
+            body.view/body.export_view, but the wrapping element carries the referenced
+            attachment as `data-attachment-id`/`data-attachment` (URL-encoded filename).
+            """
+            attachment = None
+            if aid := el.get("data-attachment-id"):
+                attachment = self.page.get_attachment_by_id(str(aid))
+            if not attachment and (raw_filename := el.get("data-attachment")):
+                matches = self.page.get_attachments_by_title(unquote_plus(str(raw_filename)))
+                attachment = matches[0] if matches else None
+
+            if attachment is None:
+                return "\n<!-- viewpdf macro: attachment not found -->\n\n"
+
+            return f"\n{self._format_attachment_link(attachment)}\n\n"
 
         def convert_time(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             if el.has_attr("datetime"):
@@ -3459,16 +3525,18 @@ def sync_removed_pages(base_url: str) -> None:
         logger.debug("Stale page cleanup disabled — skipping.")
         return
 
+    # Renamed and moved pages are seen during the run, so they never show up as
+    # unseen. Their old files still need removing, which needs no API call.
+    deleted: set[str] = set()
     unseen = LockfileManager.unseen_ids()
-    if not unseen:
-        logger.debug("No unseen pages in lockfile — nothing to clean up.")
-        return
+    if unseen:
+        with console.status(f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"):
+            deleted = fetch_deleted_page_ids(sorted(unseen), base_url)
+        if deleted:
+            logger.info("Removing %d stale page(s) from local export.", len(deleted))
+    else:
+        logger.debug("No unseen pages in lockfile — skipping existence check.")
 
-    with console.status(f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"):
-        deleted = fetch_deleted_page_ids(sorted(unseen), base_url)
-
-    if deleted:
-        logger.info("Removing %d stale page(s) from local export.", len(deleted))
     LockfileManager.remove_pages(deleted)
 
 
