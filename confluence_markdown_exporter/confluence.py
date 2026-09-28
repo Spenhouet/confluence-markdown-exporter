@@ -2913,18 +2913,37 @@ class Page(Document):
                 else ""
             )
 
-            if settings.export.attachment_href == "wiki":
+            data_uri = self._image_data_uri(attachment) if settings.export.embed_images else None
+
+            if settings.export.attachment_href == "wiki" and not data_uri:
                 img_md = f"![[{attachment.export_path.name}]]"
                 return f"{img_md}\n*{caption}*" if caption else img_md
 
-            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
-            el["src"] = path.replace(" ", "%20")
+            if data_uri:
+                el["src"] = data_uri
+            else:
+                path = self._get_path_for_href(
+                    attachment.export_path, settings.export.attachment_href
+                )
+                el["src"] = path.replace(" ", "%20")
             tags = parent_tags if isinstance(parent_tags, list | set) else set()
             if "_inline" in tags:
                 tags = set(tags)
                 tags.discard("_inline")  # Always show images.
             img_md = super().convert_img(el, text, tags)  # type: ignore[union-attr]
             return f"{img_md}\n*{caption}*" if caption else img_md
+
+        @staticmethod
+        def _image_data_uri(attachment: Attachment) -> str | None:
+            """Return the downloaded image as a base64 data URI, or None."""
+            if not attachment.media_type.startswith("image/"):
+                return None
+            try:
+                data = (settings.export.output_path / attachment.export_path).read_bytes()
+            except OSError:
+                logger.debug("Cannot embed '%s': file not downloaded", attachment.title)
+                return None
+            return f"data:{attachment.media_type};base64,{base64.b64encode(data).decode()}"
 
         def _normalize_unicode_whitespace(self, text: str) -> str:
             r"""Normalize Unicode whitespace to regular spaces.

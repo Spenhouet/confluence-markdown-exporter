@@ -223,6 +223,7 @@ class TestAttachmentLinkConversion:
 
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
+            s.export.embed_images = False
             s.export.attachment_path = (
                 "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
             )
@@ -376,6 +377,7 @@ def _export_settings(tmp_path: Path) -> SimpleNamespace:
             convert_text_highlights=True,
             convert_font_colors=True,
             image_captions=False,
+            embed_images=False,
             include_toc=True,
             attachment_href="relative",
             page_href="relative",
@@ -710,6 +712,7 @@ class TestEmbeddedImageWithoutDataIds:
         page = _make_page(body=html, body_export=html, attachments=attachments)
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
+            s.export.embed_images = False
             s.export.attachment_path = (
                 "{space_name}/media/{attachment_title}{attachment_extension}"
             )
@@ -789,6 +792,7 @@ class TestTransformErrorImg:
 
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
+            s.export.embed_images = False
             s.export.page_href = "relative"
             conv = Page.Converter(MockPageWithSvg())  # type: ignore[arg-type]
             result = conv.convert(html).strip()
@@ -946,6 +950,7 @@ class TestImageCaptionsInConvertImg:
         _att_path = "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
+            s.export.embed_images = False
             s.export.attachment_path = _att_path
             s.export.page_href = "relative"
             s.export.page_path = "{space_name}/{page_title}.md"
@@ -979,6 +984,7 @@ class TestImageCaptionsInConvertImg:
         _att_path = "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
+            s.export.embed_images = False
             s.export.attachment_path = _att_path
             s.export.page_href = "relative"
             s.export.page_path = "{space_name}/{page_title}.md"
@@ -3485,3 +3491,39 @@ class TestAttachmentDownloadFallback:
             att.export()
         assert client.request.call_count == 1
         assert not (tmp_path / "fid42.png").exists()
+
+
+class TestEmbedImages:
+    """export.embed_images writes images as base64 data URIs (issue #118)."""
+
+    def _convert(self, tmp_path: Path, *, write_file: bool, href: str = "relative") -> str:
+        att = _make_attachment("111", "abc-guid-111", title="pic.png", media_type="image/png")
+        att_path = "attachments/{attachment_file_id}{attachment_extension}"
+        page = _make_page(
+            body='<img data-media-id="abc-guid-111" src="/download/pic.png" alt="">',
+            body_export="",
+            attachments=[att],
+        )
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.output_path = tmp_path
+            s.export.attachment_href = href
+            s.export.embed_images = True
+            s.export.attachment_path = att_path
+            s.export.attachment_path_if_parent = None
+            s.export.page_href = "relative"
+            s.export.page_path = "{page_title}.md"
+            s.export.page_path_if_parent = None
+            s.export.image_captions = False
+            if write_file:
+                (tmp_path / "attachments").mkdir()
+                (tmp_path / "attachments" / "abc-guid-111.png").write_bytes(b"\x89PNG")
+            return Page.Converter(page).convert(page.body).strip()
+
+    @pytest.mark.parametrize("href", ["relative", "wiki"])
+    def test_downloaded_image_is_embedded(self, tmp_path: Path, href: str) -> None:
+        assert self._convert(tmp_path, write_file=True, href=href) == (
+            "![](data:image/png;base64,iVBORw==)"
+        )
+
+    def test_missing_file_falls_back_to_link(self, tmp_path: Path) -> None:
+        assert self._convert(tmp_path, write_file=False) == "![](attachments/abc-guid-111.png)"

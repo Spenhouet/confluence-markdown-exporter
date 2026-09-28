@@ -173,6 +173,13 @@ When disabled, no caption is added.
 - Default: `False`
 - ENV Var: `CME_EXPORT__IMAGE_CAPTIONS`
 
+### export.embed_images
+
+Embed images in the Markdown as base64 data URIs (`![alt](data:image/png;base64,...)`) instead of linking to the downloaded attachment files. Each page becomes self-contained, which helps when feeding pages to an LLM or another tool that only reads the Markdown. Files get much larger. Attachments are still downloaded, and an image falls back to a regular link when its file is not available locally (for example with `export.attachments_export=disabled`). Also applies with `export.attachment_href=wiki`.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__EMBED_IMAGES`
+
 ### export.page_breadcrumbs
 
 Whether to include breadcrumb links at the top of the page.
