@@ -352,6 +352,17 @@ class ExportConfig(BaseModel):
             "  - `wiki` generates Obsidian-style [[Page Title]] wiki links"
         ),
     )
+    page_href_relative_only_if_ancestor_of: int | None = Field(
+        default=None,
+        title="Relative hrefs only for descendants of a page",
+        description=(
+            "Numerical Page ID that gates relative link conversion. When set, links are only "
+            "converted to relative paths if the target page is that page or a descendant "
+            "of it. Links to pages outside this subtree remain as absolute Confluence URLs. "
+            "Use this when only exporting a subset of a Confluence Space. "
+            "Set to null to export all links within the Confluence instance as relative."
+        ),
+    )
     page_path: str = Field(
         default="{space_name}/{homepage_title}/{ancestor_titles}/{page_title}.md",
         title="Page Path Template",
@@ -368,17 +379,6 @@ class ExportConfig(BaseModel):
             "  - {page_title}: The title of the Confluence page.\n"
         ),
         examples=["{space_name}/{page_title}.md"],
-    )
-    page_path_if_parent: str | None = Field(
-        default=None,
-        title="Page Path Template if the page has subpages",
-        description=(
-            "Template for exported page file paths.\n"
-            "Available variables: see `export.page_path`\n"
-            "If unset, uses the same template as `export.page_path`\n"
-            "Useful for naming top-level directories with subpages as `index.md`/`README.md`, in that case exclude `{page_title}` from the template.\n"
-        ),
-        examples=["{space_name}/{ancestor_titles}/README.md"],
     )
     attachment_href: Literal["absolute", "relative", "wiki"] = Field(
         default="relative",
@@ -401,8 +401,9 @@ class ExportConfig(BaseModel):
             "  - {homepage_id}: The ID of the homepage of the Confluence space.\n"
             "  - {homepage_title}: The title of the homepage of the Confluence space.\n"
             "  - {ancestor_ids}: A slash-separated list of ancestor page IDs.\n"
-            "  - {ancestor_titles}: A slash-separated list of ancestor page titles. Including the page title of the page holding the attachment itself.\n"
-            " -  {ancestors_without_last}: A slash-separated list of ancestor page titles. Excluding the page title of the page holding the attachment itself.\n"
+            "  - {ancestor_titles}: A slash-separated list of ancestor page titles.\n"
+            "  - {page_id}: The unique ID of the Confluence page the attachment is on.\n"
+            "  - {page_title}: The title of the Confluence page the attachment is on.\n"
             "  - {attachment_id}: The unique ID of the attachment.\n"
             "  - {attachment_title}: The title of the attachment (without file extension).\n"
             "  - {attachment_file_id}: The file ID of the attachment. Falls back to "
@@ -411,18 +412,7 @@ class ExportConfig(BaseModel):
             "  - {attachment_extension}: The file extension of the attachment,\n"
             "including the leading dot."
         ),
-        examples=["{space_name}/attachments/{attachment_file_id}{attachment_extension}",
-                  "{space_name}/{homepage_title}/{ancestors_without_last}/media/{attachment_title}{attachment_extension}"
-                  ],
-    )
-    attachment_path_if_parent: str | None = Field(
-        default=None,
-        title="Attachment Path Template",
-        description=(
-            "Template for exported attachment file paths if the page has any child-pages.\n"
-            "Available variables: See `export.attachment_path`\n"
-        ),
-        examples=["{space_name}/{homepage_title}/{ancestor_titles}/media/{attachment_title}{attachment_extension}"],
+        examples=["{space_name}/attachments/{attachment_file_id}{attachment_extension}"],
     )
 
     @field_validator("attachment_path", mode="before")
@@ -639,6 +629,15 @@ class ExportConfig(BaseModel):
             "Requires Jira auth to be configured."
         ),
     )
+    include_jira_status: bool = Field(
+        default=False,
+        title="Include Jira Issue Status",
+        description=(
+            "Whether to include the current Jira issue status in enriched issue links. "
+            "When enabled, the status is appended after the issue summary. "
+            "Requires Jira enrichment and Jira auth to be configured."
+        ),
+    )
     comments_export: Literal["none", "inline", "footer", "all"] = Field(
         default="none",
         title="Export Comments",
@@ -654,6 +653,15 @@ class ExportConfig(BaseModel):
             "Resolved comments are skipped. Replies are listed flat below "
             "the parent comment. Disabled by default — adds one to two extra "
             "API calls per page when enabled."
+        ),
+    )
+    comment_headings: bool = Field(
+        default=True,
+        title="Include Comment Excerpt Headings",
+        description=(
+            "Whether to include auto-generated '### <excerpt>' headings for each comment "
+            "in exported '.comments.md' sidecar files. "
+            "When set to false, comments are listed without individual '###' excerpt headings."
         ),
     )
     convert_status_badges: bool = Field(
