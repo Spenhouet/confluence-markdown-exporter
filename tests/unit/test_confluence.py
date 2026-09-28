@@ -3193,3 +3193,15 @@ class TestAppMacroNestedPagePropertiesReport:
             s.export.confluence_url_in_frontmatter = "none"
             result = converter.markdown
         assert "Page A" in result
+
+    def test_url_as_text_stays_autolink(self) -> None:
+        page = MockPage()
+        page.html = '<a href="https://example.com/a_(b)">https://example.com/a_(b)</a>'
+        conv = Page.Converter(page)
+        assert "<https://example.com/a_(b)>" in conv.markdown
+
+    def test_link_with_title_keeps_title(self) -> None:
+        page = MockPage()
+        page.html = '<a href="https://example.com/x(1)" title="Tip">Docs</a>'
+        conv = Page.Converter(page)
+        assert '[Docs](https://example.com/x%281%29 "Tip")' in conv.markdown

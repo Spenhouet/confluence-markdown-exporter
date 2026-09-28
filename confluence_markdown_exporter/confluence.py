@@ -2411,26 +2411,17 @@ class Page(Document):
                     return f"[[#{text}]]"
                 return f"[{text}](#{github_heading_slug(href[1:])})"
 
-            res = super().convert_a(el, text, parent_tags)
-            if res.startswith("[") and "](" in res and res.endswith(")"):
-                idx = res.find("](")
-                link_text = res[1:idx]
-                link_url = res[idx + 2 : -1]
+            if href_str and text.replace(r"\_", "_") != href_str:
+                # Parentheses and spaces in the destination end a Markdown link
+                # early (e.g. Kibana URLs with `?_g=()`). Percent-encode them.
+                el["href"] = (
+                    href_str.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+                )
+                # A URL used as link text needs no escaping of its underscores.
+                if text.startswith(("http://", "https://")):
+                    text = text.replace(r"\_", "_")
 
-                # Sanitize link destination: encode parentheses that break Markdown link syntax
-                sanitized_url = urllib.parse.quote(link_url, safe=":/%?&=#+@$,;-~_.*'![]")
-
-                # If link text is an unformatted URL, clean up backslash-escaped underscores
-                if (
-                    link_text.startswith(("http://", "https://"))
-                    or unquote(link_text).replace("\\_", "_") == unquote(link_url)
-                ):
-                    link_text = link_text.replace("\\_", "_")
-
-                return f"[{link_text}]({sanitized_url})"
-
-
-            return res
+            return super().convert_a(el, text, parent_tags)
 
         def convert_page_link(self, page_id: int, text: str = "") -> str:
             """Render a link to another page.
