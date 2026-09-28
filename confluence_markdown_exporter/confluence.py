@@ -2493,9 +2493,15 @@ class Page(Document):
                 )
                 return f"[Page not accessible (ID: {page_id})]"
 
-            PageTitleRegistry.register(int(page.id), page.title)
-
             label = text.strip() or page.title
+
+            ancestor_gate = settings.export.page_href_relative_only_if_ancestor_of
+            if isinstance(ancestor_gate, int):
+                ancestors_ids = {anc.id for anc in page.ancestors} | {page.id}
+                if ancestor_gate not in ancestors_ids:
+                    return f"[{label}]({page.web_url})"
+
+            PageTitleRegistry.register(int(page.id), page.title)
 
             if settings.export.page_href == "wiki":
                 # Wiki aliases are shown verbatim, so drop the Markdown escapes

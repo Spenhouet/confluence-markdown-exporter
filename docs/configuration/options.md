@@ -39,6 +39,18 @@ The link label is the link text as written on the Confluence page. When it diffe
 page title, `wiki` emits an alias (`[[Page Title|link text]]`). If the link has no text, or the text
 is just the target URL, the page title is used instead.
 
+### export.page_href_relative_only_if_ancestor_of
+
+Limits local links (`relative`, `absolute` or `wiki`) to the given page and its descendants. Links
+to any other page stay absolute Confluence URLs. Useful when exporting only a section of a space:
+links into the rest of the space keep pointing at Confluence instead of at files that are not
+exported.
+
+Must be the numeric page ID. URLs are not supported.
+
+- Default: `None`
+- ENV Var: `CME_EXPORT__PAGE_HREF_RELATIVE_ONLY_IF_ANCESTOR_OF`
+
 ### export.page_path
 
 Path template for exported pages.
