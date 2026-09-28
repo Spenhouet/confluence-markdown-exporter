@@ -4,7 +4,7 @@ title: Features
 
 # Features
 
-Exports individual pages, pages with descendants, or entire spaces via the Atlassian API. Skips unchanged pages by default, re-exporting only what has changed since the last run.
+Exports individual pages, pages with descendants, folders, or entire spaces via the Atlassian API. Skips unchanged pages by default, re-exporting only what has changed since the last run.
 
 ## Supported Confluence features
 

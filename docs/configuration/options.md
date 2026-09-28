@@ -420,6 +420,13 @@ Whether to convert Confluence font colors to HTML `<font>` elements with a hex c
 - Default: `True`
 - ENV Var: `CME_EXPORT__CONVERT_FONT_COLORS`
 
+### export.only_homepage_descendants
+
+Limit space exports (`spaces`, `orgs`) to the space homepage and its descendants. Set to `false` to also export pages outside the homepage tree, such as additional root pages and their children. Spaces without a homepage are then exported too. While enabled, a warning reports how many pages were skipped.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__ONLY_HOMEPAGE_DESCENDANTS`
+
 ### export.skip_unchanged
 
 Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.

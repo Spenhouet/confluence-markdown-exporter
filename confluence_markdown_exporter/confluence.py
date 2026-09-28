@@ -659,14 +659,45 @@ class Space(BaseModel):
 
     @property
     def pages(self) -> list["Page | Descendant"]:
+        pages: list[Page | Descendant] = []
+        if self.homepage is not None:
+            homepage = Page.from_id(self.homepage, self.base_url)
+            pages = [homepage, *homepage.descendants]
+
+        if not settings.export.only_homepage_descendants:
+            seen = {int(p.id) for p in pages}
+            pages.extend(
+                d
+                for d in _search_pages(f'type=page AND space="{self.key}"', self.base_url)
+                if int(d.id) not in seen
+            )
+            return pages
+
         if self.homepage is None:
             logger.warning(
-                f"Space '{self.name}' (key: {self.key}) has no homepage. No pages will be exported."
+                f"Space '{self.name}' (key: {self.key}) has no homepage. No pages will be "
+                "exported. Set export.only_homepage_descendants=false to export all pages "
+                "in the space."
             )
-            return []
+        else:
+            self._warn_about_skipped_pages(len(pages))
+        return pages
 
-        homepage = Page.from_id(self.homepage, self.base_url)
-        return [homepage, *homepage.descendants]
+    def _warn_about_skipped_pages(self, found: int) -> None:
+        """Warn when the space holds pages outside the homepage tree."""
+        try:
+            response = get_thread_confluence(self.base_url).get(
+                "rest/api/search", params={"cql": f'type=page AND space="{self.key}"', "limit": 0}
+            )
+            total = int(response.get("totalSize", 0)) if isinstance(response, dict) else 0
+        except Exception:  # noqa: BLE001
+            return
+        if total > found:
+            logger.warning(
+                f"Space '{self.name}' (key: {self.key}) has {total - found} page(s) outside "
+                "the homepage tree that are not exported. Set "
+                "export.only_homepage_descendants=false to include them."
+            )
 
     def export(self) -> None:
         """Export all pages in this space to Markdown."""
@@ -726,6 +757,50 @@ class Space(BaseModel):
                 return cls.from_key(match.space_key, base_url)
 
         msg = f"Could not parse space URL {space_url}."
+        raise ValueError(msg)
+
+
+class Folder(BaseModel):
+    """A Confluence Cloud folder. Exporting it exports every page beneath it."""
+
+    base_url: str
+    id: int
+    title: str
+
+    @property
+    def pages(self) -> list["Descendant"]:
+        return _search_pages(f"type=page AND ancestor={self.id}", self.base_url)
+
+    def export(self) -> None:
+        with console.status(
+            f"[dim]Fetching pages in folder [highlight]{self.title}[/highlight]…[/dim]"
+        ):
+            pages = self.pages
+        logger.info("Found %d page(s) in folder '%s'", len(pages), self.title)
+        export_pages(pages)
+
+    @classmethod
+    @functools.lru_cache(maxsize=100)
+    def from_id(cls, folder_id: int, base_url: str) -> "Folder":
+        data = _require_dict(
+            get_thread_confluence(base_url).get(f"rest/api/content/{folder_id}"),
+            f"folder id={folder_id}",
+        )
+        if data.get("type") != "folder":
+            msg = f"Content {folder_id} is a {data.get('type')!r}, not a folder."
+            raise ValueError(msg)
+        return cls(base_url=base_url, id=int(data["id"]), title=data.get("title", ""))
+
+    @classmethod
+    def from_url(cls, folder_url: str) -> "Folder":
+        """Retrieve a Folder given a URL like ``.../wiki/spaces/KEY/folder/123``."""
+        base_url = _extract_base_url(folder_url)
+        get_confluence_instance(base_url)
+
+        if match := re.search(r"/folders?/(\d+)", urllib.parse.urlparse(folder_url).path):
+            return cls.from_id(int(match.group(1)), base_url)
+
+        msg = f"Could not parse folder URL {folder_url}."
         raise ValueError(msg)
 
 
@@ -863,13 +938,14 @@ class Attachment(Document):
     ) -> "Attachment":
         extensions = data.get("extensions", {})
         container = data.get("container", {})
+        space = Space.from_key(
+            data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
+        )
         return cls(
             base_url=base_url,
             id=data.get("id", ""),
             title=data.get("title", ""),
-            space=Space.from_key(
-                data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
-            ),
+            space=space,
             file_size=extensions.get("fileSize", 0),
             media_type=extensions.get("mediaType", ""),
             media_type_description=extensions.get("mediaTypeDescription", ""),
@@ -879,13 +955,16 @@ class Attachment(Document):
             comment=extensions.get("comment", ""),
             page_id=page_id,
             page_title=page_title,
-            ancestors=[
-                *[
-                    Ancestor.from_json(ancestor, base_url)
-                    for ancestor in container.get("ancestors", [])
+            ancestors=_without_homepage(
+                [
+                    *[
+                        Ancestor.from_json(ancestor, base_url)
+                        for ancestor in container.get("ancestors", [])
+                    ],
+                    Ancestor.from_json(container, base_url),
                 ],
-                Ancestor.from_json(container, base_url),
-            ][1:],
+                space,
+            ),
             version=Version.from_json(data.get("version", {})),
         )
 
@@ -972,6 +1051,48 @@ class Ancestor(Document):
         )
 
 
+def _search_pages(cql: str, base_url: str) -> list["Descendant"]:
+    """Return every page matching *cql*, following pagination."""
+    url = "rest/api/content/search"
+    params = {
+        "cql": cql,
+        "expand": "metadata.properties,ancestors,version",
+        "limit": 250,
+    }
+    results = []
+    client = get_thread_confluence(base_url)
+
+    try:
+        response = cast("dict", client.get(url, params=params))
+        results.extend(response.get("results", []))
+        next_path = response.get("_links", {}).get("next")
+
+        while next_path:
+            response = cast("dict", client.get(next_path))
+            results.extend(response.get("results", []))
+            next_path = response.get("_links", {}).get("next")
+
+    except HTTPError as e:
+        if e.response.status_code == 404:  # noqa: PLR2004
+            logger.warning(f"No content found (404) for query: {cql}")
+        return []
+    except Exception:
+        logger.exception(f"Unexpected error when searching pages for query: {cql}")
+        return []
+    return [Descendant.from_json(result, base_url) for result in results]
+
+
+def _without_homepage(ancestors: list["Ancestor"], space: Space) -> list["Ancestor"]:
+    """Drop the space homepage from the front of an ancestor chain.
+
+    Pages outside the homepage tree (a second root page in the space) keep
+    their whole chain, so they still nest under their own root in the export.
+    """
+    if ancestors and (space.homepage is None or ancestors[0].id == space.homepage):
+        return ancestors[1:]
+    return ancestors
+
+
 class Descendant(Document):
     id: int
 
@@ -991,16 +1112,18 @@ class Descendant(Document):
 
     @classmethod
     def from_json(cls, data: JsonResponse, base_url: str) -> "Descendant":
+        space = Space.from_key(
+            data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
+        )
         return cls(
             base_url=base_url,
             id=data.get("id", 0),
             title=data.get("title", ""),
-            space=Space.from_key(
-                data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
+            space=space,
+            ancestors=_without_homepage(
+                [Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])],
+                space,
             ),
-            ancestors=[
-                Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])
-            ][1:],
             version=Version.from_json(data.get("version", {})),
         )
 
@@ -1051,38 +1174,7 @@ class Page(Document):
 
     @property
     def descendants(self) -> list["Descendant"]:
-        url = "rest/api/content/search"
-        params = {
-            "cql": f"type=page AND ancestor={self.id}",
-            "expand": "metadata.properties,ancestors,version",
-            "limit": 250,
-        }
-        results = []
-        client = get_thread_confluence(self.base_url)
-
-        try:
-            response = cast("dict", client.get(url, params=params))
-            results.extend(response.get("results", []))
-            next_path = response.get("_links", {}).get("next")
-
-            while next_path:
-                response = cast("dict", client.get(next_path))
-                results.extend(response.get("results", []))
-                next_path = response.get("_links", {}).get("next")
-
-        except HTTPError as e:
-            if e.response.status_code == 404:  # noqa: PLR2004
-                logger.warning(
-                    f"Content with ID {self.id} not found (404) when fetching descendants."
-                )
-                return []
-            return []
-        except Exception:
-            logger.exception(
-                f"Unexpected error when fetching descendants for content ID {self.id}."
-            )
-            return []
-        return [Descendant.from_json(result, self.base_url) for result in results]
+        return _search_pages(f"type=page AND ancestor={self.id}", self.base_url)
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -1518,6 +1610,9 @@ class Page(Document):
 
     @classmethod
     def from_json(cls, data: JsonResponse, base_url: str) -> "Page":
+        space = Space.from_key(
+            data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
+        )
         return cls(
             base_url=base_url,
             id=data.get("id", 0),
@@ -1525,9 +1620,7 @@ class Page(Document):
             web_url=_get_web_url(data),
             tiny_url=_get_tiny_url(data),
             title=data.get("title", ""),
-            space=Space.from_key(
-                data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
-            ),
+            space=space,
             body=data.get("body", {}).get("view", {}).get("value", ""),
             body_export=data.get("body", {}).get("export_view", {}).get("value", ""),
             editor2=data.get("body", {}).get("editor2", {}).get("value", ""),
@@ -1539,9 +1632,10 @@ class Page(Document):
             attachments=Attachment.from_page_id(
                 data.get("id", 0), base_url, page_title=data.get("title", "")
             ),
-            ancestors=[
-                Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])
-            ][1:],
+            ancestors=_without_homepage(
+                [Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])],
+                space,
+            ),
             version=Version.from_json(data.get("version", {})),
             history=History.from_json(data.get("history", {})),
         )

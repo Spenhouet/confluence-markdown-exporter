@@ -380,6 +380,15 @@ class ExportConfig(BaseModel):
         ),
         examples=["{space_name}/{page_title}.md"],
     )
+    only_homepage_descendants: bool = Field(
+        default=True,
+        title="Only Homepage Descendants",
+        description=(
+            "Whether space exports (`spaces`, `orgs`) include only the space homepage and "
+            "its descendants. Set to false to also export pages outside the homepage tree, "
+            "such as additional root pages. A warning is logged when pages are skipped."
+        ),
+    )
     page_path_if_parent: str | None = Field(
         default=None,
         title="Page Path Template for Parent Pages",
