@@ -101,6 +101,16 @@ class ConnectionConfig(AtlassianSdkConnectionConfig):
             "Must be disabled for older self-hosted Confluence Server instances."
         ),
     )
+    ca_bundle: str | None = Field(
+        default=None,
+        title="CA Bundle",
+        description=(
+            "Path to a PEM file with the CA certificates used to verify HTTPS connections, "
+            "e.g. an internal root CA of a self-hosted instance. Replaces the default "
+            "certificate bundle, so include any public CAs you still need. "
+            "Ignored when verify_ssl is false."
+        ),
+    )
     max_workers: int = Field(
         default=20,
         title="Max Workers",
@@ -110,6 +120,11 @@ class ConnectionConfig(AtlassianSdkConnectionConfig):
             "Higher values improve performance but may hit API rate limits."
         ),
     )
+
+    @field_validator("ca_bundle", mode="before")
+    @classmethod
+    def _empty_ca_bundle_unsets(cls, v: object) -> object:
+        return None if isinstance(v, str) and not v.strip() else v
 
 
 class ApiDetails(BaseModel):
@@ -452,6 +467,17 @@ class ExportConfig(BaseModel):
         ],
     )
 
+    @field_validator(
+        "page_href_relative_only_if_ancestor_of",
+        "page_path_if_parent",
+        "attachment_path_if_parent",
+        mode="before",
+    )
+    @classmethod
+    def _empty_string_unsets(cls, v: object) -> object:
+        """Treat an empty value (e.g. `cme config set export.page_path_if_parent=`) as unset."""
+        return None if isinstance(v, str) and not v.strip() else v
+
     @field_validator("attachment_path", mode="before")
     @classmethod
     def _migrate_attachment_path(cls, v: object) -> object:
@@ -488,6 +514,17 @@ class ExportConfig(BaseModel):
             "Captions are rendered as an italic line directly below the image:\n"
             "  ![](image.png)\n"
             "  *Caption text*"
+        ),
+    )
+    embed_images: bool = Field(
+        default=False,
+        title="Embed Images",
+        description=(
+            "Whether to embed images in the Markdown as base64 data URIs instead of "
+            "linking to the downloaded attachment files. Makes each page self-contained, "
+            "e.g. for feeding it to an LLM, at the cost of much larger files. "
+            "Attachments are still downloaded. Falls back to a link when an image file "
+            "is not available locally."
         ),
     )
     page_breadcrumbs: bool = Field(

@@ -29,7 +29,9 @@ from urllib.parse import unquote
 from urllib.parse import unquote_plus
 from urllib.parse import urlparse
 
+import requests
 import yaml
+from atlassian import Confluence as ConfluenceApiSdk
 from atlassian.errors import ApiError
 from atlassian.errors import ApiNotFoundError
 from bs4 import BeautifulSoup
@@ -600,6 +602,24 @@ def _page_path_template(page_id: int, base_url: str) -> str:
     return settings.export.page_path
 
 
+@functools.lru_cache(maxsize=10000)
+def _link_target(page_id: int, base_url: str) -> "Descendant | None":
+    """Fetch just enough of a linked page to build a link to it.
+
+    Links only need the title, web URL and export path, so skip the page bodies
+    and attachment listing that Page.from_id fetches. Returns None when the page
+    cannot be read.
+    """
+    try:
+        data = get_thread_confluence(base_url).get_page_by_id(page_id, expand="ancestors,version")
+    except Exception:  # noqa: BLE001
+        logger.debug("Could not fetch linked page id=%s", page_id, exc_info=True)
+        return None
+    if not isinstance(data, dict) or not data.get("id"):
+        return None
+    return Descendant.from_json(data, base_url)
+
+
 class Organization(BaseModel):
     base_url: str
     spaces: list["Space"]
@@ -1013,13 +1033,15 @@ class Attachment(Document):
         logger.debug("Downloading attachment '%s' to %s", self.title, filepath)
         client = get_thread_confluence(self.base_url)
         try:
-            response = client.request(
-                method="GET",
-                path=client.url + self.download_link,
-                absolute=True,
-                advanced_mode=True,
-            )
-            response.raise_for_status()  # Raise error if request fails
+            try:
+                response = self._download(client, client.url + self.download_link)
+            except HTTPError:
+                # Scoped API tokens are rejected on /download/attachments/... links
+                # ("scope does not match"), but may use the REST download endpoint.
+                if not (rest_link := self._rest_download_link()):
+                    raise
+                logger.debug("Retrying download of '%s' via %s", self.title, rest_link)
+                response = self._download(client, client.url + rest_link)
         except HTTPError:
             logger.warning("There is no attachment with title '%s'. Skipping export.", self.title)
             stats.inc_attachments_failed()
@@ -1032,6 +1054,19 @@ class Attachment(Document):
         save_file(filepath, response.content)
         logger.debug("Saved attachment '%s' (%d bytes)", self.title, len(response.content))
         stats.inc_attachments_exported()
+
+    @staticmethod
+    def _download(client: ConfluenceApiSdk, url: str) -> requests.Response:
+        response = client.request(method="GET", path=url, absolute=True, advanced_mode=True)
+        response.raise_for_status()
+        return response
+
+    def _rest_download_link(self) -> str | None:
+        """Return the REST API download path, unless it is the link already tried."""
+        page_id = self.page_id or (str(self.ancestors[-1].id) if self.ancestors else "")
+        if not page_id or self.download_link.startswith("/rest/"):
+            return None
+        return f"/rest/api/content/{page_id}/child/attachment/{self.id}/download"
 
 
 class Ancestor(Document):
@@ -1095,6 +1130,7 @@ def _without_homepage(ancestors: list["Ancestor"], space: Space) -> list["Ancest
 
 class Descendant(Document):
     id: int
+    web_url: str = ""
 
     @property
     def _template_vars(self) -> dict[str, str]:
@@ -1119,6 +1155,7 @@ class Descendant(Document):
             base_url=base_url,
             id=data.get("id", 0),
             title=data.get("title", ""),
+            web_url=_get_web_url(data),
             space=space,
             ancestors=_without_homepage(
                 [Ancestor.from_json(ancestor, base_url) for ancestor in data.get("ancestors", [])],
@@ -2612,9 +2649,9 @@ class Page(Document):
                 msg = "Page link does not have valid page_id."
                 raise ValueError(msg)
 
-            page = Page.from_id(page_id, self.page.base_url)
+            page = _link_target(page_id, self.page.base_url)
 
-            if page.title == "Page not accessible":
+            if page is None or page.title == "Page not accessible":
                 logger.warning(
                     f"Confluence page link (ID: {page_id}) is not accessible, "
                     f"referenced from page '{self.page.title}' (ID: {self.page.id})"
@@ -2876,18 +2913,37 @@ class Page(Document):
                 else ""
             )
 
-            if settings.export.attachment_href == "wiki":
+            data_uri = self._image_data_uri(attachment) if settings.export.embed_images else None
+
+            if settings.export.attachment_href == "wiki" and not data_uri:
                 img_md = f"![[{attachment.export_path.name}]]"
                 return f"{img_md}\n*{caption}*" if caption else img_md
 
-            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
-            el["src"] = path.replace(" ", "%20")
+            if data_uri:
+                el["src"] = data_uri
+            else:
+                path = self._get_path_for_href(
+                    attachment.export_path, settings.export.attachment_href
+                )
+                el["src"] = path.replace(" ", "%20")
             tags = parent_tags if isinstance(parent_tags, list | set) else set()
             if "_inline" in tags:
                 tags = set(tags)
                 tags.discard("_inline")  # Always show images.
             img_md = super().convert_img(el, text, tags)  # type: ignore[union-attr]
             return f"{img_md}\n*{caption}*" if caption else img_md
+
+        @staticmethod
+        def _image_data_uri(attachment: Attachment) -> str | None:
+            """Return the downloaded image as a base64 data URI, or None."""
+            if not attachment.media_type.startswith("image/"):
+                return None
+            try:
+                data = (settings.export.output_path / attachment.export_path).read_bytes()
+            except OSError:
+                logger.debug("Cannot embed '%s': file not downloaded", attachment.title)
+                return None
+            return f"data:{attachment.media_type};base64,{base64.b64encode(data).decode()}"
 
         def _normalize_unicode_whitespace(self, text: str) -> str:
             r"""Normalize Unicode whitespace to regular spaces.

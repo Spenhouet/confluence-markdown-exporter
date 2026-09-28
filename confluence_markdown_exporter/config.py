@@ -51,9 +51,11 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.include_jira_status` | Append Jira issue status to enriched links |\n\n"
     "| `export.attachments_export` | Which attachments to download:"
     " `referenced` (default), `all`, `disabled` |\n\n"
+    "| `export.embed_images` | Embed images as base64 data URIs (`true`/`false`) |\n\n"
     "| `export.image_captions` | Use image captions as markdown alt text (`true`/`false`) |\n\n"
     "| `export.comments_export` | Which comments to export to sidecar "
     "`.comments.md` files: `none` (default), `inline`, `footer`, `all` |\n\n"
+    "| `export.comment_headings` | `### <excerpt>` heading per exported comment |\n\n"
     "| `export.convert_status_badges` | Convert Confluence status badges to `<mark>` elements |\n\n"
     "| `export.convert_text_highlights` | Convert background-color spans to `<mark>` elements |\n\n"
     "| `export.convert_font_colors` | Convert font-color spans to `<font>` elements |\n\n"
@@ -61,6 +63,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `connection_config.max_workers` | Parallel export workers (default: 20) |\n\n"
     "| `connection_config.use_v2_api` | Use Confluence REST API v2 (`true`/`false`) |\n\n"
     "| `connection_config.verify_ssl` | Verify SSL certificates (`true`/`false`) |\n\n"
+    "| `connection_config.ca_bundle` | PEM file with CA certificates to trust |\n\n"
     "| `connection_config.timeout` | API request timeout in seconds |\n\n"
     "| `auth.confluence` | Credentials keyed by instance URL — use `cme config edit` |\n\n"
     "| `auth.jira` | Jira credentials keyed by instance URL — use `cme config edit` |\n\n"
@@ -234,6 +237,11 @@ def get(
     data = json.loads(current_settings.model_dump_json())
     value = jmespath.search(key, data)
     if value is None:
+        parent_key, _, leaf = key.rpartition(".")
+        parent = jmespath.search(parent_key, data) if parent_key else data
+        if isinstance(parent, dict) and leaf in parent:
+            typer.echo("null")  # Unset optional setting
+            return
         typer.echo(f"Key '{key}' not found.", err=True)
         raise typer.Exit(code=1)
     if isinstance(value, dict | list):

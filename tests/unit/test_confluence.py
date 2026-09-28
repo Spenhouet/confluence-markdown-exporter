@@ -31,6 +31,18 @@ from confluence_markdown_exporter.confluence import _has_child_pages
 from confluence_markdown_exporter.confluence import _page_id_by_title
 
 
+@pytest.fixture(autouse=True)
+def _link_target_via_from_id() -> Iterator[None]:
+    """Resolve link targets through Page.from_id, which these tests patch."""
+    from confluence_markdown_exporter import confluence
+
+    def resolve(page_id: int, base_url: str) -> object:
+        return confluence.Page.from_id(page_id, base_url)
+
+    with patch.object(confluence, "_link_target", side_effect=resolve):
+        yield
+
+
 class MockPage:
     """Minimal page object for Converter tests."""
 
@@ -211,6 +223,7 @@ class TestAttachmentLinkConversion:
 
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
+            s.export.embed_images = False
             s.export.attachment_path = (
                 "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
             )
@@ -364,6 +377,7 @@ def _export_settings(tmp_path: Path) -> SimpleNamespace:
             convert_text_highlights=True,
             convert_font_colors=True,
             image_captions=False,
+            embed_images=False,
             include_toc=True,
             attachment_href="relative",
             page_href="relative",
@@ -698,6 +712,7 @@ class TestEmbeddedImageWithoutDataIds:
         page = _make_page(body=html, body_export=html, attachments=attachments)
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
+            s.export.embed_images = False
             s.export.attachment_path = (
                 "{space_name}/media/{attachment_title}{attachment_extension}"
             )
@@ -777,6 +792,7 @@ class TestTransformErrorImg:
 
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
+            s.export.embed_images = False
             s.export.page_href = "relative"
             conv = Page.Converter(MockPageWithSvg())  # type: ignore[arg-type]
             result = conv.convert(html).strip()
@@ -934,6 +950,7 @@ class TestImageCaptionsInConvertImg:
         _att_path = "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
+            s.export.embed_images = False
             s.export.attachment_path = _att_path
             s.export.page_href = "relative"
             s.export.page_path = "{space_name}/{page_title}.md"
@@ -967,6 +984,7 @@ class TestImageCaptionsInConvertImg:
         _att_path = "{space_name}/attachments/{attachment_file_id}{attachment_extension}"
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
+            s.export.embed_images = False
             s.export.attachment_path = _att_path
             s.export.page_href = "relative"
             s.export.page_path = "{space_name}/{page_title}.md"
@@ -3408,3 +3426,104 @@ class TestParentPathTemplates:
             _has_child_pages.cache_clear()
             client.get.return_value = {"results": []}
             assert att.export_path == Path("Root/_assets/diagram.png")
+
+
+class TestAttachmentDownloadFallback:
+    """Scoped API tokens cannot use /download/attachments links (issue #210)."""
+
+    @staticmethod
+    def _attachment(download_link: str) -> Attachment:
+        att = _make_attachment("att42", "fid42", title="image.png")
+        att.download_link = download_link
+        att.page_id = "7"
+        return att
+
+    @staticmethod
+    def _client(*responses: object) -> MagicMock:
+        client = MagicMock()
+        client.url = "https://example.com"
+        client.request.side_effect = list(responses)
+        return client
+
+    @staticmethod
+    def _ok() -> MagicMock:
+        response = MagicMock()
+        response.content = b"png"
+        return response
+
+    @staticmethod
+    def _unauthorized() -> MagicMock:
+        response = MagicMock()
+        response.raise_for_status.side_effect = HTTPError("401 Unauthorized; scope does not match")
+        return response
+
+    def test_retries_via_rest_endpoint(self, tmp_path: Path) -> None:
+        att = self._attachment("/download/attachments/7/image.png?api=v2")
+        client = self._client(self._unauthorized(), self._ok())
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.get_thread_confluence",
+                return_value=client,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.output_path = tmp_path
+            s.export.attachment_path = "{attachment_file_id}{attachment_extension}"
+            s.export.attachment_path_if_parent = None
+            att.export()
+        paths = [c.kwargs["path"] for c in client.request.call_args_list]
+        assert paths[1] == "https://example.com/rest/api/content/7/child/attachment/att42/download"
+        assert (tmp_path / "fid42.png").read_bytes() == b"png"
+
+    def test_no_retry_when_rest_link_already_failed(self, tmp_path: Path) -> None:
+        att = self._attachment("/rest/api/content/7/child/attachment/att42/download")
+        client = self._client(self._unauthorized())
+        with (
+            patch(
+                "confluence_markdown_exporter.confluence.get_thread_confluence",
+                return_value=client,
+            ),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.output_path = tmp_path
+            s.export.attachment_path = "{attachment_file_id}{attachment_extension}"
+            s.export.attachment_path_if_parent = None
+            att.export()
+        assert client.request.call_count == 1
+        assert not (tmp_path / "fid42.png").exists()
+
+
+class TestEmbedImages:
+    """export.embed_images writes images as base64 data URIs (issue #118)."""
+
+    def _convert(self, tmp_path: Path, *, write_file: bool, href: str = "relative") -> str:
+        att = _make_attachment("111", "abc-guid-111", title="pic.png", media_type="image/png")
+        att_path = "attachments/{attachment_file_id}{attachment_extension}"
+        page = _make_page(
+            body='<img data-media-id="abc-guid-111" src="/download/pic.png" alt="">',
+            body_export="",
+            attachments=[att],
+        )
+        with patch("confluence_markdown_exporter.confluence.settings") as s:
+            s.export.output_path = tmp_path
+            s.export.attachment_href = href
+            s.export.embed_images = True
+            s.export.attachment_path = att_path
+            s.export.attachment_path_if_parent = None
+            s.export.page_href = "relative"
+            s.export.page_path = "{page_title}.md"
+            s.export.page_path_if_parent = None
+            s.export.image_captions = False
+            if write_file:
+                (tmp_path / "attachments").mkdir()
+                (tmp_path / "attachments" / "abc-guid-111.png").write_bytes(b"\x89PNG")
+            return Page.Converter(page).convert(page.body).strip()
+
+    @pytest.mark.parametrize("href", ["relative", "wiki"])
+    def test_downloaded_image_is_embedded(self, tmp_path: Path, href: str) -> None:
+        assert self._convert(tmp_path, write_file=True, href=href) == (
+            "![](data:image/png;base64,iVBORw==)"
+        )
+
+    def test_missing_file_falls_back_to_link(self, tmp_path: Path) -> None:
+        assert self._convert(tmp_path, write_file=False) == "![](attachments/abc-guid-111.png)"

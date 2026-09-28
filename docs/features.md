@@ -12,6 +12,9 @@ Exports individual pages, pages with descendants, folders, or entire spaces via 
 
 - **Rich text**: headings, paragraphs, bold, italic, underline, lists, tables, links, images, attachments, and image captions
 - **Page links**: links to Confluence pages become relative Markdown links, whether they were inserted as page links, pasted as full page URLs, or pasted as tiny links (`/wiki/x/...`, the "Copy link" shortlink)
+- **Images**: saved as local attachment files and linked, or embedded as base64 data URIs with [`export.embed_images`](./configuration/options.md#exportembed_images)
+- **Emoticons**: Cloud emoji and Server/Data Center emoticons converted to Unicode characters
+- **File previews**: the View File / PDF preview macro (`viewpdf`) becomes a link to the attachment
 - **Code blocks**: language-aware fenced code blocks
 - **Task lists**: checkboxes with completion state
 - **Text highlights & font colours**: preserved with inline HTML colour styling
@@ -28,6 +31,13 @@ Exports individual pages, pages with descendants, folders, or entire spaces via 
 
 ### Diagrams & add-ons
 
-- **[draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts)**: diagram files saved as attachments; embedded Mermaid diagrams extracted as fenced Mermaid blocks
+- **[draw.io](https://marketplace.atlassian.com/apps/1210933/draw-io-diagrams-uml-bpmn-aws-erd-flowcharts)**: diagram files saved as attachments and shown via their preview image, on Cloud and on Server/Data Center; embedded Mermaid diagrams extracted as fenced Mermaid blocks
+- **Gliffy**: diagrams shown via their preview image; the diagram source is saved with a `.gliffy` extension
 - **[PlantUML](https://marketplace.atlassian.com/apps/1222993/flowchart-plantuml-diagrams-for-confluence)**: exported as fenced PlantUML code blocks, both the Server/Data Center macro (`plantuml`) and the Cloud macro (`plantumlcloud`); the diagram source is exported, not the rendered image
 - **[Markdown Extensions](https://marketplace.atlassian.com/apps/1215703/markdown-extensions-for-confluence)**: pass-through of raw Markdown macro content
+
+### Output layout
+
+- **Path templates**: page and attachment paths are built from templates ([`export.page_path`](./configuration/options.md#exportpage_path), [`export.attachment_path`](./configuration/options.md#exportattachment_path))
+- **Directory index pages**: parent pages can be exported as `index.md` or `README.md` inside a directory named after the page ([`export.page_path_if_parent`](./configuration/options.md#exportpage_path_if_parent))
+- **Stale file cleanup**: files of pages that were deleted, renamed or moved in Confluence are removed on the next run
