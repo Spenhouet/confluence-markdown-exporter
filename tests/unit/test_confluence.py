@@ -2286,6 +2286,53 @@ class TestWikiLinkDisambiguation:
             result = conv.convert(html).strip()
 
         PageTitleRegistry.reset()
+        assert result == "[[Unique Page|x]]"
+
+    def test_unique_title_falls_back_to_title_without_link_text(self) -> None:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(101, "Unique Page", "ALPHA")
+        PageTitleRegistry.register(target.id, target.title)
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch("confluence_markdown_exporter.confluence.Page.from_id", return_value=target),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = '<a data-linked-resource-type="page" data-linked-resource-id="101"></a>'
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
+        assert result == "[[Unique Page]]"
+
+    def test_link_text_matching_title_emits_short_wiki_link(self) -> None:
+        from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+        PageTitleRegistry.reset()
+        target = self._make_target_page(101, "Unique Page", "ALPHA")
+        PageTitleRegistry.register(target.id, target.title)
+
+        source = _make_page(body="", body_export="", attachments=[])
+
+        with (
+            patch("confluence_markdown_exporter.confluence.Page.from_id", return_value=target),
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.page_href = "wiki"
+            s.export.page_path = "{space_name}/{page_title}.md"
+            conv = Page.Converter(source)
+            html = (
+                '<a data-linked-resource-type="page" data-linked-resource-id="101">'
+                "Unique Page</a>"
+            )
+            result = conv.convert(html).strip()
+
+        PageTitleRegistry.reset()
         assert result == "[[Unique Page]]"
 
     def test_colliding_title_emits_path_qualified_wiki_link(self) -> None:
@@ -2313,7 +2360,7 @@ class TestWikiLinkDisambiguation:
             result = conv.convert(html).strip()
 
         PageTitleRegistry.reset()
-        assert result == "[[ALPHA/Shared Title|Shared Title]]"
+        assert result == "[[ALPHA/Shared Title|x]]"
 
     def test_relative_link_unaffected(self) -> None:
         from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
@@ -2341,7 +2388,7 @@ class TestWikiLinkDisambiguation:
 
         PageTitleRegistry.reset()
         assert "Shared%20Title.md" in result
-        assert result.startswith("[Shared Title](")
+        assert result.startswith("[x](")
 
 
 class TestAbsoluteUrlPageLinks:
@@ -2497,7 +2544,7 @@ class TestAbsoluteUrlPageLinks:
             result = conv.convert(html).strip()
 
         PageTitleRegistry.reset()
-        assert result == "[[Legacy Page]]"
+        assert result == "[[Legacy Page|x]]"
 
 
 class TestColumnLayoutConversion:
