@@ -27,6 +27,7 @@ from confluence_markdown_exporter.confluence import Page
 from confluence_markdown_exporter.confluence import Space
 from confluence_markdown_exporter.confluence import User
 from confluence_markdown_exporter.confluence import Version
+from confluence_markdown_exporter.confluence import _has_child_pages
 from confluence_markdown_exporter.confluence import _page_id_by_title
 
 
@@ -353,6 +354,7 @@ def _export_settings(tmp_path: Path) -> SimpleNamespace:
         export=SimpleNamespace(
             output_path=tmp_path,
             page_path="{page_title}.md",
+            page_path_if_parent=None,
             include_document_title=False,
             page_breadcrumbs=False,
             confluence_url_in_frontmatter="none",
@@ -3330,3 +3332,79 @@ class TestAppMacroNestedPagePropertiesReport:
         page.html = '<a href="https://example.com/x(1)" title="Tip">Docs</a>'
         conv = Page.Converter(page)
         assert '[Docs](https://example.com/x%281%29 "Tip")' in conv.markdown
+
+
+class TestParentPathTemplates:
+    """export.page_path_if_parent / export.attachment_path_if_parent."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self) -> Iterator[None]:
+        _has_child_pages.cache_clear()
+        yield
+        _has_child_pages.cache_clear()
+
+    @staticmethod
+    def _client(has_children: bool) -> MagicMock:
+        client = MagicMock()
+        client.get.return_value = {"results": [{"id": "9"}] if has_children else []}
+        return client
+
+    def _page_path(self, has_children: bool, parent_template: str | None) -> tuple[Path, MagicMock]:
+        page = _make_page(body="", body_export="", attachments=[])
+        client = self._client(has_children)
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch(
+                "confluence_markdown_exporter.confluence.get_thread_confluence",
+                return_value=client,
+            ),
+        ):
+            s.export.page_path = "{page_title}.md"
+            s.export.page_path_if_parent = parent_template
+            return page.export_path, client
+
+    def test_parent_page_uses_parent_template(self) -> None:
+        path, _ = self._page_path(has_children=True, parent_template="{page_title}/README.md")
+        assert path == Path("Test Page/README.md")
+
+    def test_leaf_page_uses_default_template(self) -> None:
+        path, _ = self._page_path(has_children=False, parent_template="{page_title}/README.md")
+        assert path == Path("Test Page.md")
+
+    def test_unset_option_makes_no_api_call(self) -> None:
+        path, client = self._page_path(has_children=True, parent_template=None)
+        assert path == Path("Test Page.md")
+        client.get.assert_not_called()
+
+    def test_attachment_on_parent_page_uses_parent_template(self) -> None:
+        att = _make_attachment("att1", "fid1", title="diagram.png")
+        att.page_id = "1"
+        att.ancestors = [
+            Ancestor(
+                base_url=att.base_url,
+                id=aid,
+                title=title,
+                space=att.space,
+                ancestors=[],
+                version=att.version,
+            )
+            for aid, title in ((5, "Root"), (1, "Parent"))
+        ]
+        client = self._client(has_children=True)
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+            patch(
+                "confluence_markdown_exporter.confluence.get_thread_confluence",
+                return_value=client,
+            ),
+        ):
+            s.export.attachment_path = (
+                "{ancestors_without_last}/_assets/{attachment_title}{attachment_extension}"
+            )
+            s.export.attachment_path_if_parent = (
+                "{ancestor_titles}/_assets/{attachment_title}{attachment_extension}"
+            )
+            assert att.export_path == Path("Root/Parent/_assets/diagram.png")
+            _has_child_pages.cache_clear()
+            client.get.return_value = {"results": []}
+            assert att.export_path == Path("Root/_assets/diagram.png")
