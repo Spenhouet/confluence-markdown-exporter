@@ -10,10 +10,12 @@ from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
+import yaml
 from requests import HTTPError
 
 from confluence_markdown_exporter.confluence import Attachment
 from confluence_markdown_exporter.confluence import JiraIssue
+from confluence_markdown_exporter.confluence import Label
 from confluence_markdown_exporter.confluence import Page
 from confluence_markdown_exporter.confluence import Space
 from confluence_markdown_exporter.confluence import User
@@ -125,6 +127,7 @@ def _make_attachment(
     file_id: str,
     title: str = "file.png",
     media_type: str = "image/png",
+    comment: str = "",
 ) -> Attachment:
     space = Space(base_url="https://example.com", key="TS", name="Test", description="", homepage=0)
     version = Version(
@@ -146,7 +149,7 @@ def _make_attachment(
         file_id=file_id,
         collection_name="",
         download_link="/download",
-        comment="",
+        comment=comment,
     )
 
 
@@ -363,6 +366,64 @@ def _export_settings(tmp_path: Path) -> SimpleNamespace:
 
 class TestMarkdownExport:
     """Markdown file export behaviour."""
+
+    @pytest.mark.parametrize(
+        "page_properties_format",
+        ["frontmatter", "frontmatter_and_table", "meta-bind-view-fields"],
+    )
+    def test_frontmatter_preserves_unicode(
+        self, tmp_path: Path, page_properties_format: str
+    ) -> None:
+        """Export readable Unicode and preserve YAML values in every front matter mode."""
+        page = _make_page(
+            """
+            <div data-macro-name="details">
+                <table>
+                    <tr><th>City</th><td>Казань</td></tr>
+                    <tr><th>Summary</th><td>Москва: &quot;Привет&quot;</td></tr>
+                    <tr><th>Languages</th><td>日本語, français</td></tr>
+                </table>
+            </div>
+            <p>Page body</p>
+            """,
+            "",
+            [],
+        )
+        page.labels = [Label(id="1", name="документация", prefix="global")]
+        page.history.created_by.display_name = "Иван Иванов"
+        page.version.by.display_name = "Анна Петрова"
+        settings = _export_settings(tmp_path)
+        settings.export.page_properties_format = page_properties_format
+        settings.export.page_metadata_in_frontmatter = True
+        settings.export.table_column_width = "mixed"
+
+        with patch("confluence_markdown_exporter.confluence.settings", settings):
+            page.export_markdown()
+
+        markdown = (tmp_path / "Test Page.md").read_text(encoding="utf-8")
+        assert markdown.startswith("---\n")
+        front_matter, body = markdown.removeprefix("---\n").split("\n---\n", 1)
+        for text in (
+            "Казань",
+            "Москва",
+            "Привет",
+            "日本語",
+            "français",
+            "документация",
+            "Иван Иванов",
+            "Анна Петрова",
+        ):
+            assert text in front_matter
+        for escape in (r"\u", r"\U", r"\x"):
+            assert escape not in front_matter
+        properties = yaml.safe_load(front_matter)
+        assert properties["city"] == "Казань"
+        assert properties["summary"] == 'Москва: "Привет"'
+        assert properties["languages"] == "日本語, français"
+        assert properties["tags"] == ["документация"]
+        assert properties["confluence_created_by"] == "Иван Иванов"
+        assert properties["confluence_last_modified_by"] == "Анна Петрова"
+        assert "Page body" in body
 
     def test_nested_tables_are_always_preserved_as_html_in_main_markdown(
         self, tmp_path: Path
@@ -1426,6 +1487,7 @@ class TestInlineCommentsFrontMatter:
         ]
         page._fetch_page_comments = list
         page._fetch_comment_replies = lambda _cid: []
+        page._truncate_excerpt = Page._truncate_excerpt
         page._render_inline_comments = types.MethodType(Page._render_inline_comments, page)
         page._render_page_comments = types.MethodType(Page._render_page_comments, page)
 
@@ -1435,6 +1497,7 @@ class TestInlineCommentsFrontMatter:
         ):
             s.export.output_path = Path("out")
             s.export.comments_export = "inline"
+            s.export.comment_headings = True
             Page.export_comments_sidecar(page)
 
         assert mock_save.called
@@ -1454,6 +1517,69 @@ class TestInlineCommentsFrontMatter:
         assert "\nsource:" not in content
 
 
+class TestCommentHeadingsConfig:
+    """Test comment_headings setting toggling excerpt headings."""
+
+    def test_comment_headings_disabled(self) -> None:
+        page = MockPage()
+        page.id = 123
+        page.title = "My Page"
+        page.space = MagicMock()
+        page.space.key = "TEAM"
+        page.base_url = "https://example.atlassian.net"
+        page.export_path = Path("TEAM/My Page.md")
+        page._marked_texts = {"ref-1": "marked excerpt"}
+        page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN.default
+        page._fetch_inline_comments = lambda: [
+            {
+                "id": "c1",
+                "extensions": {"inlineProperties": {"markerRef": "ref-1"}},
+                "history": {
+                    "createdBy": {"displayName": "Alice"},
+                    "createdDate": "2026-04-01T10:00:00Z",
+                },
+                "body": {"view": {"value": "<p>nice</p>"}},
+            }
+        ]
+        page._fetch_page_comments = lambda: [
+            {
+                "id": "c2",
+                "history": {
+                    "createdBy": {"displayName": "Bob"},
+                    "createdDate": "2026-04-02T10:00:00Z",
+                },
+                "body": {"view": {"value": "<p>footer comment</p>"}},
+            }
+        ]
+        page._fetch_comment_replies = lambda _cid: []
+        page._truncate_excerpt = Page._truncate_excerpt
+        page._render_inline_comments = types.MethodType(Page._render_inline_comments, page)
+        page._render_page_comments = types.MethodType(Page._render_page_comments, page)
+
+        with (
+            patch("confluence_markdown_exporter.confluence.save_file") as mock_save,
+            patch("confluence_markdown_exporter.confluence.settings") as s,
+        ):
+            s.export.output_path = Path("out")
+            s.export.comments_export = "all"
+            s.export.comment_headings = False
+            Page.export_comments_sidecar(page)
+
+        assert mock_save.called
+        content = mock_save.call_args[0][1]
+
+        # Section headings remain
+        assert "## Inline comments" in content
+        assert "## Page comments" in content
+        # Excerpt '### ' headings must not be present
+        assert "### " not in content
+        # Authors and bodies are present
+        assert "**Alice** · 2026-04-01" in content
+        assert "nice" in content
+        assert "**Bob** · 2026-04-02" in content
+        assert "footer comment" in content
+
+
 def _make_comments_page(
     *,
     inline_comments: list[dict] | None = None,
@@ -1469,7 +1595,8 @@ def _make_comments_page(
     page.base_url = "https://example.atlassian.net"
     page.export_path = Path("TEAM/My Page.md")
     page._marked_texts = marked_texts or {}
-    page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN.default
+    page._COMMENT_TITLE_MAX_LEN = Page._COMMENT_TITLE_MAX_LEN
+    page._truncate_excerpt = Page._truncate_excerpt
     page._fetch_inline_comments = lambda: list(inline_comments or [])
     page._fetch_page_comments = lambda: list(page_comments or [])
     replies_map = replies or {}
@@ -1635,6 +1762,36 @@ class TestPageCommentsSidecarBody:
 
         ids = [c["id"] for c in results]
         assert ids == ["open1", "open2"]
+
+
+class TestCommentExcerptTruncation:
+    """Test clean truncation of comment excerpt headings (Issue #301)."""
+
+    def test_truncate_excerpt_strips_markdown_links(self) -> None:
+        text = "siehe auch US [SSMPA-2656](https://jira.example.com/browse/SSMPA-2656) fuer Details"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "siehe auch US SSMPA-2656 fuer Details"
+
+    def test_truncate_excerpt_strips_markdown_images(self) -> None:
+        text = "siehe Bild ![Screenshot](https://example.com/img.png) und Text"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "siehe Bild Screenshot und Text"
+
+    def test_truncate_excerpt_strips_wiki_links(self) -> None:
+        text = "siehe [[Page Title|Display Text]] oder [[Simple Page]]"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "siehe Display Text oder Simple Page"
+
+    def test_truncate_excerpt_word_boundary(self) -> None:
+        text = "Das ist ein sehr langer Kommentartext der definitiv gekuerzt werden muss"
+        result = Page._truncate_excerpt(text, max_len=30)
+        assert result == "Das ist ein sehr langer…"
+        assert not result.endswith(" l…")
+
+    def test_truncate_excerpt_no_truncation_when_short(self) -> None:
+        text = "Kurzer Kommentar"
+        result = Page._truncate_excerpt(text, max_len=60)
+        assert result == "Kurzer Kommentar"
 
 
 class TestPagePropertiesReportDataview:
@@ -2004,6 +2161,43 @@ class TestPagePropertiesReportFrozenFetchesAllRows:
 
         assert "Page A" in result
         assert "Page B" not in result
+
+
+class TestAttachmentExtension:
+    """draw.io source attachments must resolve to `.drawio` regardless of language.
+
+    `comment` is localized by Confluence, but `media_type` is not.
+    """
+
+    DRAWIO_MEDIA_TYPE = "application/vnd.jgraph.mxfile"
+
+    def test_english_comment_resolves_to_drawio(self) -> None:
+        att = _make_attachment(
+            "1", "guid-1", media_type=self.DRAWIO_MEDIA_TYPE, comment="draw.io diagram"
+        )
+        assert att.extension == ".drawio"
+
+    def test_french_comment_resolves_to_drawio(self) -> None:
+        """The extension must not depend on `comment`'s language.
+
+        Confluence localizes `extensions.comment` (e.g. "diagramme draw.io" in French).
+        """
+        att = _make_attachment(
+            "2", "guid-2", media_type=self.DRAWIO_MEDIA_TYPE, comment="diagramme draw.io"
+        )
+        assert att.extension == ".drawio"
+
+    def test_missing_comment_resolves_to_drawio(self) -> None:
+        att = _make_attachment("3", "guid-3", media_type=self.DRAWIO_MEDIA_TYPE, comment="")
+        assert att.extension == ".drawio"
+
+    def test_drawio_preview_still_requires_comment_match(self) -> None:
+        att = _make_attachment("4", "guid-4", media_type="image/png", comment="draw.io preview")
+        assert att.extension == ".drawio.png"
+
+    def test_regular_png_without_drawio_comment_unaffected(self) -> None:
+        att = _make_attachment("5", "guid-5", media_type="image/png", comment="")
+        assert att.extension == ".png"
 
 
 class TestAttachmentTemplateVars:
