@@ -1,5 +1,7 @@
 from pathlib import Path
+from types import UnionType
 from typing import Literal
+from typing import Union
 from typing import get_args
 from typing import get_origin
 
@@ -498,6 +500,15 @@ def _prompt_for_new_value(  # noqa: PLR0911
     prompt_message = _format_prompt_message(key_name, model)
     if field_type is None:
         field_type = str  # Default to string if no type found
+    if origin in (Union, UnionType) and type(None) in get_args(field_type):
+        # Optional field: edit as text, with an empty default meaning "unset" rather
+        # than the string "None". Empty input is converted back to None on validation.
+        return _prompt_str(
+            f"{prompt_message} (leave empty to unset)",
+            "" if current_value is None else current_value,
+            model,
+            key_name,
+        )
     if origin is Literal:
         return _prompt_literal(prompt_message, field_type, current_value)
     if field_type is bool:
