@@ -18,6 +18,14 @@ If you prefer human-readable filenames over numeric IDs, set `export.attachment_
 cme config set export.attachment_path='{space_name}/attachments/{attachment_title}{attachment_extension}'
 ```
 
+### Self-signed or internal CA certificates
+
+Self-hosted instances often use certificates issued by an internal CA. Point [`connection_config.ca_bundle`](./configuration/options.md#connection_configca_bundle) at a PEM file with that CA instead of disabling [`connection_config.verify_ssl`](./configuration/options.md#connection_configverify_ssl).
+
+### Attachments fail with scoped API tokens
+
+Some Confluence Cloud sites return attachment download links (`/download/attachments/...`) that scoped API tokens are not allowed to use (`401 Unauthorized; scope does not match`). cme then retries the download through the REST API endpoint. If attachments still fail, check that the token has the `read:attachment:confluence` scope.
+
 ### Connection issues behind proxy or VPN
 
 There might be connection issues if your Confluence Server is behind a proxy or VPN ([#38](https://github.com/Spenhouet/confluence-markdown-exporter/issues/38)). If you experience issues, help to fix this is appreciated.

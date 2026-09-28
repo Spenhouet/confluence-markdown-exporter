@@ -15,6 +15,13 @@ Controls output verbosity: `DEBUG` (every step), `INFO` (key milestones), `WARNI
 - Default: `INFO`
 - ENV Var: `CME_EXPORT__LOG_LEVEL`
 
+### export.save_log_to_file
+
+Also write log records to `cme.log` next to the config file (see `cme config path`). Useful for capturing long `DEBUG` runs.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__SAVE_LOG_TO_FILE`
+
 ### export.output_path
 
 The directory where all exported files and folders will be written. Used as the base for relative and absolute links.
@@ -172,6 +179,13 @@ When disabled, no caption is added.
 
 - Default: `False`
 - ENV Var: `CME_EXPORT__IMAGE_CAPTIONS`
+
+### export.embed_images
+
+Embed images in the Markdown as base64 data URIs (`![alt](data:image/png;base64,...)`) instead of linking to the downloaded attachment files. Each page becomes self-contained, which helps when feeding pages to an LLM or another tool that only reads the Markdown. Files get much larger. Attachments are still downloaded, and an image falls back to a regular link when its file is not available locally (for example with `export.attachments_export=disabled`). Also applies with `export.attachment_href=wiki`.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__EMBED_IMAGES`
 
 ### export.page_breadcrumbs
 
@@ -367,6 +381,13 @@ confluence_webui_url: "https://example.atlassian.net/wiki/spaces/TEAM/pages/123"
 
 ## Inline comments
 
+### export.comment_headings
+
+Whether each comment in a `.comments.md` sidecar gets a `### <excerpt>` heading. The excerpt comes from the commented text (inline comments) or the comment body (page comments), with Markdown links reduced to their text and cut at a word boundary after 60 characters. Set to `false` to list comments under the `## Inline comments` / `## Page comments` sections without individual headings.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__COMMENT_HEADINGS`
+
 ### marked excerpt
 > marked excerpt
 
@@ -507,6 +528,13 @@ Whether to verify SSL certificates for HTTPS requests. Set to `False` only if yo
 
 - Default: `True`
 - ENV Var: `CME_CONNECTION_CONFIG__VERIFY_SSL`
+
+### connection_config.ca_bundle
+
+Path to a PEM file with the CA certificates used to verify HTTPS connections. Use it for self-hosted instances whose certificates are issued by an internal root or intermediate CA. The file replaces the default certificate bundle, so include any public CAs that are still needed. Ignored when `connection_config.verify_ssl` is `False`.
+
+- Default: `None`
+- ENV Var: `CME_CONNECTION_CONFIG__CA_BUNDLE`
 
 ### connection_config.use_v2_api
 

@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Callable
+from collections.abc import Iterator
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -10,6 +11,19 @@ from bs4 import BeautifulSoup
 
 from confluence_markdown_exporter.confluence import Page
 from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
+
+
+@pytest.fixture(autouse=True)
+def _link_target_via_from_id() -> Iterator[None]:
+    """Resolve link targets through Page.from_id, which these tests patch."""
+    from confluence_markdown_exporter import confluence
+
+    def resolve(page_id: int, base_url: str) -> object:
+        return confluence.Page.from_id(page_id, base_url)
+
+    with patch.object(confluence, "_link_target", side_effect=resolve):
+        yield
+
 
 BASE_URL = "https://example.atlassian.net/wiki"
 

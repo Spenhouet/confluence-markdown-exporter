@@ -7,6 +7,7 @@ import urllib.parse
 from threading import Lock
 from threading import local
 from typing import Annotated
+from typing import Any
 
 import requests
 from atlassian import Confluence as ConfluenceApiSdk
@@ -218,6 +219,11 @@ class ApiClientFactory:
         self.connection_config = AtlassianSdkConnectionConfig.model_validate(
             connection_config.model_dump()
         )
+        self.sdk_kwargs: dict[str, Any] = self.connection_config.model_dump()
+        # requests accepts a CA bundle path wherever it accepts verify=True.
+        ca_bundle = getattr(connection_config, "ca_bundle", None)
+        if ca_bundle and self.connection_config.verify_ssl:
+            self.sdk_kwargs["verify_ssl"] = ca_bundle
 
     def create_confluence(self, url: str, auth: ApiDetails) -> ConfluenceApiSdk:
         # Check if session cookies are provided for SSO authentication
@@ -237,7 +243,7 @@ class ApiClientFactory:
             instance = ConfluenceApiSdk(
                 url=url,
                 session=session,
-                **self.connection_config.model_dump(),
+                **self.sdk_kwargs,
             )
         else:
             # Standard authentication
@@ -246,7 +252,7 @@ class ApiClientFactory:
                 username=auth.username.get_secret_value() if auth.api_token else None,
                 password=auth.api_token.get_secret_value() if auth.api_token else None,
                 token=auth.pat.get_secret_value() if auth.pat else None,
-                **self.connection_config.model_dump(),
+                **self.sdk_kwargs,
             )
 
         try:
@@ -263,7 +269,7 @@ class ApiClientFactory:
                 username=auth.username.get_secret_value() if auth.api_token else None,
                 password=auth.api_token.get_secret_value() if auth.api_token else None,
                 token=auth.pat.get_secret_value() if auth.pat else None,
-                **self.connection_config.model_dump(),
+                **self.sdk_kwargs,
             )
             instance.get_all_projects()
         except Exception as e:

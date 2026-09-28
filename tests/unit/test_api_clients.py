@@ -20,6 +20,7 @@ from confluence_markdown_exporter.utils.app_data_store import ApiDetails
 from confluence_markdown_exporter.utils.app_data_store import AtlassianSdkConnectionConfig
 from confluence_markdown_exporter.utils.app_data_store import AuthConfig
 from confluence_markdown_exporter.utils.app_data_store import ConfigModel
+from confluence_markdown_exporter.utils.app_data_store import ConnectionConfig
 from tests.conftest import SAMPLE_CONFLUENCE_URL
 
 _PARSE_CONFLUENCE_PATH_CASES = [
@@ -283,6 +284,22 @@ class TestApiClientFactory:
             **sdk_config.model_dump(),
         )
         mock_instance.get_all_spaces.assert_called_once_with(limit=1)
+
+    @pytest.mark.parametrize(
+        ("verify_ssl", "expected"), [(True, "/etc/ssl/internal-ca.pem"), (False, False)]
+    )
+    @patch("confluence_markdown_exporter.api_clients.ConfluenceApiSdk")
+    def test_ca_bundle_is_passed_as_verify(
+        self,
+        mock_confluence_sdk: MagicMock,
+        sample_api_details: ApiDetails,
+        verify_ssl: bool,
+        expected: object,
+    ) -> None:
+        config = ConnectionConfig(verify_ssl=verify_ssl, ca_bundle="/etc/ssl/internal-ca.pem")
+        ApiClientFactory(config).create_confluence(SAMPLE_CONFLUENCE_URL, sample_api_details)
+        assert mock_confluence_sdk.call_args.kwargs["verify_ssl"] == expected
+        assert "ca_bundle" not in mock_confluence_sdk.call_args.kwargs
 
     @patch("confluence_markdown_exporter.api_clients.ConfluenceApiSdk")
     def test_create_confluence_connection_failure(
