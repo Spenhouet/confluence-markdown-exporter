@@ -616,6 +616,15 @@ class ExportConfig(BaseModel):
             "Requires Jira auth to be configured."
         ),
     )
+    include_jira_status: bool = Field(
+        default=False,
+        title="Include Jira Issue Status",
+        description=(
+            "Whether to include the current Jira issue status in enriched issue links. "
+            "When enabled, the status is appended after the issue summary. "
+            "Requires Jira enrichment and Jira auth to be configured."
+        ),
+    )
     comments_export: Literal["none", "inline", "footer", "all"] = Field(
         default="none",
         title="Export Comments",
@@ -631,6 +640,15 @@ class ExportConfig(BaseModel):
             "Resolved comments are skipped. Replies are listed flat below "
             "the parent comment. Disabled by default — adds one to two extra "
             "API calls per page when enabled."
+        ),
+    )
+    comment_headings: bool = Field(
+        default=True,
+        title="Include Comment Excerpt Headings",
+        description=(
+            "Whether to include auto-generated '### <excerpt>' headings for each comment "
+            "in exported '.comments.md' sidecar files. "
+            "When set to false, comments are listed without individual '###' excerpt headings."
         ),
     )
     convert_status_badges: bool = Field(

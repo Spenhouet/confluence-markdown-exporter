@@ -44,6 +44,7 @@ _CONFIG_KEYS_EPILOG = (
     "fields (page_id, space_key, type, created, created_by, last_modified, "
     "last_modified_by, version) to YAML front matter (`true`/`false`) |\n\n"
     "| `export.enable_jira_enrichment` | Fetch Jira data for enriched links |\n\n"
+    "| `export.include_jira_status` | Append Jira issue status to enriched links |\n\n"
     "| `export.attachments_export` | Which attachments to download:"
     " `referenced` (default), `all`, `disabled` |\n\n"
     "| `export.image_captions` | Use image captions as markdown alt text (`true`/`false`) |\n\n"
