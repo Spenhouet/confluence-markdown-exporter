@@ -2521,41 +2521,33 @@ class Page(Document):
             "atlassian-wink": "😉",
         }
 
-        # Mapping of Confluence Server/DC emoticon names to emoji Unicode values
+        # Server/DC emoticons carry `data-emoticon-name` instead of the Cloud
+        # `data-emoji-*` attributes. Keys are Confluence's built-in emoticon names.
         _EMOTICON_SERVERDC_NAMES: ClassVar[dict[str, str]] = {
-            "tick": "✅",
-            "cross": "❌",
-            "check_mark": "✅",
-            "cross_mark": "❌",
-            "yes": "👍",
-            "no": "👎",
-            "thumbs-up": "👍",
-            "thumbs-down": "👎",
-            "info": "\u2139\ufe0f",
-            "information": "\u2139\ufe0f",
-            "warning": "⚠️",
-            "forbidden": "🚫",
-            "add": "\u2795",
-            "plus": "\u2795",
-            "subtract": "\u2796",
-            "minus": "\u2796",
-            "help": "❓",
-            "question": "❓",
-            "attention": "❗",
-            "exclamation": "❗",
-            "light-on": "💡",
-            "light-off": "💡",
-            "light_on": "💡",
-            "light_off": "💡",
-            "light-bulb": "💡",
-            "star": "⭐",
-            "star_yellow": "⭐",
-            "blue_star": "🔵",
             "smile": "😊",
             "sad": "😞",
-            "tongue": "😛",
-            "biggrin": "😁",
+            "cheeky": "😛",
+            "laugh": "😁",
             "wink": "😉",
+            "thumbs-up": "👍",
+            "thumbs-down": "👎",
+            "yes": "👍",
+            "no": "👎",
+            "information": "\u2139\ufe0f",
+            "tick": "✅",
+            "cross": "❌",
+            "warning": "⚠️",
+            "plus": "\u2795",
+            "minus": "\u2796",
+            "question": "❓",
+            "light-on": "💡",
+            "light-off": "💡",
+            "yellow-star": "⭐",
+            "red-star": "⭐",
+            "green-star": "⭐",
+            "blue-star": "⭐",
+            "heart": "❤️",
+            "broken-heart": "💔",
         }
 
         def _convert_emoticon(self, el: BeautifulSoup) -> str | None:
@@ -2581,7 +2573,7 @@ class Page(Document):
 
             # Fallback to Server/DC format (data-emoticon-name)
             emoticon_name = str(el.get("data-emoticon-name", ""))
-            if emoticon_name and emoticon_name in self._EMOTICON_SERVERDC_NAMES:
+            if emoticon_name in self._EMOTICON_SERVERDC_NAMES:
                 return self._EMOTICON_SERVERDC_NAMES[emoticon_name]
 
             return shortname or fallback or str(el.get("alt", "")) or None
