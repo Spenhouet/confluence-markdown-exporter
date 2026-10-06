@@ -503,3 +503,115 @@ class TestPlantUMLCloudPlaceholders:
 
         assert "Alice -> Bob: Hello" in result
         assert not caplog.records
+
+    def test_order_pairing_never_crosses_an_anchored_match(self) -> None:
+        """A leftover before an anchored match must not take a diagram after it."""
+        storage = '<p local-id="p1" />' + classic_macro(UML_A, "m1") + classic_macro(UML_B, "m2")
+        html = placeholder(CLASSIC_TEXT) + '<p local-id="p1"></p>' + placeholder(CLASSIC_TEXT)
+
+        result = render(storage, html)
+
+        assert "Bob -> Carol" not in result
+        assert result.index(MARKER) < result.index("Alice -> Bob")
+
+    def test_forge_image_between_anchor_and_placeholder_stays_unmatched(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A Forge draw.io image has no local-id, so the position is ambiguous.
+
+        Order pairing is off because another Forge app is on the page, so the
+        placeholder is left alone and the diagram is reported, never guessed.
+        """
+        storage = (
+            '<p local-id="p1" />'
+            + forge_extension(None, "d1", key=DRAWIO_KEY, macro_params_uml=None)
+            + forge_extension(UML_A, "f1")
+        )
+        html = '<p local-id="p1"></p><img src="diagram.drawio.png"/>' + placeholder(FORGE_TEXT)
+
+        with caplog.at_level(logging.WARNING):
+            result = render(storage, html)
+
+        assert "Alice -> Bob" not in result
+        assert FORGE_TEXT in result
+        assert "could not be matched" in caplog.text
+
+    def test_repeated_markdown_with_id_less_legacy_div_is_stable(self) -> None:
+        storage = classic_macro(UML_A, "m1") + classic_macro(UML_B, "m2")
+        converter = Page.Converter(
+            make_page(storage, '<div class="ap-container" data-macro-name="plantumlcloud"></div>')
+        )
+
+        first = converter.markdown
+        second = converter.markdown
+
+        assert "Alice -> Bob" in first
+        assert first == second
+
+    def test_typographic_apostrophe_is_recognised(self) -> None:
+        storage = '<p local-id="p1" />' + forge_extension(UML_A, "f1")
+        html = '<p local-id="p1"></p>' + placeholder(
+            FORGE_TEXT.replace("'", "\N{RIGHT SINGLE QUOTATION MARK}")
+        )
+
+        result = render(storage, html)
+
+        assert "Alice -> Bob" in result
+
+    def test_forge_compressed_payload_without_flag_is_decoded(self) -> None:
+        storage = '<p local-id="p1" />' + forge_extension(UML_A, "f1", compressed=None)
+        html = '<p local-id="p1"></p>' + placeholder(FORGE_TEXT)
+
+        result = render(storage, html)
+
+        assert "Alice -> Bob" in result
+
+    @pytest.mark.parametrize("macro_name", ["excerpt-include", "multiexcerpt-include"])
+    def test_other_transclusion_macros_are_skipped(self, macro_name: str) -> None:
+        storage = classic_macro(UML_A, "m1")
+        html = (
+            f'<div class="conf-macro output-block" data-macro-name="{macro_name}">'
+            + placeholder(CLASSIC_TEXT)
+            + "</div>"
+            + placeholder(CLASSIC_TEXT)
+        )
+
+        result = render(storage, html)
+
+        assert result.count("Alice -> Bob") == 1
+        assert result.index(CLASSIC_TEXT) < result.index("Alice -> Bob")
+
+    def test_id_less_legacy_div_reports_diagrams_it_cannot_cover(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """One ID-less legacy div can stand for one storage macro, not three."""
+        storage = (
+            classic_macro(UML_A, "m1")
+            + '<p local-id="p1" />'
+            + classic_macro(UML_B, "m2")
+            + classic_macro(UML_C, "m3")
+        )
+        html = (
+            '<div class="ap-container" data-macro-name="plantumlcloud"></div>'
+            '<p local-id="p1"></p>' + placeholder(CLASSIC_TEXT)
+        )
+
+        with caplog.at_level(logging.WARNING):
+            render(storage, html)
+
+        assert "without a macro id" in caplog.text
+        assert "2 PlantUML diagram" in caplog.text
+
+    def test_undecodable_matched_diagram_warns_and_marks(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        storage = '<p local-id="p1" />' + classic_macro(UML_A, "m1").replace(
+            encode_data(UML_A), "not-base64!!"
+        )
+        html = '<p local-id="p1"></p>' + placeholder(CLASSIC_TEXT)
+
+        with caplog.at_level(logging.WARNING):
+            result = render(storage, html)
+
+        assert MARKER in result
+        assert "could not be decoded" in caplog.text
