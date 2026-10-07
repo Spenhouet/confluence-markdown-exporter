@@ -56,9 +56,11 @@ def classic_macro(uml: str, macro_id: str) -> str:
     )
 
 
-def _forge_node(key: str, local_id: str, guest: str, macro_params: str) -> str:
+def _forge_node(
+    key: str, local_id: str, guest: str, macro_params: str, node_type: str = "extension"
+) -> str:
     return (
-        '<ac:adf-node type="extension">'
+        f'<ac:adf-node type="{node_type}">'
         f'<ac:adf-attribute key="extension-key">{key}</ac:adf-attribute>'
         '<ac:adf-attribute key="extension-type">com.atlassian.ecosystem</ac:adf-attribute>'
         '<ac:adf-attribute key="parameters">'
@@ -79,11 +81,13 @@ def forge_extension(
     key: str = PLANTUML_KEY,
     macro_params_uml: str | None = UML_OLD,
     compressed: str | None = "true",
+    node_type: str = "extension",
 ) -> str:
     """A Forge extension as it appears in body.storage, with its `adf-fallback` copy."""
     guest = '<ac:adf-parameter key="name">Diagram</ac:adf-parameter>'
     if uml is not None:
-        guest += f'<ac:adf-parameter key="data">{encode_data(uml)}</ac:adf-parameter>'
+        data = encode_data(uml, compressed=compressed != "false")
+        guest += f'<ac:adf-parameter key="data">{data}</ac:adf-parameter>'
     guest += '<ac:adf-parameter key="revision" type="integer">3</ac:adf-parameter>'
     if compressed is not None:
         guest += (
@@ -97,7 +101,7 @@ def forge_extension(
             '<ac:adf-parameter key="compressed">'
             '<ac:adf-parameter key="value">true</ac:adf-parameter></ac:adf-parameter>'
         )
-    node = _forge_node(key, local_id, guest, macro_params)
+    node = _forge_node(key, local_id, guest, macro_params, node_type)
     return f"<ac:adf-extension>{node}<ac:adf-fallback>{node}</ac:adf-fallback></ac:adf-extension>"
 
 
@@ -406,7 +410,7 @@ class TestPlantUMLCloudPlaceholders:
         second = converter.markdown
 
         assert first == second
-        assert len(converter._resolved_plantumlcloud) == 1
+        assert first.count("Alice -> Bob") == 1
 
     def test_placeholders_sharing_an_anchor_are_ambiguous(self) -> None:
         storage = '<p local-id="p1" />' + classic_macro(UML_A, "m1")
@@ -506,7 +510,12 @@ class TestPlantUMLCloudPlaceholders:
 
     def test_order_pairing_never_crosses_an_anchored_match(self) -> None:
         """A leftover before an anchored match must not take a diagram after it."""
-        storage = '<p local-id="p1" />' + classic_macro(UML_A, "m1") + classic_macro(UML_B, "m2")
+        storage = (
+            '<p local-id="p1" />'
+            + classic_macro(UML_A, "m1")
+            + '<p local-id="p9" />'
+            + classic_macro(UML_B, "m2")
+        )
         html = placeholder(CLASSIC_TEXT) + '<p local-id="p1"></p>' + placeholder(CLASSIC_TEXT)
 
         result = render(storage, html)
@@ -566,7 +575,9 @@ class TestPlantUMLCloudPlaceholders:
 
         assert "Alice -> Bob" in result
 
-    @pytest.mark.parametrize("macro_name", ["excerpt-include", "multiexcerpt-include"])
+    @pytest.mark.parametrize(
+        "macro_name", ["excerpt-include", "multiexcerpt-include", "detailssummary"]
+    )
     def test_other_transclusion_macros_are_skipped(self, macro_name: str) -> None:
         storage = classic_macro(UML_A, "m1")
         html = (
@@ -615,3 +626,102 @@ class TestPlantUMLCloudPlaceholders:
 
         assert MARKER in result
         assert "could not be decoded" in caplog.text
+
+    def test_storage_element_without_view_counterpart_blocks_anchor(self) -> None:
+        """An extra storage diagram under the same anchor must not shift the match."""
+        storage = (
+            '<p local-id="p1" />'
+            + classic_macro(UML_C, "m0")
+            + classic_macro(UML_A, "m1")
+            + classic_macro(UML_B, "m2")
+        )
+        html = '<p local-id="p1"></p>' + placeholder(CLASSIC_TEXT) + placeholder(CLASSIC_TEXT)
+
+        result = render(storage, html)
+
+        assert "@startjson" not in result
+        assert "Alice -> Bob" not in result
+        assert result.count(MARKER) == 2
+
+    def test_bodied_forge_extension_of_another_app_blocks_forge_order(self) -> None:
+        storage = forge_extension(UML_A, "f1") + forge_extension(
+            None,
+            "x1",
+            key="other-app/env/static/kanban",
+            macro_params_uml=None,
+            node_type="bodiedExtension",
+        )
+
+        result = render(storage, placeholder(FORGE_TEXT))
+
+        assert "Alice -> Bob" not in result
+        assert FORGE_TEXT in result
+
+    def test_forge_placeholders_pair_by_order_when_all_extensions_are_plantuml(self) -> None:
+        storage = forge_extension(UML_A, "f1") + forge_extension(UML_B, "f2")
+        html = (
+            "<table><tr><td>" + placeholder(FORGE_TEXT) + "</td>"
+            "<td>" + placeholder(FORGE_TEXT) + "</td></tr></table>"
+        )
+
+        result = render(storage, html)
+
+        assert result.index("Alice -> Bob") < result.index("Bob -> Carol")
+        assert FORGE_TEXT not in result
+
+    def test_forge_explicitly_uncompressed_payload(self) -> None:
+        storage = '<p local-id="p1" />' + forge_extension(UML_A, "f1", compressed="false")
+        html = '<p local-id="p1"></p>' + placeholder(FORGE_TEXT)
+
+        result = render(storage, html)
+
+        assert "Alice -> Bob" in result
+
+    def test_crossing_anchored_matches_are_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        storage = (
+            '<p local-id="p1" />'
+            + classic_macro(UML_A, "m1")
+            + '<p local-id="p2" />'
+            + classic_macro(UML_B, "m2")
+        )
+        html = (
+            '<p local-id="p2"></p>'
+            + placeholder(CLASSIC_TEXT)
+            + '<p local-id="p1"></p>'
+            + placeholder(CLASSIC_TEXT)
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            result = render(storage, html)
+
+        assert result.index("Bob -> Carol") < result.index("Alice -> Bob")
+        assert "cross" in caplog.text
+
+    def test_mixed_legacy_divs_report_the_diagram_the_cursor_skips(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The ID-less div takes m1 by cursor and the m1 div repeats it, so m2 is lost."""
+        storage = classic_macro(UML_A, "m1") + classic_macro(UML_B, "m2")
+        html = (
+            '<div class="ap-container" data-macro-name="plantumlcloud"></div>'
+            '<div class="ap-container" data-macro-name="plantumlcloud" data-macro-id="m1"></div>'
+        )
+
+        with caplog.at_level(logging.WARNING):
+            render(storage, html)
+
+        assert "1 PlantUML diagram" in caplog.text
+
+    def test_included_id_less_legacy_div_blocks_classic_matching(self) -> None:
+        """An ID-less legacy div still uses this page's cursor, even when transcluded."""
+        storage = '<p local-id="p1" />' + classic_macro(UML_A, "m1")
+        html = (
+            '<div class="conf-macro output-block" data-macro-name="include">'
+            '<div class="ap-container" data-macro-name="plantumlcloud"></div></div>'
+            '<p local-id="p1"></p>' + placeholder(CLASSIC_TEXT)
+        )
+
+        result = render(storage, html)
+
+        assert result.count("Alice -> Bob") == 1
+        assert MARKER in result
