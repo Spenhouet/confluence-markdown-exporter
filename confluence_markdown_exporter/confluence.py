@@ -1129,22 +1129,24 @@ def _add_databases(
     """Return *pages* plus the Confluence Cloud databases matching *scope_cql*.
 
     Databases are exported as placeholder pages because the API does not provide
-    their entries. A database whose export path is taken by a page is skipped, so
-    the placeholder never overwrites the page. Server/DC has no databases; if it
-    rejects the query, `_search_pages` returns an empty list.
+    their entries. A database whose export path is already taken by a page or by
+    another database is skipped, so a placeholder never overwrites another file.
+    Server/DC has no databases; if it rejects the query, `_search_pages` returns
+    an empty list.
     """
     databases = _search_pages(f"type=database AND {scope_cql}", base_url)
     if not databases:
-        return pages
-    page_paths = {page.export_path for page in pages}
+        return [*pages]
+    taken_paths = {page.export_path for page in pages}
     kept: list[Descendant] = []
     for database in databases:
-        if database.export_path in page_paths:
+        if database.export_path in taken_paths:
             logger.warning(
                 f"Skipping Confluence database '{database.title}' (id {database.id}): "
-                f"a page is already exported to {database.export_path}."
+                f"another page or database is already exported to {database.export_path}."
             )
         else:
+            taken_paths.add(database.export_path)
             kept.append(database)
     return [*pages, *kept]
 
@@ -1716,7 +1718,10 @@ class Page(Document):
                 Label.from_json(label)
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
-            attachments=Attachment.from_page_id(
+            # Databases have no attachments; skip the API call
+            attachments=[]
+            if data.get("type") == "database"
+            else Attachment.from_page_id(
                 data.get("id", 0), base_url, page_title=data.get("title", "")
             ),
             ancestors=_without_homepage(
@@ -3987,7 +3992,9 @@ def fetch_deleted_page_ids(page_ids: list[str], base_url: str) -> set[str]:
         try:
             if use_v2:
                 found = _fetch_page_ids_v2_batch(batch, base_url)
-                # v2 /pages does not return databases, so re-check the rest with CQL
+                # v2 /pages does not return databases, so re-check the rest with CQL.
+                # This costs one extra request per 25 IDs that are really deleted,
+                # and matches the CQL check used when use_v2_api is off.
                 missing = [pid for pid in batch if pid not in found]
                 for j in range(0, len(missing), _CQL_MAX_BATCH_SIZE):
                     chunk = missing[j : j + _CQL_MAX_BATCH_SIZE]

@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 from unittest.mock import call
 from unittest.mock import patch
 
 import pytest
+from requests import HTTPError
 
 from confluence_markdown_exporter.confluence import Descendant
 from confluence_markdown_exporter.confluence import Folder
 from confluence_markdown_exporter.confluence import Page
 from confluence_markdown_exporter.confluence import Space
+from confluence_markdown_exporter.confluence import _add_databases
 from confluence_markdown_exporter.confluence import _link_target
 
 if TYPE_CHECKING:
@@ -270,6 +273,28 @@ class TestDatabases:
             assert [int(p.id) for p in folder.pages] == [2]
         assert "Skipping Confluence database 'Tasks'" in caplog.text
 
+    def test_database_with_same_path_as_another_database_is_skipped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        first = Descendant.from_json(_page_json(3, "Tasks", [(123, "Docs")]), BASE_URL)
+        second = Descendant.from_json(_page_json(4, "Tasks", [(123, "Docs")]), BASE_URL)
+        folder = Folder(base_url=BASE_URL, id=123, title="Docs")
+        with patch(f"{MODULE}._search_pages", side_effect=_search({"database": [first, second]})):
+            assert [int(p.id) for p in folder.pages] == [3]
+        assert "Skipping Confluence database 'Tasks' (id 4)" in caplog.text
+
+    def test_rejected_database_query_adds_nothing_quietly(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Server/DC has no databases; a rejected query must not affect pages or warn."""
+        page = Descendant.from_json(_page_json(2, "Page", [(123, "Docs")]), BASE_URL)
+        client = MagicMock()
+        client.get.side_effect = HTTPError("400 Bad Request", response=MagicMock(status_code=400))
+        with patch(f"{MODULE}.get_thread_confluence", return_value=client):
+            pages = _add_databases([page], "ancestor=123", BASE_URL)
+        assert pages == [page]
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
 
 class TestDatabasePlaceholder:
     WEB_URL = f"{BASE_URL}/wiki/spaces/KEY/database/3"
@@ -292,6 +317,29 @@ class TestDatabasePlaceholder:
     def test_markdown_keeps_the_link_as_is(self) -> None:
         markdown = self._database("Tasks").markdown
         assert f"[Open Tasks in Confluence]({self.WEB_URL})" in markdown
+
+    def test_from_id_loads_a_database_without_attachments(self) -> None:
+        """Databases are read through v1 content, also when the v2 API is enabled."""
+        data = {
+            **_page_json(3, "Tasks", []),
+            "type": "database",
+            "_links": {"base": f"{BASE_URL}/wiki", "webui": "/spaces/KEY/database/3"},
+        }
+        client = MagicMock()
+        client.get_page_by_id.return_value = data
+        Page.from_id.cache_clear()
+        with (
+            patch(f"{MODULE}.get_thread_confluence", return_value=client),
+            patch(f"{MODULE}.Attachment.from_page_id") as attachments,
+            patch(f"{MODULE}.settings") as s,
+        ):
+            s.connection_config.use_v2_api = True
+            page = Page.from_id(3, BASE_URL)
+        Page.from_id.cache_clear()
+        attachments.assert_not_called()
+        assert page.type == "database"
+        assert page.attachments == []
+        assert f'href="{self.WEB_URL}"' in page.body
 
     def test_export_warns_and_skips_comments(
         self, path_settings: MagicMock, caplog: pytest.LogCaptureFixture
