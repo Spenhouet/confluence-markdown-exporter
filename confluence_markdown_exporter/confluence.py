@@ -1698,6 +1698,14 @@ class Page(Document):
         space = Space.from_key(
             data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
         )
+        body = data.get("body", {})
+        # The API returns no content for a database, so it gets a placeholder body
+        # and no attachments
+        database_body = (
+            _database_placeholder(data.get("title", ""), _get_web_url(data))
+            if data.get("type") == "database"
+            else None
+        )
         return cls(
             base_url=base_url,
             id=data.get("id", 0),
@@ -1706,21 +1714,16 @@ class Page(Document):
             tiny_url=_get_tiny_url(data),
             title=data.get("title", ""),
             space=space,
-            body=(
-                _database_placeholder(data.get("title", ""), _get_web_url(data))
-                if data.get("type") == "database"
-                else data.get("body", {}).get("view", {}).get("value", "")
-            ),
-            body_export=data.get("body", {}).get("export_view", {}).get("value", ""),
-            editor2=data.get("body", {}).get("editor2", {}).get("value", ""),
-            body_storage=data.get("body", {}).get("storage", {}).get("value", ""),
+            body=database_body or body.get("view", {}).get("value", ""),
+            body_export=database_body or body.get("export_view", {}).get("value", ""),
+            editor2=body.get("editor2", {}).get("value", ""),
+            body_storage=body.get("storage", {}).get("value", ""),
             labels=[
                 Label.from_json(label)
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
-            # Databases have no attachments; skip the API call
             attachments=[]
-            if data.get("type") == "database"
+            if database_body
             else Attachment.from_page_id(
                 data.get("id", 0), base_url, page_title=data.get("title", "")
             ),
