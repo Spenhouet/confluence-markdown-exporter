@@ -7,6 +7,7 @@ import base64
 import copy
 import functools
 import html
+import itertools
 import json
 import logging
 import mimetypes
@@ -14,6 +15,9 @@ import os
 import re
 import urllib.parse
 import zlib
+from collections import Counter
+from collections.abc import Callable
+from collections.abc import Iterable
 from collections.abc import Set
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
@@ -105,6 +109,26 @@ _DEFAULT_HEADER_BGS = frozenset({"#f4f5f7", "#f2f2f2"})
 # depends on the parser: `html.parser` keeps the prefix, the `xml` parser strips it.
 _AC_MACRO_TAGS = ["ac:structured-macro", "structured-macro"]
 _AC_PARAMETER_TAGS = ["ac:parameter", "parameter"]
+
+# Text-only placeholders that body.view renders for the PlantUML app instead of the
+# macro markup: the classic Connect macro shows the app's macro title, the Forge
+# version of the app shows Confluence's generic text for an unrenderable extension.
+_PLANTUMLCLOUD_PLACEHOLDER = "PlantUML Diagram"
+_FORGE_PLACEHOLDER = "We don't have a way to export this macro."
+_PLANTUMLCLOUD_FORGE_KEY_SUFFIX = "/static/plantumlcloud"
+# Macros whose body.view shows content of other pages; a placeholder inside one has no
+# source in this page's body.storage.
+_INCLUDE_MACRO_NAMES = {
+    "include",
+    "excerpt-include",
+    "multiexcerpt-include",
+    "multiexcerpt-include-macro",
+    "detailssummary",
+    "blog-posts",
+    "contentbylabel",
+}
+# ADF node types of a Forge app macro; panels and decision lists are not apps.
+_FORGE_NODE_TYPES = {"extension", "bodiedExtension", "multiBodiedExtension", "inlineExtension"}
 
 
 def _rgb_to_hex(r: int, g: int, b: int) -> str:
@@ -1805,6 +1829,7 @@ class Page(Document):
             self._panel_icon_map_cache: dict[str, str] | None = None
             self._plantuml_index: int = 0
             self._plantumlcloud_index: int = 0
+            self._resolved_plantumlcloud: list[str | None] = []
             self._storage_macros_cache: dict[str, list[Tag]] = {}
             self._storage_soup_cache: BeautifulSoup | None = None
 
@@ -1871,12 +1896,13 @@ class Page(Document):
             """Map a structured-macro's direct `parameter` children to their values.
 
             Only direct children: a macro body may hold nested macros with parameters of
-            their own. On a repeated name the last occurrence wins.
+            their own. On a repeated name the last occurrence wins. Accepts macros
+            parsed by the `xml` parser (no prefix) and by `html.parser` (`ac:` prefix).
             """
             return {
-                str(p.get("name")): p.get_text(strip=True)
-                for p in macro.find_all("parameter", recursive=False)
-                if isinstance(p, Tag) and p.get("name")
+                _ac_attr(p, "name"): p.get_text(strip=True)
+                for p in macro.find_all(_AC_PARAMETER_TAGS, recursive=False)
+                if isinstance(p, Tag) and _ac_attr(p, "name")
             }
 
         @classmethod
@@ -1897,6 +1923,8 @@ class Page(Document):
         def markdown(self) -> str:
             html = self._strip_excerpt_include_panel_titles(self.page.html)
             html = self._inline_app_macro_bodies(html)
+            html = self._resolve_plantumlcloud_placeholders(html)
+            self._plantumlcloud_index = 0
             md_body = self.convert(html)
             md_body = self._escape_template_placeholders(md_body)
             markdown = f"{self.front_matter}\n"
@@ -3330,12 +3358,7 @@ class Page(Document):
             # match, so a later macro without a macro-id does not re-resolve this one.
             self._plantumlcloud_index = max(self._plantumlcloud_index, idx + 1)
 
-            params = self._macro_params(macros[idx])
-            data = params.get("data")
-            if not data:
-                return None
-            compressed = params.get("compressed", "").lower() == "true"
-            return self._decode_plantumlcloud_data(data, compressed=compressed)
+            return self._decode_plantumlcloud_params(self._macro_params(macros[idx]))
 
         def convert_plantumlcloud(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
@@ -3347,7 +3370,21 @@ class Page(Document):
             iframe placeholder into `body.view` and writes nothing to `editor2`, so the
             diagram source is recovered from `body.storage`, where it is kept in the
             macro's `data` parameter.
+
+            A placeholder rewritten by `_resolve_plantumlcloud_placeholders` carries a
+            reference to the source it was matched to instead of a macro id.
             """
+            ref = el.get("data-plantumlcloud-ref")
+            if ref is not None:
+                # The pre-pass already logged a warning for every unresolved reference.
+                ref = str(ref)
+                index = int(ref) if ref.isdigit() else -1
+                if 0 <= index < len(self._resolved_plantumlcloud):
+                    uml = self._resolved_plantumlcloud[index]
+                    if uml:
+                        return f"\n```plantuml\n{uml}\n```\n\n"
+                return "\n<!-- PlantUML diagram (source not found) -->\n\n"
+
             macro_id = el.get("data-macro-id")
             uml = self._extract_uml_from_plantumlcloud(str(macro_id) if macro_id else None)
             if uml:
@@ -3355,6 +3392,449 @@ class Page(Document):
 
             logger.warning("PlantUML (plantumlcloud) macro could not be resolved from body.storage")
             return "\n<!-- PlantUML diagram (source not found) -->\n\n"
+
+        @staticmethod
+        def _plantumlcloud_placeholder_kind(el: object) -> str | None:
+            """Return "classic" or "forge" for a text-only PlantUML placeholder div."""
+            if not isinstance(el, Tag) or el.name != "div" or el.attrs:
+                return None
+            if any(isinstance(child, Tag) for child in el.children):
+                return None
+            # A typographic apostrophe is accepted for the Forge text. A placeholder
+            # that is not recognised is still reported by the "unused" warning.
+            text = el.get_text(strip=True).replace("\N{RIGHT SINGLE QUOTATION MARK}", "'")
+            if text == _PLANTUMLCLOUD_PLACEHOLDER:
+                return "classic"
+            if text == _FORGE_PLACEHOLDER:
+                return "forge"
+            return None
+
+        @classmethod
+        def _plantumlcloud_view_skip_kind(cls, el: object) -> str | None:
+            """Classify a body.view sibling for anchoring: placeholders and legacy divs."""
+            kind = cls._plantumlcloud_placeholder_kind(el)
+            if (
+                kind is None
+                and isinstance(el, Tag)
+                and el.get("data-macro-name") == "plantumlcloud"
+            ):
+                return "classic"
+            return kind
+
+        @staticmethod
+        def _forge_extension_node(el: object) -> Tag | None:
+            """Return the Forge app node of a body.storage `adf-extension`, if any."""
+            if not isinstance(el, Tag) or el.name not in ("ac:adf-extension", "adf-extension"):
+                return None
+            node = el.find(["ac:adf-node", "adf-node"], recursive=False)
+            if isinstance(node, Tag) and node.get("type") in _FORGE_NODE_TYPES:
+                return node
+            return None
+
+        @classmethod
+        def _plantumlcloud_storage_kind(cls, el: object) -> str | None:
+            """Return "classic" or "forge" for a PlantUML app macro in body.storage."""
+            if not isinstance(el, Tag):
+                return None
+            if el.name in _AC_MACRO_TAGS:
+                return "classic" if _ac_attr(el, "name") == "plantumlcloud" else None
+            node = cls._forge_extension_node(el)
+            if node is not None:
+                key = node.find(
+                    ["ac:adf-attribute", "adf-attribute"],
+                    attrs={"key": "extension-key"},
+                    recursive=False,
+                )
+                if key and key.get_text(strip=True).endswith(_PLANTUMLCLOUD_FORGE_KEY_SUFFIX):
+                    return "forge"
+            return None
+
+        @classmethod
+        def _plantumlcloud_storage_skip_kind(cls, el: object) -> str | None:
+            """Classify a body.storage sibling for anchoring.
+
+            Every Forge extension counts as "forge", because body.view renders other
+            Forge apps with the same placeholder text as the PlantUML one.
+            """
+            kind = cls._plantumlcloud_storage_kind(el)
+            if kind is None and cls._forge_extension_node(el) is not None:
+                return "forge"
+            return kind
+
+        @staticmethod
+        def _local_id(el: object) -> str | None:
+            if not isinstance(el, Tag):
+                return None
+            local_id = el.get("local-id") or el.get("data-local-id") or el.get("ac:local-id")
+            return str(local_id) if local_id else None
+
+        @classmethod
+        def _plantumlcloud_anchor(
+            cls, el: Tag, kind: str, kind_of: Callable[[object], str | None]
+        ) -> tuple[str, int, int] | None:
+            """Locate a PlantUML element by the nearest preceding sibling with a local-id.
+
+            body.view and body.storage both carry the `local-id` of paragraphs, headings,
+            table cells and macro containers, so the triple (anchor local-id, number of
+            same-kind PlantUML elements before this one, number of same-kind elements in
+            the whole run) identifies the element in either representation. The run
+            length makes a storage element that has no counterpart in body.view block
+            the match instead of shifting it onto the wrong diagram. PlantUML-like
+            siblings, as classified by `kind_of`, are skipped; any other sibling without
+            a local-id makes the position ambiguous, so no anchor is returned. An
+            element without preceding siblings is anchored on its parent.
+            """
+            offset, stop = cls._plantumlcloud_run(el.previous_siblings, kind, kind_of)
+            if stop is None:
+                parent_id = cls._local_id(el.parent)
+                anchor_id = f"^{parent_id}" if parent_id else None
+            else:
+                anchor_id = cls._local_id(stop)
+            if anchor_id is None:
+                return None
+            after, _ = cls._plantumlcloud_run(el.next_siblings, kind, kind_of)
+            return (anchor_id, offset, offset + 1 + after)
+
+        @staticmethod
+        def _plantumlcloud_run(
+            siblings: Iterable[object], kind: str, kind_of: Callable[[object], str | None]
+        ) -> tuple[int, object | None]:
+            """Walk siblings across PlantUML-like elements.
+
+            Returns the number of `kind` elements passed and the first node that is not
+            PlantUML-like (a tag, or non-blank text), or None when the siblings end.
+            """
+            count = 0
+            for sibling in siblings:
+                if not isinstance(sibling, Tag):
+                    if str(sibling).strip():
+                        return count, sibling
+                    continue
+                sibling_kind = kind_of(sibling)
+                if sibling_kind is None:
+                    return count, sibling
+                count += sibling_kind == kind
+            return count, None
+
+        def _decode_plantumlcloud_params(self, params: dict[str, str]) -> str | None:
+            """Decode the `data` and `compressed` parameters of a PlantUML macro."""
+            data = params.get("data")
+            if not data:
+                return None
+            compressed = params.get("compressed", "").lower() == "true"
+            return self._decode_plantumlcloud_data(data, compressed=compressed)
+
+        def _decode_storage_plantumlcloud(self, kind: str, el: Tag) -> str | None:
+            """Decode the diagram source of a body.storage PlantUML element."""
+            if kind == "classic":
+                return self._decode_plantumlcloud_params(self._macro_params(el))
+            params = self._forge_plantumlcloud_params(el)
+            if params.get("compressed"):
+                return self._decode_plantumlcloud_params(params)
+            # Without a flag the payload's encoding is unknown. Raw inflate can accept
+            # arbitrary bytes, so the compressed reading is kept only when it decodes to
+            # PlantUML source.
+            uml = self._decode_plantumlcloud_params({**params, "compressed": "true"})
+            if uml and "@start" in uml:
+                return uml
+            return self._decode_plantumlcloud_params(params)
+
+        @classmethod
+        def _forge_plantumlcloud_params(cls, extension: Tag) -> dict[str, str]:
+            """Return the `data` and `compressed` values of a Forge PlantUML extension.
+
+            `guest-params` holds the current revision of the diagram. `macro-params`
+            keeps the values of the macro the extension was migrated from, which can be
+            stale, so it is used only when `guest-params` has no data.
+            """
+            param_tags = ["ac:adf-parameter", "adf-parameter"]
+
+            def child(parent: object, key: str) -> Tag | None:
+                if not isinstance(parent, Tag):
+                    return None
+                found = parent.find(param_tags, attrs={"key": key}, recursive=False)
+                return found if isinstance(found, Tag) else None
+
+            def text(el: Tag | None) -> str:
+                return el.get_text(strip=True) if el else ""
+
+            node = cls._forge_extension_node(extension)
+            params = (
+                node.find(
+                    ["ac:adf-attribute", "adf-attribute"],
+                    attrs={"key": "parameters"},
+                    recursive=False,
+                )
+                if node is not None
+                else None
+            )
+            guest = child(params, "guest-params")
+            if data := text(child(guest, "data")):
+                return {"data": data, "compressed": text(child(guest, "compressed"))}
+            macro_params = child(params, "macro-params")
+            return {
+                "data": text(child(child(macro_params, "data"), "value")),
+                "compressed": text(child(child(macro_params, "compressed"), "value")),
+            }
+
+        def _match_plantumlcloud_placeholders(
+            self,
+            placeholders: list[tuple[Tag, str]],
+            candidates: list[tuple[Tag, str]],
+            order_pairing: dict[str, bool],
+        ) -> dict[int, int]:
+            """Map placeholder positions to the indexes of their body.storage candidates.
+
+            A placeholder is matched by its local-id anchor first; an anchor shared by
+            two placeholders or two candidates identifies neither. The rest of one kind
+            is paired by order only when `order_pairing` allows it for that kind, see
+            `_pair_plantumlcloud_by_order`.
+            """
+            by_anchor: dict[tuple[str, tuple[str, int, int]], int | None] = {}
+            for index, (el, kind) in enumerate(candidates):
+                anchor = self._plantumlcloud_anchor(el, kind, self._plantumlcloud_storage_skip_kind)
+                if anchor is not None:
+                    key = (kind, anchor)
+                    by_anchor[key] = None if key in by_anchor else index
+
+            keys: list[tuple[str, tuple[str, int, int]] | None] = []
+            for el, kind in placeholders:
+                anchor = self._plantumlcloud_anchor(el, kind, self._plantumlcloud_view_skip_kind)
+                keys.append((kind, anchor) if anchor is not None else None)
+            key_counts = Counter(key for key in keys if key is not None)
+
+            assigned: dict[int, int] = {}
+            used: set[int] = set()
+            for position, key in enumerate(keys):
+                if key is None or key_counts[key] > 1:
+                    continue
+                index = by_anchor.get(key)
+                if index is not None and index not in used:
+                    assigned[position] = index
+                    used.add(index)
+
+            placeholder_kinds = [kind for _, kind in placeholders]
+            candidate_kinds = [kind for _, kind in candidates]
+            anchored = dict(assigned)
+            for kind, allowed in order_pairing.items():
+                if allowed:
+                    assigned.update(
+                        self._pair_plantumlcloud_by_order(
+                            placeholder_kinds, candidate_kinds, anchored, kind
+                        )
+                    )
+            return assigned
+
+        @staticmethod
+        def _pair_plantumlcloud_by_order(
+            placeholder_kinds: list[str],
+            candidate_kinds: list[str],
+            anchored: dict[int, int],
+            kind: str,
+        ) -> dict[int, int]:
+            """Pair unmatched elements of one kind by order, between anchored matches.
+
+            The anchored matches of `kind` split both lists into gaps. Inside each gap
+            the leftovers are paired by order when their counts are equal, so an order
+            pair never crosses an anchored match. Anchored matches that cross each other
+            leave no gap to trust, so nothing is paired then.
+            """
+            pairs = sorted((p, c) for p, c in anchored.items() if placeholder_kinds[p] == kind)
+            if any(later[1] < earlier[1] for earlier, later in itertools.pairwise(pairs)):
+                logger.debug(
+                    f"Anchored {kind} PlantUML matches cross each other between body.view "
+                    "and body.storage; their leftovers are not paired by order"
+                )
+                return {}
+            used = set(anchored.values())
+            bounds = [(-1, -1), *pairs, (len(placeholder_kinds), len(candidate_kinds))]
+            result: dict[int, int] = {}
+            for (p_low, c_low), (p_high, c_high) in itertools.pairwise(bounds):
+                free_placeholders = [
+                    p
+                    for p in range(p_low + 1, p_high)
+                    if placeholder_kinds[p] == kind and p not in anchored
+                ]
+                free_candidates = [
+                    c
+                    for c in range(c_low + 1, c_high)
+                    if candidate_kinds[c] == kind and c not in used
+                ]
+                if free_placeholders and len(free_placeholders) == len(free_candidates):
+                    result.update(zip(free_placeholders, free_candidates, strict=True))
+            return result
+
+        def _plantumlcloud_view_elements(
+            self, soup: BeautifulSoup
+        ) -> tuple[list[tuple[Tag, str]], list[Tag]]:
+            """Collect the placeholders of this page and its legacy macro divs.
+
+            Returns the placeholders not transcluded by an include macro, and every
+            legacy `plantumlcloud` div, transcluded or not: `convert_plantumlcloud`
+            resolves all of them against this page's body.storage.
+            """
+            include_attrs = {"data-macro-name": lambda name: name in _INCLUDE_MACRO_NAMES}
+
+            def included(el: Tag) -> bool:
+                return el.find_parent(attrs=include_attrs) is not None
+
+            placeholders: list[tuple[Tag, str]] = []
+            for el in soup.find_all("div"):
+                kind = self._plantumlcloud_placeholder_kind(el)
+                if kind is None:
+                    continue
+                if included(el):
+                    logger.debug(
+                        f"Leaving a transcluded PlantUML placeholder on page "
+                        f"'{self.page.title}' (ID: {self.page.id}) untouched"
+                    )
+                    continue
+                placeholders.append((el, kind))
+
+            legacy = list(soup.find_all(attrs={"data-macro-name": "plantumlcloud"}))
+            return placeholders, legacy
+
+        def _classic_macros_left_by_legacy_divs(self, legacy: list[Tag]) -> int:
+            """Count the classic storage macros that no legacy div resolves.
+
+            Mirrors `_extract_uml_from_plantumlcloud`: a div with a macro id takes that
+            macro, a div without one takes the macro at the positional cursor, and both
+            move the cursor past the macro they take. A macro id that matches nothing
+            falls back to the cursor only when some stored macro has no id.
+            """
+            macros = self._storage_macros_by_name("plantumlcloud")
+            ids = [str(macro.get("macro-id") or "") for macro in macros]
+            cursor = 0
+            covered: set[int] = set()
+            for el in legacy:
+                macro_id = str(el.get("data-macro-id") or "")
+                index = ids.index(macro_id) if macro_id in ids else None
+                if index is None:
+                    if macro_id and all(ids):
+                        continue
+                    index = cursor
+                if index < len(macros):
+                    covered.add(index)
+                    cursor = max(cursor, index + 1)
+            return sum(
+                1
+                for index, macro in enumerate(macros)
+                if index not in covered and not macro.find_parent("adf-fallback")
+            )
+
+        def _plantumlcloud_storage_candidates(
+            self, legacy_ids: set[str], *, classic_enabled: bool
+        ) -> tuple[list[tuple[Tag, str]], bool]:
+            """Collect the PlantUML elements of body.storage that placeholders may take.
+
+            Skipped are copies inside an `adf-fallback`, classic macros already
+            rendered as legacy divs, and all classic macros when `classic_enabled` is
+            off. Also returns whether Forge placeholders may be paired by order: only
+            when every Forge app macro on the page is a PlantUML one, since other Forge
+            apps render the same placeholder text. This relies on Forge macros being
+            stored as `ac:adf-extension`, as observed in exported Confluence Cloud pages.
+            """
+            fallback_tags = ["ac:adf-fallback", "adf-fallback"]
+            candidates: list[tuple[Tag, str]] = []
+            forge_order = True
+            for el in self._storage_soup.find_all(
+                [*_AC_MACRO_TAGS, "ac:adf-extension", "adf-extension"]
+            ):
+                if el.find_parent(fallback_tags):
+                    continue
+                kind = self._plantumlcloud_storage_kind(el)
+                if kind is None:
+                    if self._forge_extension_node(el) is not None:
+                        forge_order = False
+                    continue
+                if kind == "classic" and (
+                    not classic_enabled or _ac_attr(el, "macro-id") in legacy_ids
+                ):
+                    continue
+                candidates.append((el, kind))
+            return candidates, forge_order
+
+        def _resolve_plantumlcloud_placeholders(self, html: str) -> str:
+            """Rewrite text-only PlantUML placeholders in body.view into resolvable macros.
+
+            Confluence renders the PlantUML app's diagrams into body.view as bare text
+            divs without any macro attributes (see `_PLANTUMLCLOUD_PLACEHOLDER` and
+            `_FORGE_PLACEHOLDER`), so `convert_div` cannot dispatch them. The source
+            is still in body.storage. Each placeholder is matched to its storage
+            element by local-id anchor; leftovers are paired by order only when the
+            counts match exactly. Matching happens here, once, rather than through a
+            cursor during conversion, because expands and column layouts convert their
+            content twice.
+
+            A matched placeholder becomes a `plantumlcloud` macro div referencing the
+            decoded source. An unmatched classic placeholder references nothing, so it
+            converts to the "source not found" marker instead of plain text. Left alone
+            are unmatched Forge placeholders (other Forge apps render the same text)
+            and placeholders transcluded by an include macro (their source is in the
+            included page).
+
+            Any attribute-less `<div>PlantUML Diagram</div>` is treated as a classic
+            placeholder, even on a page whose storage holds no PlantUML macro. Typed
+            content renders as `<p>` or as elements with attributes, so such a div is in
+            practice always a placeholder, and a visible marker is preferred over
+            exporting the placeholder text without any signal.
+
+            Legacy divs without a macro id are resolved by a positional cursor during
+            conversion. Matching classic placeholders next to that cursor could hand
+            one diagram out twice, so a page with such a div gets no classic matching.
+            """
+            self._resolved_plantumlcloud = []
+            storage = self.page.body_storage or ""
+            if _PLANTUMLCLOUD_PLACEHOLDER not in html and "plantumlcloud" not in storage:
+                return html
+
+            soup = BeautifulSoup(html, "html.parser")
+            placeholders, legacy = self._plantumlcloud_view_elements(soup)
+            legacy_ids = {str(el["data-macro-id"]) for el in legacy if el.get("data-macro-id")}
+            classic_enabled = all(el.get("data-macro-id") for el in legacy)
+            candidates, forge_order = self._plantumlcloud_storage_candidates(
+                legacy_ids, classic_enabled=classic_enabled
+            )
+            uncovered = 0 if classic_enabled else self._classic_macros_left_by_legacy_divs(legacy)
+            if not placeholders and not candidates and not uncovered:
+                return html
+
+            assigned = self._match_plantumlcloud_placeholders(
+                placeholders, candidates, {"classic": True, "forge": forge_order}
+            )
+            page_ref = f"page '{self.page.title}' (ID: {self.page.id})"
+            changed = False
+            for position, (el, kind) in enumerate(placeholders):
+                if position in assigned:
+                    candidate, candidate_kind = candidates[assigned[position]]
+                    uml = self._decode_storage_plantumlcloud(candidate_kind, candidate)
+                    if not uml:
+                        logger.warning(f"PlantUML diagram on {page_ref} could not be decoded")
+                    ref = str(len(self._resolved_plantumlcloud))
+                    self._resolved_plantumlcloud.append(uml)
+                elif kind == "classic":
+                    reason = (
+                        "could not be matched to a diagram in body.storage"
+                        if classic_enabled
+                        else "was not matched because the page also renders PlantUML "
+                        "macros without a macro id"
+                    )
+                    logger.warning(f"PlantUML placeholder on {page_ref} {reason}")
+                    ref = "unresolved"
+                else:
+                    continue
+                el.clear()
+                el.attrs = {"data-macro-name": "plantumlcloud", "data-plantumlcloud-ref": ref}
+                changed = True
+
+            unused = len(candidates) - len(assigned) + uncovered
+            if unused > 0:
+                logger.warning(
+                    f"body.storage of {page_ref} holds {unused} PlantUML diagram(s) that "
+                    "could not be matched to a placeholder in body.view; they may be "
+                    "missing from the export"
+                )
+            return str(soup) if changed else html
 
         def convert_include(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert Confluence `include` / `excerpt-include` macro.
