@@ -676,7 +676,9 @@ class TestFetchDeletedPageIds:
         mock_settings.export.existence_check_batch_size = 250
         ids = [str(i) for i in range(300)]
         mock_client = MagicMock()
-        mock_client.get.return_value = {"results": []}
+        mock_client.get.side_effect = lambda path, **_: {
+            "results": [{"id": i} for i in ids] if path.startswith("api/v2/") else []
+        }
         mock_get_client.return_value = mock_client
 
         from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
@@ -684,6 +686,60 @@ class TestFetchDeletedPageIds:
         fetch_deleted_page_ids(ids, _TEST_BASE_URL)
 
         assert mock_client.get.call_count == 2
+
+    @patch("confluence_markdown_exporter.confluence.settings")
+    @patch("confluence_markdown_exporter.confluence.get_thread_confluence")
+    def test_v2_misses_are_rechecked_with_cql(
+        self, mock_get_client: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        """IDs missing from v2 /pages (e.g. databases) are re-checked in CQL batches of 25."""
+        mock_settings.connection_config.use_v2_api = True
+        mock_settings.export.existence_check_batch_size = 250
+        ids = [str(i) for i in range(30)]
+        mock_client = MagicMock()
+
+        def get(path: str, **kwargs: object) -> dict:
+            if path.startswith("api/v2/"):
+                return {"results": []}
+            # CQL finds every ID except "29", which was really deleted
+            cql = kwargs["params"]["cql"]  # type: ignore[index]
+            found = cql.removeprefix("id in (").removesuffix(")").split(",")
+            return {"results": [{"id": i} for i in found if i != "29"]}
+
+        mock_client.get.side_effect = get
+        mock_get_client.return_value = mock_client
+
+        from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
+
+        result = fetch_deleted_page_ids(ids, _TEST_BASE_URL)
+
+        assert result == {"29"}
+        assert mock_client.get.call_count == 3  # 1 v2 call + 2 CQL calls (25 + 5 IDs)
+
+    @patch("confluence_markdown_exporter.confluence.settings")
+    @patch("confluence_markdown_exporter.confluence.get_thread_confluence")
+    def test_failed_cql_recheck_deletes_nothing(
+        self, mock_get_client: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        """If the CQL re-check fails, the IDs are assumed to still exist."""
+        mock_settings.connection_config.use_v2_api = True
+        mock_settings.export.existence_check_batch_size = 250
+        mock_client = MagicMock()
+
+        def get(path: str, **_: object) -> dict:
+            if path.startswith("api/v2/"):
+                return {"results": [{"id": "100"}]}
+            msg = "Network error"
+            raise RuntimeError(msg)
+
+        mock_client.get.side_effect = get
+        mock_get_client.return_value = mock_client
+
+        from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
+
+        result = fetch_deleted_page_ids(["100", "200"], _TEST_BASE_URL)
+
+        assert result == set()
 
 
 class TestSyncRemovedPages:

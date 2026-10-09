@@ -24,6 +24,7 @@ from typing import Any
 from typing import ClassVar
 from typing import Literal
 from typing import TypeAlias
+from typing import TypeVar
 from typing import cast
 from urllib.parse import unquote
 from urllib.parse import unquote_plus
@@ -691,7 +692,7 @@ class Space(BaseModel):
                 for d in _search_pages(f'type=page AND space="{self.key}"', self.base_url)
                 if int(d.id) not in seen
             )
-            return pages
+            return _add_databases(pages, f'space="{self.key}"', self.base_url)
 
         if self.homepage is None:
             logger.warning(
@@ -701,6 +702,7 @@ class Space(BaseModel):
             )
         else:
             self._warn_about_skipped_pages(len(pages))
+            pages = _add_databases(pages, f"ancestor={self.homepage}", self.base_url)
         return pages
 
     def _warn_about_skipped_pages(self, found: int) -> None:
@@ -789,7 +791,8 @@ class Folder(BaseModel):
 
     @property
     def pages(self) -> list["Descendant"]:
-        return _search_pages(f"type=page AND ancestor={self.id}", self.base_url)
+        pages = _search_pages(f"type=page AND ancestor={self.id}", self.base_url)
+        return _add_databases(pages, f"ancestor={self.id}", self.base_url)
 
     def export(self) -> None:
         with console.status(
@@ -1117,6 +1120,46 @@ def _search_pages(cql: str, base_url: str) -> list["Descendant"]:
     return [Descendant.from_json(result, base_url) for result in results]
 
 
+_PageT = TypeVar("_PageT", bound="Page | Descendant")
+
+
+def _add_databases(
+    pages: list[_PageT], scope_cql: str, base_url: str
+) -> list["_PageT | Descendant"]:
+    """Return *pages* plus the Confluence Cloud databases matching *scope_cql*.
+
+    Databases are exported as placeholder pages because the API does not provide
+    their entries. A database whose export path is already taken by a page or by
+    another database is skipped, so a placeholder never overwrites another file.
+    Server/DC has no databases; if it rejects the query, `_search_pages` returns
+    an empty list.
+    """
+    databases = _search_pages(f"type=database AND {scope_cql}", base_url)
+    if not databases:
+        return [*pages]
+    taken_paths = {page.export_path for page in pages}
+    kept: list[Descendant] = []
+    for database in databases:
+        if database.export_path in taken_paths:
+            logger.warning(
+                f"Skipping Confluence database '{database.title}' (id {database.id}): "
+                f"another page or database is already exported to {database.export_path}."
+            )
+        else:
+            taken_paths.add(database.export_path)
+            kept.append(database)
+    return [*pages, *kept]
+
+
+def _database_placeholder(title: str, web_url: str) -> str:
+    """HTML body for a Confluence database, whose entries the API does not provide."""
+    return (
+        "<p>This is a Confluence database. Its entries cannot be exported because "
+        "the Confluence API does not provide them.</p>"
+        f'<p><a href="{html.escape(web_url)}">Open {html.escape(title)} in Confluence</a></p>'
+    )
+
+
 def _without_homepage(ancestors: list["Ancestor"], space: Space) -> list["Ancestor"]:
     """Drop the space homepage from the front of an ancestor chain.
 
@@ -1250,7 +1293,12 @@ class Page(Document):
         attachment_entries = self.export_attachments()
         logger.debug("Converting to Markdown for page id=%s", self.id)
         self.export_markdown()
-        if settings.export.comments_export != "none":
+        if self.type == "database":
+            logger.warning(
+                f"'{self.title}' is a Confluence database. Its entries cannot be exported, "
+                "so a placeholder page with a link to it was written."
+            )
+        elif settings.export.comments_export != "none":
             logger.debug("Exporting comments for page id=%s", self.id)
             self.export_comments_sidecar()
         logger.info(
@@ -1262,7 +1310,7 @@ class Page(Document):
         with console.status(
             f"[dim]Fetching descendants of [highlight]{self.title}[/highlight]…[/dim]"
         ):
-            pages = [self, *self.descendants]
+            pages = _add_databases([self, *self.descendants], f"ancestor={self.id}", self.base_url)
         export_pages(pages)
 
     def export_body(self) -> None:
@@ -1650,6 +1698,14 @@ class Page(Document):
         space = Space.from_key(
             data.get("_expandable", {}).get("space", "").split("/")[-1], base_url
         )
+        body = data.get("body", {})
+        # The API returns no content for a database, so it gets a placeholder body
+        # and no attachments
+        database_body = (
+            _database_placeholder(data.get("title", ""), _get_web_url(data))
+            if data.get("type") == "database"
+            else None
+        )
         return cls(
             base_url=base_url,
             id=data.get("id", 0),
@@ -1658,15 +1714,17 @@ class Page(Document):
             tiny_url=_get_tiny_url(data),
             title=data.get("title", ""),
             space=space,
-            body=data.get("body", {}).get("view", {}).get("value", ""),
-            body_export=data.get("body", {}).get("export_view", {}).get("value", ""),
-            editor2=data.get("body", {}).get("editor2", {}).get("value", ""),
-            body_storage=data.get("body", {}).get("storage", {}).get("value", ""),
+            body=database_body or body.get("view", {}).get("value", ""),
+            body_export=database_body or body.get("export_view", {}).get("value", ""),
+            editor2=body.get("editor2", {}).get("value", ""),
+            body_storage=body.get("storage", {}).get("value", ""),
             labels=[
                 Label.from_json(label)
                 for label in data.get("metadata", {}).get("labels", {}).get("results", [])
             ],
-            attachments=Attachment.from_page_id(
+            attachments=[]
+            if database_body
+            else Attachment.from_page_id(
                 data.get("id", 0), base_url, page_title=data.get("title", "")
             ),
             ancestors=_without_homepage(
@@ -3936,7 +3994,15 @@ def fetch_deleted_page_ids(page_ids: list[str], base_url: str) -> set[str]:
         batch = page_ids[i : i + effective_batch_size]
         try:
             if use_v2:
-                existing.update(_fetch_page_ids_v2_batch(batch, base_url))
+                found = _fetch_page_ids_v2_batch(batch, base_url)
+                # v2 /pages does not return databases, so re-check the rest with CQL.
+                # This costs one extra request per 25 IDs that are really deleted,
+                # and matches the CQL check used when use_v2_api is off.
+                missing = [pid for pid in batch if pid not in found]
+                for j in range(0, len(missing), _CQL_MAX_BATCH_SIZE):
+                    chunk = missing[j : j + _CQL_MAX_BATCH_SIZE]
+                    found |= _fetch_page_ids_cql_batch(chunk, base_url)
+                existing.update(found)
             else:
                 existing.update(_fetch_page_ids_cql_batch(batch, base_url))
         except Exception:  # noqa: BLE001

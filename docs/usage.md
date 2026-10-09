@@ -87,6 +87,10 @@ cme orgs <base-url-1> <base-url-2> ...
 cme org <base-url>
 ```
 
+## Databases
+
+Confluence Cloud databases inside an exported space, folder or page tree are exported as placeholder pages. The Confluence API does not provide database entries, so the placeholder only holds a link to the database in Confluence, and a warning is logged each time it is written. A database is skipped with a warning when a page or another database is already exported to the same path. Like pages, databases outside the homepage tree of a space are not exported unless [`export.only_homepage_descendants`](configuration/options.md#exportonly_homepage_descendants) is `false`. Database URLs cannot be passed to `cme pages`.
+
 ## Output layout
 
 The exported Markdown file(s) will be saved in the configured output directory (see [`export.output_path`](./configuration/options.md#exportoutput_path)) e.g.:
