@@ -283,13 +283,25 @@ class TestDatabases:
             assert [int(p.id) for p in folder.pages] == [3]
         assert "Skipping Confluence database 'Tasks' (id 4)" in caplog.text
 
+    @pytest.mark.parametrize(
+        "response",
+        [
+            HTTPError("400 Bad Request", response=MagicMock(status_code=400)),
+            HTTPError("500 Server Error", response=MagicMock(status_code=500)),
+            {"statusCode": 400, "message": "Unknown content type: database"},
+        ],
+        ids=["http-400", "http-500", "error-payload"],
+    )
     def test_rejected_database_query_adds_nothing_quietly(
-        self, caplog: pytest.LogCaptureFixture
+        self, response: object, caplog: pytest.LogCaptureFixture
     ) -> None:
         """Server/DC has no databases; a rejected query must not affect pages or warn."""
         page = Descendant.from_json(_page_json(2, "Page", [(123, "Docs")]), BASE_URL)
         client = MagicMock()
-        client.get.side_effect = HTTPError("400 Bad Request", response=MagicMock(status_code=400))
+        if isinstance(response, Exception):
+            client.get.side_effect = response
+        else:
+            client.get.return_value = response
         with patch(f"{MODULE}.get_thread_confluence", return_value=client):
             pages = _add_databases([page], "ancestor=123", BASE_URL)
         assert pages == [page]
@@ -314,6 +326,18 @@ class TestDatabasePlaceholder:
         assert "Tasks &amp; &lt;Ideas&gt;" in page.body
         assert f'href="{self.WEB_URL}"' in page.body
 
+    def test_placeholder_replaces_every_html_body(self) -> None:
+        """The placeholder wins even if the API returns HTML for the database."""
+        data = {
+            **_page_json(3, "Tasks", []),
+            "type": "database",
+            "body": {"view": {"value": "<p>view</p>"}, "export_view": {"value": "<p>export</p>"}},
+            "_links": {"base": f"{BASE_URL}/wiki", "webui": "/spaces/KEY/database/3"},
+        }
+        page = Page.from_json(data, BASE_URL)
+        assert page.body == page.body_export
+        assert f'href="{self.WEB_URL}"' in page.body
+
     def test_markdown_keeps_the_link_as_is(self) -> None:
         markdown = self._database("Tasks").markdown
         assert f"[Open Tasks in Confluence]({self.WEB_URL})" in markdown
@@ -328,14 +352,16 @@ class TestDatabasePlaceholder:
         client = MagicMock()
         client.get_page_by_id.return_value = data
         Page.from_id.cache_clear()
-        with (
-            patch(f"{MODULE}.get_thread_confluence", return_value=client),
-            patch(f"{MODULE}.Attachment.from_page_id") as attachments,
-            patch(f"{MODULE}.settings") as s,
-        ):
-            s.connection_config.use_v2_api = True
-            page = Page.from_id(3, BASE_URL)
-        Page.from_id.cache_clear()
+        try:
+            with (
+                patch(f"{MODULE}.get_thread_confluence", return_value=client),
+                patch(f"{MODULE}.Attachment.from_page_id") as attachments,
+                patch(f"{MODULE}.settings") as s,
+            ):
+                s.connection_config.use_v2_api = True
+                page = Page.from_id(3, BASE_URL)
+        finally:
+            Page.from_id.cache_clear()
         attachments.assert_not_called()
         assert page.type == "database"
         assert page.attachments == []
