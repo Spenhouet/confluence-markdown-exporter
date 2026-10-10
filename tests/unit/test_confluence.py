@@ -917,6 +917,19 @@ class TestLinkSanitization:
         )
         assert expected in conv.markdown
 
+    def test_link_that_is_not_a_valid_url_keeps_the_page(self) -> None:
+        """A page title pasted where the URL belongs (``[`` opens an IPv6 host)."""
+        page = MockPage()
+        page.html = (
+            '<p>Before <a href="http://Some Page [Spec] Design notes#section">'
+            "see here</a> after</p>"
+        )
+        conv = Page.Converter(page)
+        expected = "[see here](http://Some%20Page%20[Spec]%20Design%20notes#section)"
+        assert expected in conv.markdown
+        assert "Before" in conv.markdown
+        assert "after" in conv.markdown
+
 
 
 

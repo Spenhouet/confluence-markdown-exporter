@@ -25,6 +25,7 @@ from typing import ClassVar
 from typing import Literal
 from typing import TypeAlias
 from typing import cast
+from urllib.parse import ParseResult
 from urllib.parse import unquote
 from urllib.parse import unquote_plus
 from urllib.parse import urlparse
@@ -2596,9 +2597,11 @@ class Page(Document):
             if href_str and (attachment := self._attachment_from_download_href(href_str)):
                 return self._format_attachment_link(attachment)
             if href_str:
-                parsed_href = urlparse(href_str)
+                parsed_href = self._parse_href(href_str)
                 base_host = urlparse(getattr(self.page, "base_url", "") or "").hostname
-                if not parsed_href.hostname or parsed_href.hostname == base_host:
+                if parsed_href and (
+                    not parsed_href.hostname or parsed_href.hostname == base_host
+                ):
                     query_params = urllib.parse.parse_qs(parsed_href.query)
                     page_id_param = next(
                         (
@@ -2689,8 +2692,26 @@ class Page(Document):
             path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
+        def _parse_href(self, href: str) -> ParseResult | None:
+            """Parse a link target, or return None when it is not a valid URL.
+
+            Authors sometimes paste text where a URL belongs, e.g.
+            ``http://Some Page [Spec]``, which ``urlparse`` rejects with
+            ``ValueError: Invalid IPv6 URL``. That must cost one link, not the page.
+            """
+            try:
+                return urlparse(href)
+            except ValueError:
+                logger.warning(
+                    f"Link '{href}' on page '{self.page.title}' (ID: {self.page.id}) "
+                    "is not a valid URL, keeping it as written"
+                )
+                return None
+
         def _attachment_from_download_href(self, href: str) -> Attachment | None:
-            parsed = urlparse(href)
+            parsed = self._parse_href(href)
+            if parsed is None:
+                return None
             path_parts = [unquote(part) for part in parsed.path.split("/") if part]
             try:
                 filename = path_parts[path_parts.index("attachments") + 2]
