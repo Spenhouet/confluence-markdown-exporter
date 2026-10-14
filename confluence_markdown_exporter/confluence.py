@@ -3796,7 +3796,9 @@ class Page(Document):
             url = "rest/masterdetail/1.0/detailssummary/lines"
             params: dict[str, Any] = {
                 "cql": str(el.get("data-cql", "")),
-                "spaceKey": str(el.get("data-current-space-key", "")),
+                "spaceKey": str(
+                    el.get("data-current-space-key") or el.get("data-details-space-key") or ""
+                ),
                 "headings": headings,
                 "sortBy": str(el.get("data-sort-by", "")),
                 "reverseSort": str(el.get("data-reverse-sort", "false")),

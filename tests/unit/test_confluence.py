@@ -2246,6 +2246,51 @@ class TestPagePropertiesReportFrozenFetchesAllRows:
         assert "Page A" in result
         client.get.assert_not_called()
 
+    def test_space_key_falls_back_to_details_space_key(self) -> None:
+        """Confluence Data Center names the attribute data-details-space-key."""
+        client = MagicMock()
+        client.get.side_effect = [
+            {
+                "total": 1,
+                "totalPages": 1,
+                "currentPage": 0,
+                "detailLines": [
+                    self._detail_line(101, "Page A", ["<p>v1.0</p>", "<p>Yes</p>"]),
+                ],
+            },
+        ]
+        report_html = self._REPORT_HTML.replace(
+            'data-current-space-key="TS"', 'data-details-space-key="DC"'
+        )
+
+        result = self._convert_frozen(client, report_html=report_html)
+
+        assert "Page A" in result
+        params = client.get.call_args_list[0].kwargs["params"]
+        assert params["spaceKey"] == "DC"
+
+    def test_current_space_key_takes_precedence(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = [
+            {
+                "total": 1,
+                "totalPages": 1,
+                "currentPage": 0,
+                "detailLines": [
+                    self._detail_line(101, "Page A", ["<p>v1.0</p>", "<p>Yes</p>"]),
+                ],
+            },
+        ]
+        report_html = self._REPORT_HTML.replace(
+            'data-current-space-key="TS"',
+            'data-current-space-key="TS" data-details-space-key="DC"',
+        )
+
+        self._convert_frozen(client, report_html=report_html)
+
+        params = client.get.call_args_list[0].kwargs["params"]
+        assert params["spaceKey"] == "TS"
+
     def test_row_without_page_id_renders_plain_title(self) -> None:
         client = MagicMock()
         client.get.side_effect = [
