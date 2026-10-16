@@ -233,16 +233,22 @@ class LockfileManager:
     _output_path: ClassVar[Path | None] = None
     _all_entries_snapshot: ClassVar[dict[str, PageEntry]] = {}
     _seen_page_ids: ClassVar[set[str]] = set()
+    _skip_unchanged: ClassVar[bool] = True
     _thread_lock: ClassVar[threading.Lock] = threading.Lock()
 
     @classmethod
     def init(cls) -> None:
-        """Initialize the lockfile manager if skip_unchanged is enabled."""
+        """Initialize the lockfile manager.
+
+        The lockfile is loaded and maintained even when skip_unchanged is disabled:
+        a full export must still re-download attachments whose version changed and
+        must leave an up-to-date lockfile behind. Only the page-level skip is
+        turned off in that mode (see should_export).
+        """
         from confluence_markdown_exporter.utils.app_data_store import get_settings
 
         settings = get_settings()
-        if not settings.export.skip_unchanged:
-            return
+        cls._skip_unchanged = settings.export.skip_unchanged
 
         cls._output_path = settings.export.output_path
         cls._lockfile_path = cls._output_path / settings.export.lockfile_name
@@ -300,7 +306,7 @@ class LockfileManager:
 
         Returns True if the page should be exported (not in lockfile or changed).
         """
-        if cls._lock is None:
+        if cls._lock is None or not cls._skip_unchanged:
             return True
 
         page_id = str(page.id)

@@ -1034,12 +1034,17 @@ class Attachment(Document):
         logger.debug("Found %d attachment(s) for page id=%s", len(attachments), page_id)
         return attachments
 
-    def export(self) -> None:
+    def export(self, *, force: bool = False) -> None:
         stats = get_stats()
         filepath = settings.export.output_path / self.export_path
         if filepath.exists():
-            logger.debug("Skipping attachment '%s' — already exists at %s", self.title, filepath)
-            return
+            if not force:
+                logger.debug(
+                    "Skipping attachment '%s' — already exists at %s", self.title, filepath
+                )
+                stats.inc_attachments_skipped()
+                return
+            logger.debug("Replacing outdated attachment '%s' at %s", self.title, filepath)
 
         logger.debug("Downloading attachment '%s' to %s", self.title, filepath)
         client = get_thread_confluence(self.base_url)
@@ -1621,7 +1626,11 @@ class Page(Document):
                     stats.inc_attachments_skipped()
                     continue
 
-            attachment.export()
+            # The export path carries no version, so a re-versioned attachment maps
+            # to the same file. Force the download when the lockfile knows a
+            # different version; otherwise the stale file on disk would win.
+            outdated = att_id in old_entries and old_entries[att_id].version != att_version
+            attachment.export(force=outdated)
             if att_version:
                 new_entries[att_id] = AttachmentEntry(
                     version=att_version, path=str(attachment.export_path)
