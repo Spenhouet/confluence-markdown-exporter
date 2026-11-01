@@ -4,7 +4,7 @@ site_description: >-
   Dendron and more.
 site_url: https://spenhouet.github.io/confluence-markdown-exporter/
 site_author: Sebastian Penhouet
-copyright: Copyright &copy; 2026 Sebastian Penhouet
+copyright: Copyright &copy; 2026 Sebastian Penhouet | <a href="/impressum/">Legal Notice</a> | <a href="/datenschutz/">Privacy</a>
 
 repo_url: https://github.com/Spenhouet/confluence-markdown-exporter
 repo_name: Spenhouet/confluence-markdown-exporter
@@ -12,6 +12,7 @@ edit_uri: edit/main/docs/
 
 theme:
   name: material
+  font: false
   custom_dir: overrides
   logo: img/favicon.svg
   favicon: img/favicon.svg
