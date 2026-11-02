@@ -3100,7 +3100,7 @@ class Page(Document):
             if macro_id:
                 target = next((m for m in storage_macros if m.get("macro-id") == macro_id), None)
             if target is None:
-                view_soup = BeautifulSoup(self.page.body_view or "", "html.parser")
+                view_soup = BeautifulSoup(self.page.body or "", "html.parser")
                 view_elements = view_soup.find_all(el.name, class_=el.get("class"))
                 if el in view_elements:
                     idx = view_elements.index(el)
@@ -3658,6 +3658,40 @@ class Page(Document):
 
             return None
 
+        def _extract_markdown_from_storage(self, el: Tag, macro_name: str) -> str | None:
+            """Extract markdown source from body.storage by the macro's position.
+
+            The Nth rendered macro of a name maps to the Nth storage macro of that name.
+            The position is taken from the element itself, not from a call counter,
+            because some containers (e.g. expand) convert their content twice. Macros
+            inside an include come from another page and are not in this page's storage,
+            so they are skipped. If the counts differ, positions can't be trusted.
+            """
+            if el.find_parent(attrs={"data-macro-name": ["include", "excerpt-include"]}):
+                return None
+            root = el
+            while root.parent is not None:
+                root = root.parent
+            rendered = [
+                m
+                for m in root.find_all(attrs={"data-macro-name": macro_name})
+                if not m.find_parent(attrs={"data-macro-name": ["include", "excerpt-include"]})
+            ]
+            storage_macros = self._storage_macros_by_name(macro_name)
+            if len(rendered) != len(storage_macros):
+                return None
+            idx = next((i for i, m in enumerate(rendered) if m is el), None)
+            if idx is None:
+                return None
+            macro = storage_macros[idx]
+            plain_text_body = macro.find("plain-text-body")
+            if isinstance(plain_text_body, Tag) and plain_text_body.get_text().strip():
+                return plain_text_body.get_text()
+            param = macro.find("parameter", {"name": "markdown"})
+            if isinstance(param, Tag) and param.get_text().strip():
+                return param.get_text()
+            return None
+
         def convert_markdown(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
             """Convert Markdown macro fragments to Markdown.
 
@@ -3676,7 +3710,18 @@ class Page(Document):
                 if macro_id and isinstance(macro_id, str):
                     markdown_content = self._extract_markdown_from_editor2(macro_id)
 
+            # Server / Data Center: body.view is already rendered and editor2 is empty,
+            # so the source is only in body.storage.
+            if not markdown_content and isinstance(el, Tag):
+                markdown_content = self._extract_markdown_from_storage(el, str(macro_name))
+
             if not markdown_content:
+                if text.strip():
+                    logger.debug(
+                        f"Markdown macro ({macro_name}) source not found, "
+                        "using its rendered content"
+                    )
+                    return f"\n{text.strip()}\n\n"
                 logger.warning(
                     f"Markdown macro ({macro_name}) found but no content could be extracted"
                 )
