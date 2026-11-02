@@ -12,6 +12,7 @@ import logging
 import mimetypes
 import os
 import re
+import time
 import urllib.parse
 import zlib
 from collections.abc import Set
@@ -42,6 +43,9 @@ from pydantic import BaseModel
 from pydantic import Field
 from requests import HTTPError
 from requests import RequestException
+from requests.exceptions import ChunkedEncodingError
+from requests.exceptions import ConnectionError as RequestConnectionError
+from requests.exceptions import Timeout
 from rich.progress import BarColumn
 from rich.progress import MofNCompleteColumn
 from rich.progress import Progress
@@ -84,6 +88,7 @@ StrPath: TypeAlias = str | PathLike[str]
 
 logger = logging.getLogger(__name__)
 _MAX_UNICODE_CODEPOINT = 0x10FFFF
+_PAGE_SEARCH_MAX_ATTEMPTS = 3
 
 # Rows requested per call when fetching all Page Properties Report entries.
 _REPORT_FETCH_PAGE_SIZE = 50
@@ -569,9 +574,7 @@ def _page_id_by_title(space_key: str, title: str, base_url: str) -> int | None:
     a page id. Cached because the same target is often linked from many pages.
     """
     try:
-        page_data = get_thread_confluence(base_url).get_page_by_title(
-            space=space_key, title=title
-        )
+        page_data = get_thread_confluence(base_url).get_page_by_title(space=space_key, title=title)
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Could not resolve page '{title}' in space '{space_key}': {e}")
         return None
@@ -989,9 +992,7 @@ class Attachment(Document):
         )
 
     @classmethod
-    def from_page_id(
-        cls, page_id: int, base_url: str, page_title: str = ""
-    ) -> list["Attachment"]:
+    def from_page_id(cls, page_id: int, base_url: str, page_title: str = "") -> list["Attachment"]:
         attachments = []
         start = 0
         paging_limit = 50
@@ -1010,9 +1011,7 @@ class Attachment(Document):
 
             attachments.extend(
                 [
-                    cls.from_json(
-                        att, base_url, page_id=str(page_id), page_title=page_title
-                    )
+                    cls.from_json(att, base_url, page_id=str(page_id), page_title=page_title)
                     for att in response.get("results", [])
                 ]
             )
@@ -1091,29 +1090,34 @@ def _search_pages(cql: str, base_url: str) -> list["Descendant"]:
     url = "rest/api/content/search"
     params = {
         "cql": cql,
-        "expand": "metadata.properties,ancestors,version",
+        "expand": "ancestors,version",
         "limit": 250,
     }
     results = []
     client = get_thread_confluence(base_url)
 
-    try:
-        response = cast("dict", client.get(url, params=params))
+    def get(path: str, params: dict | None = None) -> JsonResponse:
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                response = (
+                    client.get(path, params=params) if params is not None else client.get(path)
+                )
+                return cast("dict", response)
+            except (ChunkedEncodingError, RequestConnectionError, Timeout):
+                if attempt == _PAGE_SEARCH_MAX_ATTEMPTS:
+                    raise
+                time.sleep(attempt)
+
+    response = get(url, params=params)
+    results.extend(response.get("results", []))
+    next_path = response.get("_links", {}).get("next")
+
+    while next_path:
+        response = get(next_path)
         results.extend(response.get("results", []))
         next_path = response.get("_links", {}).get("next")
-
-        while next_path:
-            response = cast("dict", client.get(next_path))
-            results.extend(response.get("results", []))
-            next_path = response.get("_links", {}).get("next")
-
-    except HTTPError as e:
-        if e.response.status_code == 404:  # noqa: PLR2004
-            logger.warning(f"No content found (404) for query: {cql}")
-        return []
-    except Exception:
-        logger.exception(f"Unexpected error when searching pages for query: {cql}")
-        return []
     return [Descendant.from_json(result, base_url) for result in results]
 
 
@@ -1557,9 +1561,7 @@ class Page(Document):
             names.update(Page._extract_macro_diagrams("drawio", soup))
             return names  # noqa: TRY300
         except Exception as e:  # noqa: BLE001
-            logger.debug(
-                f"Error parsing clientside macros from storage for page {self.id}: {e}"
-            )
+            logger.debug(f"Error parsing clientside macros from storage for page {self.id}: {e}")
             return set()
 
     def _attachments_for_export(self) -> list["Attachment"]:
@@ -1807,6 +1809,7 @@ class Page(Document):
             self._plantumlcloud_index: int = 0
             self._storage_macros_cache: dict[str, list[Tag]] = {}
             self._storage_soup_cache: BeautifulSoup | None = None
+            self._pagetree_descendants_cache: dict[int, list[Descendant]] = {}
 
         @property
         def _colorid_map(self) -> dict[str, str]:
@@ -2328,7 +2331,11 @@ class Page(Document):
                 # The Children Display macro shows only direct children unless `all=true`.
                 if params.get("all", "").strip().lower() != "true":
                     max_depth = 1
-            lines = self._render_pagetree(root_page.id, root_page.descendants, max_depth)
+            descendants = self._pagetree_descendants_cache.get(root_page.id)
+            if descendants is None:
+                descendants = root_page.descendants
+                self._pagetree_descendants_cache[root_page.id] = descendants
+            lines = self._render_pagetree(root_page.id, descendants, max_depth)
             if not lines:
                 return ""
             return "\n" + "\n".join(lines) + "\n\n"
@@ -2489,7 +2496,7 @@ class Page(Document):
                 if max_depth is not None and level >= max_depth:
                     return
                 for child in sorted(children_by_parent.get(parent_id, []), key=lambda c: c.title):
-                    lines.append(f"{'  ' * level}- {self.convert_page_link(child.id)}")
+                    lines.append(f"{'  ' * level}- {self.convert_page_link(child.id, page=child)}")
                     walk(child.id, level + 1)
 
             walk(root_id, 0)
@@ -2525,9 +2532,7 @@ class Page(Document):
                 issue_status.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
             )
             status = (
-                f" ({issue_status})"
-                if settings.export.include_jira_status and issue_status
-                else ""
+                f" ({issue_status})" if settings.export.include_jira_status and issue_status else ""
             )
             return f"[[{issue.key}] {issue.summary}{status}]({link.get('href')})"
 
@@ -2629,16 +2634,16 @@ class Page(Document):
             if href_str and text.replace(r"\_", "_") != href_str:
                 # Parentheses and spaces in the destination end a Markdown link
                 # early (e.g. Kibana URLs with `?_g=()`). Percent-encode them.
-                el["href"] = (
-                    href_str.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
-                )
+                el["href"] = href_str.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
                 # A URL used as link text needs no escaping of its underscores.
                 if text.startswith(("http://", "https://")):
                     text = text.replace(r"\_", "_")
 
             return super().convert_a(el, text, parent_tags)
 
-        def convert_page_link(self, page_id: int, text: str = "") -> str:
+        def convert_page_link(
+            self, page_id: int, text: str = "", page: Descendant | None = None
+        ) -> str:
             """Render a link to another page.
 
             ``text`` is the anchor text as it appears on the source page. Confluence
@@ -2649,7 +2654,7 @@ class Page(Document):
                 msg = "Page link does not have valid page_id."
                 raise ValueError(msg)
 
-            page = _link_target(page_id, self.page.base_url)
+            page = _link_target(page_id, self.page.base_url) if page is None else page
 
             if page is None or page.title == "Page not accessible":
                 logger.warning(
