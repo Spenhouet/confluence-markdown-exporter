@@ -448,6 +448,13 @@ Limit space exports (`spaces`, `orgs`) to the space homepage and its descendants
 - Default: `True`
 - ENV Var: `CME_EXPORT__ONLY_HOMEPAGE_DESCENDANTS`
 
+### export.database_placeholders
+
+Export Confluence Cloud databases as placeholder pages. The Confluence API does not provide database entries, so each placeholder holds a short note and a link to the database in Confluence. Set to `false` to skip databases. Server/Data Center has no databases.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__DATABASE_PLACEHOLDERS`
+
 ### export.skip_unchanged
 
 Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.

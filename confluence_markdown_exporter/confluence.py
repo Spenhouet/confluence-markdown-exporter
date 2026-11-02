@@ -1179,6 +1179,8 @@ def _add_databases(
     Server/DC has no databases and rejects the query with an HTTP error, which is
     ignored here so page discovery is not affected.
     """
+    if not settings.export.database_placeholders:
+        return [*pages]
     try:
         databases = _search_pages(f"type=database AND {scope_cql}", base_url)
     except HTTPError as e:
@@ -1343,7 +1345,7 @@ class Page(Document):
         logger.debug("Converting to Markdown for page id=%s", self.id)
         self.export_markdown()
         if self.type == "database":
-            logger.warning(
+            logger.info(
                 f"'{self.title}' is a Confluence database. Its entries cannot be exported, "
                 "so a placeholder page with a link to it was written."
             )
