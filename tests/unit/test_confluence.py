@@ -29,6 +29,7 @@ from confluence_markdown_exporter.confluence import User
 from confluence_markdown_exporter.confluence import Version
 from confluence_markdown_exporter.confluence import _has_child_pages
 from confluence_markdown_exporter.confluence import _page_id_by_title
+from confluence_markdown_exporter.utils.lockfile import AttachmentEntry
 
 
 @pytest.fixture(autouse=True)
@@ -598,6 +599,36 @@ class TestAttachmentsExportFlag:
 
         att.export.assert_called_once()
         assert "att-1" in result
+
+    @pytest.mark.parametrize(
+        ("old_entries", "forced"),
+        [
+            ({"att-1": AttachmentEntry(version=2, path="attachments/att-1.bin")}, True),
+            ({}, False),
+        ],
+    )
+    def test_reversioned_attachment_is_forced(
+        self, tmp_path: Path, old_entries: dict, forced: bool
+    ) -> None:
+        """A version change in the lockfile forces the download over the existing file."""
+        att = self._make_attachment_mock(version=3)
+        page = self._make_page_mock([att])
+        (tmp_path / "attachments").mkdir()
+        (tmp_path / "attachments" / "att-1.bin").write_text("old")
+
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as mock_settings,
+            patch("confluence_markdown_exporter.confluence.LockfileManager") as mock_lockfile,
+            patch("confluence_markdown_exporter.confluence.get_stats"),
+        ):
+            mock_settings.export.attachments_export = "referenced"
+            mock_settings.export.output_path = tmp_path
+            mock_lockfile.get_page_attachment_entries.return_value = old_entries
+
+            result = Page.export_attachments(page)
+
+        att.export.assert_called_once_with(force=forced)
+        assert result["att-1"].version == 3
 
     def test_disabled_skips_download_and_lockfile(self) -> None:
         """With attachments_export='disabled', no download and no lockfile lookup."""
