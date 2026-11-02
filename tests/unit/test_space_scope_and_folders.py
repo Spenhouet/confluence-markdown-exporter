@@ -249,6 +249,18 @@ class TestDatabases:
         with patch(f"{MODULE}._search_pages", side_effect=_search(results)):
             assert [int(p.id) for p in folder.pages] == [2, 3]
 
+    def test_placeholders_disabled_skips_database_search(self) -> None:
+        page = Descendant.from_json(_page_json(2, "Page", [(123, "Docs")]), BASE_URL)
+        database = Descendant.from_json(_page_json(3, "Tasks", [(123, "Docs")]), BASE_URL)
+        folder = Folder(base_url=BASE_URL, id=123, title="Docs")
+        results = {"page": [page], "database": [database]}
+        with (
+            patch(f"{MODULE}._search_pages", side_effect=_search(results)) as search,
+            patch(f"{MODULE}.settings.export.database_placeholders", new=False),
+        ):
+            assert [int(p.id) for p in folder.pages] == [2]
+        assert all("database" not in c.args[0] for c in search.call_args_list)
+
     def test_page_with_descendants_adds_databases(self) -> None:
         root = MagicMock(id=100, base_url=BASE_URL, descendants=[], export_path="Home.md")
         database = Descendant.from_json(_page_json(3, "Tasks", [(100, "Home")]), BASE_URL)
@@ -367,7 +379,7 @@ class TestDatabasePlaceholder:
         assert page.attachments == []
         assert f'href="{self.WEB_URL}"' in page.body
 
-    def test_export_warns_and_skips_comments(
+    def test_export_logs_info_and_skips_comments(
         self, path_settings: MagicMock, caplog: pytest.LogCaptureFixture
     ) -> None:
         page = self._database("Tasks")
@@ -377,7 +389,9 @@ class TestDatabasePlaceholder:
             patch.object(Page, "export_attachments", return_value={}),
             patch.object(Page, "export_markdown"),
             patch.object(Page, "export_comments_sidecar") as comments,
+            caplog.at_level("INFO"),
         ):
             page.export()
         comments.assert_not_called()
-        assert "'Tasks' is a Confluence database" in caplog.text
+        records = [r for r in caplog.records if "'Tasks' is a Confluence database" in r.message]
+        assert [r.levelname for r in records] == ["INFO"]
