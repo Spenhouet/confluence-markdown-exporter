@@ -65,6 +65,50 @@ def _get_int_attr(cell: Tag, attr: str, default: str = "1") -> int:
         return int(default)
 
 
+def pad(rows: list[list[Tag]]) -> list[list[Tag]]:
+    """Expand rowspan and colspan into a rectangular grid of cells.
+
+    Markdown tables cannot merge cells, so in a well-formed table every grid position a
+    merged cell covers references the merge origin itself and therefore renders the same
+    value. The same Tag object is reused on purpose, so callers can convert each origin
+    only once.
+
+    A ragged row, one with too few cells to reach a position reserved by an earlier
+    rowspan, still drops that reservation, because the trailing sweep only fills the
+    positions directly following the last cell of the row. Such markup is malformed and
+    renders the same way it did before merged content was carried over.
+    """
+    padded: list[list[Tag]] = []
+    occ: dict[tuple[int, int], Tag] = {}
+    for r, row in enumerate(rows):
+        if not row:
+            continue
+        cur: list[Tag] = []
+        c = 0
+        for cell in row:
+            while (r, c) in occ:
+                cur.append(occ.pop((r, c)))
+                c += 1
+            # Every cell occupies at least one grid position: colspan="0" (valid in
+            # HTML4, dropped in HTML5) or a negative value would otherwise erase it.
+            # rowspan="0" validly means "to the end of the row group"; treating it as a
+            # single row is a pragmatic simplification, not a spec-accurate reading.
+            rs = max(_get_int_attr(cell, "rowspan", "1"), 1)
+            cs = max(_get_int_attr(cell, "colspan", "1"), 1)
+            # Repeat the cell across the columns it spans in this row.
+            cur.extend([cell] * cs)
+            # Reserve the positions it spans in the following rows.
+            for i in range(1, rs):
+                for j in range(cs):
+                    occ[(r + i, c + j)] = cell
+            c += cs
+        while (r, c) in occ:
+            cur.append(occ.pop((r, c)))
+            c += 1
+        padded.append(cur)
+    return padded
+
+
 def normalize_table_cell_text(text: str) -> str:
     text = text.replace("|", "\\|").replace("\n", "<br/>")
     text = _LEADING_BR_OR_WS.sub("", text)
@@ -108,6 +152,7 @@ class TableConverter(MarkdownConverter):
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         self._table_column_width = kwargs.pop("table_column_width", None)
+        self._preserve_merged_tables_as_html = kwargs.pop("preserve_merged_tables_as_html", None)
         super().__init__(*args, **kwargs)
 
     def _format_table(
@@ -138,7 +183,7 @@ class TableConverter(MarkdownConverter):
 
         return aligned
 
-    def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
+    def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901, PLR0912
         _remove_empty_column_groups(el)
 
         if "table" in parent_tags:
@@ -158,17 +203,38 @@ class TableConverter(MarkdownConverter):
         if not rows or not any(rows):
             return ""
 
-        if any(
+        preserve_merged = self._preserve_merged_tables_as_html
+        if preserve_merged is None:
+            try:
+                preserve_merged = get_settings().export.preserve_merged_tables_as_html
+            except (AttributeError, RuntimeError):
+                preserve_merged = False
+
+        has_merged = any(
             _get_int_attr(cell, "colspan") > 1
             or (_get_int_attr(cell, "rowspan") != 1 and _get_int_attr(cell, "rowspan") >= 0)
             for cell in chain.from_iterable(rows)
-        ):
-            return self.convert_merged_table(el, parent_tags)
+        )
 
-        converted = [
-            [self.process_tag(cell, parent_tags={"table"}) for cell in row]
-            for row in filter(None, rows)
-        ]
+        if preserve_merged and has_merged:
+            return self.convert_merged_table(el, rows, parent_tags)
+
+        padded_rows = pad(rows)
+        # A merged cell occupies several grid positions but must be converted only
+        # once: conversion is stateful (e.g. the PlantUML macro index advances per
+        # converted macro), so repeated positions reuse the first conversion.
+        # Keyed on id() and not on the Tag itself: bs4 gives Tag a structural __eq__
+        # and __hash__, so two distinct cells with identical markup would collapse
+        # into one cache entry and wrongly share a conversion.
+        cell_cache: dict[int, str] = {}
+        converted: list[list[str]] = []
+        for row in padded_rows:
+            converted_row: list[str] = []
+            for cell in row:
+                if id(cell) not in cell_cache:
+                    cell_cache[id(cell)] = self.process_tag(cell, parent_tags={"table"})
+                converted_row.append(cell_cache[id(cell)])
+            converted.append(converted_row)
 
         has_header = all(cell.name == "th" for cell in rows[0])
 
@@ -179,7 +245,7 @@ class TableConverter(MarkdownConverter):
             except (AttributeError, RuntimeError):
                 mode = "mixed"
 
-        is_nested = any(cell.find("table") is not None for row in rows for cell in row)
+        is_nested = any(cell.find("table") is not None for row in padded_rows for cell in row)
         return self._format_table(
             converted,
             has_header=has_header,
@@ -187,10 +253,43 @@ class TableConverter(MarkdownConverter):
             mode=mode,
         )
 
-    def convert_merged_table(self, el: BeautifulSoup, parent_tags: list[str]) -> str:
-        """Keep merges and rich cell content in an HTML block."""
+    def convert_merged_table(
+        self,
+        el: Tag,
+        rows: list[list[Tag]],
+        parent_tags: "TableConverter.ParentTags | bool",
+    ) -> str:
+        """Keep merges and rich cell content in an HTML block, converting cell contents."""
+        for tag in [el, *el.find_all(["thead", "tbody", "tfoot", "tr"], recursive=False)]:
+            if tag.has_attr("class"):
+                cleaned = [c for c in tag.get("class", []) if not c.startswith("confluence")]
+                if cleaned:
+                    tag["class"] = cleaned
+                else:
+                    del tag["class"]
+
+        tags = self._normalize_parent_tags(parent_tags)
+        table_tags = set(tags) | {"table"}
+
+        for row in rows:
+            for cell in row:
+                content = self.process_tag(cell, parent_tags=table_tags)
+                if cell.has_attr("class"):
+                    cleaned_classes = [
+                        c for c in cell.get("class", []) if not c.startswith("confluence")
+                    ]
+                    if cleaned_classes:
+                        cell["class"] = cleaned_classes
+                    else:
+                        del cell["class"]
+                cell.clear()
+                if content:
+                    cell.extend(BeautifulSoup(content, "html.parser").contents)
+
+        result = str(el)
         # Blank lines end CommonMark HTML blocks even inside a table.
-        return "\n\n" + str(el).replace("\n", "&#10;").replace("\r", "&#13;") + "\n\n"
+        result = re.sub(r"\n\s*\n+", "\n", result)
+        return "\n\n" + result.strip() + "\n\n"
 
     def convert_th(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <th> tag."""

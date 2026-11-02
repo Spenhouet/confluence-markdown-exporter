@@ -42,6 +42,8 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.page_breadcrumbs` | Include breadcrumb links at top of page |\n\n"
     "| `export.table_column_width` | Visual alignment of table columns: "
     "`aligned`, `mixed` (default), or `compact` |\n\n"
+    "| `export.preserve_merged_tables_as_html` | "
+    "Preserve merged tables as HTML (`true`/`false`) |\n\n"
     "| `export.confluence_url_in_frontmatter` | Include Confluence page URL in YAML "
     "front matter: `none`, `webui`, `tinyui`, `both` |\n\n"
     "| `export.page_metadata_in_frontmatter` | Add Confluence page metadata "

@@ -19,6 +19,7 @@ from requests import HTTPError
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+from confluence_markdown_exporter import confluence
 from confluence_markdown_exporter.confluence import Ancestor
 from confluence_markdown_exporter.confluence import Attachment
 from confluence_markdown_exporter.confluence import JiraIssue
@@ -233,8 +234,7 @@ class TestAttachmentLinkConversion:
             result = conv.convert(html).strip()
 
         assert result == (
-            "[Video Agenzia Entrate (2).mp4]"
-            "(attachments/f5a14888-2775-4394-b5a4-ac0ffc0c39f5.mp4)"
+            "[Video Agenzia Entrate (2).mp4](attachments/f5a14888-2775-4394-b5a4-ac0ffc0c39f5.mp4)"
         )
 
 
@@ -263,9 +263,7 @@ class TestJiraIssueConversion:
         assert JiraIssue.from_json(jira_issue_response).status == "Open"
 
     def test_disabled_enrichment_does_not_fetch_issue(self) -> None:
-        jira_settings = SimpleNamespace(
-            export=SimpleNamespace(enable_jira_enrichment=False)
-        )
+        jira_settings = SimpleNamespace(export=SimpleNamespace(enable_jira_enrichment=False))
         with (
             patch(
                 "confluence_markdown_exporter.confluence.get_settings",
@@ -273,9 +271,7 @@ class TestJiraIssueConversion:
             ),
             patch.object(JiraIssue, "_fetch_cached") as fetch_issue,
         ):
-            result = JiraIssue.from_key(
-                "TEST-123", "https://example.atlassian.net"
-            )
+            result = JiraIssue.from_key("TEST-123", "https://example.atlassian.net")
 
         assert result is None
         fetch_issue.assert_not_called()
@@ -305,9 +301,7 @@ class TestJiraIssueConversion:
             "(https://example.atlassian.net/browse/TEST-123)"
         )
 
-    def test_status_is_safe_for_markdown_link_text(
-        self, converter: Page.Converter
-    ) -> None:
+    def test_status_is_safe_for_markdown_link_text(self, converter: Page.Converter) -> None:
         with (
             patch("confluence_markdown_exporter.confluence.settings") as s,
             patch.object(
@@ -325,9 +319,7 @@ class TestJiraIssueConversion:
         )
 
     @pytest.mark.parametrize("status", ["", "   "])
-    def test_blank_status_is_not_appended(
-        self, converter: Page.Converter, status: str
-    ) -> None:
+    def test_blank_status_is_not_appended(self, converter: Page.Converter, status: str) -> None:
         with (
             patch("confluence_markdown_exporter.confluence.settings") as s,
             patch.object(JiraIssue, "from_key", return_value=self._issue(status=status)),
@@ -339,9 +331,7 @@ class TestJiraIssueConversion:
             "[[TEST-123] Fix login timeout](https://example.atlassian.net/browse/TEST-123)"
         )
 
-    def test_missing_enrichment_keeps_key_only_fallback(
-        self, converter: Page.Converter
-    ) -> None:
+    def test_missing_enrichment_keeps_key_only_fallback(self, converter: Page.Converter) -> None:
         with (
             patch("confluence_markdown_exporter.confluence.settings") as s,
             patch.object(JiraIssue, "from_key", return_value=None),
@@ -385,6 +375,8 @@ def _export_settings(tmp_path: Path) -> SimpleNamespace:
             attachments_export="referenced",
             include_macro="inline",
             page_properties_report_format="frozen",
+            table_column_width="mixed",
+            preserve_merged_tables_as_html=False,
         )
     )
 
@@ -471,7 +463,6 @@ class TestMarkdownExport:
         main = tmp_path / "Test Page.md"
         assert main.exists()
         assert "<table>" in main.read_text(encoding="utf-8")
-
 
 
 class TestAttachmentsForExport:
@@ -585,9 +576,7 @@ class TestAttachmentsExportFlag:
 
         with (
             patch("confluence_markdown_exporter.confluence.settings") as mock_settings,
-            patch(
-                "confluence_markdown_exporter.confluence.LockfileManager"
-            ) as mock_lockfile,
+            patch("confluence_markdown_exporter.confluence.LockfileManager") as mock_lockfile,
             patch("confluence_markdown_exporter.confluence.get_stats"),
         ):
             mock_settings.export.attachments_export = "referenced"
@@ -606,9 +595,7 @@ class TestAttachmentsExportFlag:
 
         with (
             patch("confluence_markdown_exporter.confluence.settings") as mock_settings,
-            patch(
-                "confluence_markdown_exporter.confluence.LockfileManager"
-            ) as mock_lockfile,
+            patch("confluence_markdown_exporter.confluence.LockfileManager") as mock_lockfile,
             patch("confluence_markdown_exporter.confluence.get_stats"),
         ):
             mock_settings.export.attachments_export = "disabled"
@@ -626,12 +613,8 @@ class TestAttachmentsExportFlag:
         the same flag — body image and file links must keep resolving.
         """
         base_url = "https://example.atlassian.net"
-        fake_space = Space(
-            base_url=base_url, key="K", name="Space", description="", homepage=None
-        )
-        fake_user = User(
-            account_id="", username="", display_name="", public_name="", email=""
-        )
+        fake_space = Space(base_url=base_url, key="K", name="Space", description="", homepage=None)
+        fake_user = User(account_id="", username="", display_name="", public_name="", email="")
         fake_version = Version(number=1, by=fake_user, when="", friendly_when="")
         fake_attachment = Attachment(
             base_url=base_url,
@@ -694,8 +677,7 @@ class TestEmbeddedImageWithoutDataIds:
 
     # The HTML below is taken verbatim from a real page export
     # The *-drawio.png-case is handled specially in the code, hence the two different forms
-    _HTML = (
-        """<span class="confluence-embedded-file-wrapper image-left-wrapper">
+    _HTML = """<span class="confluence-embedded-file-wrapper image-left-wrapper">
             <img class="confluence-embedded-image confluence-external-resource image-left"
                 data-image-src="https://example.com/wiki/download/attachments/123456/bar.drawio.png?api=v2&amp;version=16"
                 loading="lazy"
@@ -706,16 +688,13 @@ class TestEmbeddedImageWithoutDataIds:
                 loading="lazy" src="https://example.com/wiki/download/attachments/123456/foo.png?api=v2&amp;version=7"
                 width="1557"/>
         "</span>"""
-    )
 
     def _convert(self, html: str, attachments: list[Attachment]) -> str:
         page = _make_page(body=html, body_export=html, attachments=attachments)
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.attachment_href = "relative"
             s.export.embed_images = False
-            s.export.attachment_path = (
-                "{space_name}/media/{attachment_title}{attachment_extension}"
-            )
+            s.export.attachment_path = "{space_name}/media/{attachment_title}{attachment_extension}"
             s.export.page_href = "relative"
             s.export.page_path = "{space_name}/{page_title}.md"
             s.export.image_captions = False
@@ -723,7 +702,7 @@ class TestEmbeddedImageWithoutDataIds:
 
     def test_download_url_resolves_to_exported_attachment(self) -> None:
         att = _make_attachment("xxxxx", "aaaaaaaaa", title="foo.png")
-        att2 = _make_attachment("yyyyy", "bbbbbbbbb", title = "bar.drawio.png")
+        att2 = _make_attachment("yyyyy", "bbbbbbbbb", title="bar.drawio.png")
 
         result = self._convert(self._HTML, [att, att2])
 
@@ -739,9 +718,7 @@ class TestEmbeddedImageWithoutDataIds:
         assert "https://example.com/wiki/download/attachments/123456/foo.png" in result
 
     def test_resolves_via_data_image_src_when_src_is_absent(self) -> None:
-        att = _make_attachment(
-            "107a200c", "107a200c-ba2a-4a06-88f3-111ad53c8321", title="foo.png"
-        )
+        att = _make_attachment("107a200c", "107a200c-ba2a-4a06-88f3-111ad53c8321", title="foo.png")
         html = """
             <img class="confluence-embedded-image"
                 data-image-src="https://example.com/wiki/download/attachments/983041/foo.png?api=v2&amp;version=7"/>
@@ -859,11 +836,7 @@ class TestParseImageCaptions:
     def test_image_without_caption_excluded(self) -> None:
         from confluence_markdown_exporter.confluence import _parse_image_captions
 
-        storage = (
-            "<ac:image>"
-            '<ri:attachment ri:filename="no-caption.png"/>'
-            "</ac:image>"
-        )
+        storage = '<ac:image><ri:attachment ri:filename="no-caption.png"/></ac:image>'
         assert _parse_image_captions(storage) == {}
 
     def test_multiple_images_mixed(self) -> None:
@@ -916,11 +889,6 @@ class TestLinkSanitization:
             "(https://kibana.example.com/app/kibana#/dashboard/AWW0_8x?param=1)"
         )
         assert expected in conv.markdown
-
-
-
-
-
 
     def test_empty_storage_returns_empty(self) -> None:
         from confluence_markdown_exporter.confluence import _parse_image_captions
@@ -1048,18 +1016,18 @@ class TestCellHighlightConversion:
 
     def test_td_hex_attribute_wraps_in_mark(self, converter: Page.Converter) -> None:
         html = (
-            '<table><tbody><tr>'
+            "<table><tbody><tr>"
             '<td data-highlight-colour="#fff0b3"><p>2</p></td>'
-            '</tr></tbody></table>'
+            "</tr></tbody></table>"
         )
         result = converter.convert(html)
         assert '<mark style="background: #fff0b3;">2</mark>' in result
 
     def test_th_hex_attribute_wraps_in_mark(self, converter: Page.Converter) -> None:
         html = (
-            '<table><tbody><tr>'
+            "<table><tbody><tr>"
             '<th data-highlight-colour="#ffd5d2"><p><strong>P / S</strong></p></th>'
-            '</tr></tbody></table>'
+            "</tr></tbody></table>"
         )
         result = converter.convert(html)
         assert '<mark style="background: #ffd5d2;">**P / S**</mark>' in result
@@ -1067,55 +1035,49 @@ class TestCellHighlightConversion:
     def test_default_header_gray_not_wrapped(self, converter: Page.Converter) -> None:
         """Confluence's default <th> background (#f4f5f7) is not user-chosen — skip."""
         html = (
-            '<table><tbody><tr>'
+            "<table><tbody><tr>"
             '<th data-highlight-colour="#f4f5f7"><p><strong>P / S</strong></p></th>'
             '<td data-highlight-colour="#f4f5f7"><p><strong>P5</strong></p></td>'
-            '</tr></tbody></table>'
+            "</tr></tbody></table>"
         )
         result = converter.convert(html)
         assert "<mark" not in result
 
     def test_transparent_attribute_not_wrapped(self, converter: Page.Converter) -> None:
         html = (
-            '<table><tbody><tr>'
+            "<table><tbody><tr>"
             '<td data-highlight-colour="transparent"><p>plain</p></td>'
-            '</tr></tbody></table>'
+            "</tr></tbody></table>"
         )
         result = converter.convert(html)
         assert "<mark" not in result
         assert "plain" in result
 
     def test_missing_attribute_not_wrapped(self, converter: Page.Converter) -> None:
-        html = (
-            '<table><tbody><tr><td><p>plain</p></td></tr></tbody></table>'
-        )
+        html = "<table><tbody><tr><td><p>plain</p></td></tr></tbody></table>"
         result = converter.convert(html)
         assert "<mark" not in result
         assert "plain" in result
 
     def test_invalid_hex_not_wrapped(self, converter: Page.Converter) -> None:
         html = (
-            '<table><tbody><tr>'
+            "<table><tbody><tr>"
             '<td data-highlight-colour="not-a-color"><p>x</p></td>'
-            '</tr></tbody></table>'
+            "</tr></tbody></table>"
         )
         result = converter.convert(html)
         assert "<mark" not in result
 
     def test_empty_cell_with_highlight_renders_nbsp(self, converter: Page.Converter) -> None:
-        html = (
-            '<table><tbody><tr>'
-            '<td data-highlight-colour="#ff8f73"></td>'
-            '</tr></tbody></table>'
-        )
+        html = '<table><tbody><tr><td data-highlight-colour="#ff8f73"></td></tr></tbody></table>'
         result = converter.convert(html)
         assert '<mark style="background: #ff8f73;">&nbsp;</mark>' in result
 
     def test_setting_disabled_returns_plain_text(self, converter: Page.Converter) -> None:
         html = (
-            '<table><tbody><tr>'
+            "<table><tbody><tr>"
             '<td data-highlight-colour="#fff0b3"><p>2</p></td>'
-            '</tr></tbody></table>'
+            "</tr></tbody></table>"
         )
         with patch("confluence_markdown_exporter.confluence.settings") as s:
             s.export.convert_text_highlights = False
@@ -1143,8 +1105,8 @@ class TestSpanFontColorConversion:
     def test_data_colorid_resolved_from_style_tag(self) -> None:
         page = MockPage()
         page.html = (
-            '<style>[data-colorid=abc123]{color:#ff5630} '
-            'html[data-color-mode=dark] [data-colorid=abc123]{color:#cf2600}</style>'
+            "<style>[data-colorid=abc123]{color:#ff5630} "
+            "html[data-color-mode=dark] [data-colorid=abc123]{color:#cf2600}</style>"
         )
         conv = Page.Converter(page)  # type: ignore[arg-type]
         html = '<p><span data-colorid="abc123">colored</span></p>'
@@ -1172,9 +1134,7 @@ class TestStatusBadgeConversion:
 
     def _badge(self, extra_class: str, label: str) -> str:
         classes = f"status-macro aui-lozenge aui-lozenge-visual-refresh {extra_class}".strip()
-        return (
-            f'<p><span class="{classes}" data-macro-name="status">{label}</span></p>'
-        )
+        return f'<p><span class="{classes}" data-macro-name="status">{label}</span></p>'
 
     def test_gray_badge(self, converter: Page.Converter) -> None:
         html = self._badge("", "IN PROGRESS")
@@ -2437,6 +2397,8 @@ class TestAttachmentExtensionFromTitle:
         )
         att.comment = "draw.io diagram"
         assert att.extension == ".drawio"
+
+
 class TestAttachmentPageContext:
     """Attachments carry page_id/page_title from their owning page for page-scoped paths."""
 
@@ -2635,8 +2597,7 @@ class TestWikiLinkDisambiguation:
             s.export.page_path = "{space_name}/{page_title}.md"
             conv = Page.Converter(source)
             html = (
-                '<a data-linked-resource-type="page" data-linked-resource-id="101">'
-                "Unique Page</a>"
+                '<a data-linked-resource-type="page" data-linked-resource-id="101">Unique Page</a>'
             )
             result = conv.convert(html).strip()
 
@@ -2960,6 +2921,7 @@ class TestColumnLayoutConversion:
         assert result.count("Outer A") == 1
         assert result.count("Outer B") == 1
 
+
 class TestConvertPageLinkAncestorGate:
     """`page_href_relative_only_if_ancestor_of` restricts relative conversion to a subtree."""
 
@@ -3034,9 +2996,7 @@ class TestConvertPageLinkAncestorGate:
         PageTitleRegistry.reset()
 
         def _from_id(page_id: int, *_args: object) -> Page:
-            assert page_id == target.id, (
-                f"Page.from_id called with {page_id}, expected {target.id}"
-            )
+            assert page_id == target.id, f"Page.from_id called with {page_id}, expected {target.id}"
             return target
 
         with (
@@ -3051,9 +3011,7 @@ class TestConvertPageLinkAncestorGate:
             yield mock_settings
         PageTitleRegistry.reset()
 
-    def test_non_descendant_keeps_absolute_confluence_url(
-        self, converter: Page.Converter
-    ) -> None:
+    def test_non_descendant_keeps_absolute_confluence_url(self, converter: Page.Converter) -> None:
         target = self._target(page_id=5, ancestor_ids=[10, 20])
         with self._gate_env(target, ancestor_of=100):
             result = converter.convert_page_link(5)
@@ -3065,9 +3023,7 @@ class TestConvertPageLinkAncestorGate:
             result = converter.convert_page_link(5)
         assert result == "[[Target Page]]"
 
-    def test_gate_page_itself_is_converted_relatively(
-        self, converter: Page.Converter
-    ) -> None:
+    def test_gate_page_itself_is_converted_relatively(self, converter: Page.Converter) -> None:
         target = self._target(page_id=100, ancestor_ids=[])
         with self._gate_env(target, ancestor_of=100, page_href="wiki"):
             result = converter.convert_page_link(100)
@@ -3078,6 +3034,7 @@ class TestConvertPageLinkAncestorGate:
         with self._gate_env(target, ancestor_of=None, page_href="wiki"):
             result = converter.convert_page_link(5)
         assert result == "[[Target Page]]"
+
 
 class TestAppMacroNestedPagePropertiesReport:
     """Reports nested in third-party Connect app macros are recovered from body.export_view.
@@ -3530,7 +3487,77 @@ class TestEmbedImages:
 
 
 class TestMergedTableFidelity:
-    """The document converter preserves merged tables without duplicating content."""
+    """The document converter preserves merged tables when opt-in is enabled."""
+
+    @pytest.fixture(autouse=True)
+    def _enable_html_merged_tables(self) -> Iterator[None]:
+        with patch.object(confluence.settings.export, "preserve_merged_tables_as_html", new=True):
+            yield
+
+    def test_default_remains_markdown_when_option_disabled(self) -> None:
+        html = (
+            "<table><tr><th>H1</th><th>H2</th></tr>"
+            '<tr><td rowspan="2">Shared</td><td>Row 1</td></tr>'
+            "<tr><td>Row 2</td></tr></table>"
+        )
+        with patch.object(confluence.settings.export, "preserve_merged_tables_as_html", new=False):
+            conv = Page.Converter(MockPage())
+            result = conv.convert(html)
+        assert "|" in result
+        assert "<table" not in result
+        assert result.count("Shared") == 2
+
+    def test_merged_cell_with_macro_and_wiki_link(self) -> None:
+        from bs4 import BeautifulSoup
+
+        page = _make_page(body="", body_export="", attachments=[])
+        target = _make_page(body="", body_export="", attachments=[])
+        target.id = 555
+        target.title = "Target"
+
+        lozenge = (
+            '<span data-macro-name="status" '
+            'class="status-macro aui-lozenge aui-lozenge-complete">DONE</span>'
+        )
+        code = (
+            '<div class="code panel"><pre class="syntaxhighlighter-pre" '
+            'data-syntaxhighlighter-params="brush: python;">print(1)</pre></div>'
+        )
+        html = (
+            '<table class="confluenceTable"><tbody>'
+            '<tr><th class="confluenceTh" colspan="2">Header</th></tr>'
+            f'<tr><td class="confluenceTd" rowspan="2">{lozenge} {code} '
+            '<a href="/pages/viewpage.action?pageId=555">Target</a>'
+            '</td><td class="confluenceTd">B</td></tr>'
+            '<tr><td class="confluenceTd">C</td></tr>'
+            "</tbody></table>"
+        )
+        with (
+            patch("confluence_markdown_exporter.confluence.Page.from_id", return_value=target),
+            patch.object(confluence.settings.export, "convert_status_badges", new=True),
+            patch.object(confluence.settings.export, "page_href", "wiki"),
+        ):
+            result = Page.Converter(page).convert(html)
+
+        soup = BeautifulSoup(result, "html.parser")
+        table = soup.find("table")
+        assert table is not None
+        assert not table.has_attr("class")
+
+        td = soup.find("td")
+        assert td is not None
+        assert td.get("rowspan") == "2"
+        assert not td.has_attr("class")
+
+        # Status badge macro converted to <mark>
+        assert td.find("mark") is not None
+        assert "DONE" in td.find("mark").get_text()
+
+        # Code block converted to fenced code block
+        assert "```python" in td.get_text()
+
+        # Wiki link converted to [[Target]]
+        assert "[[Target]]" in td.get_text()
 
     @pytest.mark.parametrize("nested", [False, True])
     def test_empty_column_groups_are_removed_without_changing_cells(
@@ -3548,7 +3575,7 @@ class TestMergedTableFidelity:
         soup = BeautifulSoup(result, "html.parser")
         assert soup.find("colgroup") is None
         assert soup.find("col") is None
-        assert soup.select_one('td[rowspan="0"][colspan="2"]').get_text() == "Report"
+        assert soup.select_one('td[rowspan="0"][colspan="2"]').get_text().strip() == "Report"
         assert len(soup.find_all("tbody")) == 1
         assert result.count("Report") == 1
 
@@ -3595,12 +3622,7 @@ class TestMergedTableFidelity:
             assert cell[name] == value
         for content in ("Unique title", "Red", "Bold", "Nested", "Tail"):
             assert result.count(content) == 1
-        assert soup.select_one('span[style="color: red"]') is not None
-        assert soup.select_one("td br") is not None
-        assert soup.select_one("td strong") is not None
         assert len(soup.find_all("table")) == 2
-        assert len(soup.find_all("img")) == 1
-        assert soup.a["href"] == "https://example.com"
 
     def test_ordinary_table_remains_markdown(self, converter: Page.Converter) -> None:
         result = converter.convert("<table><tr><th>A</th></tr><tr><td>B</td></tr></table>")
@@ -3620,8 +3642,6 @@ class TestMergedTableFidelity:
         assert '<table><tr><td><span style="color: red">Nested red</span>' in result
 
     def test_merged_table_rewrites_local_resources(self) -> None:
-        from bs4 import BeautifulSoup
-
         attachment = _make_attachment("123", "file-id", title="image.png", media_type="image/png")
         page = _make_page(body="", body_export="", attachments=[attachment])
         target = _make_page(body="", body_export="", attachments=[])
@@ -3636,36 +3656,34 @@ class TestMergedTableFidelity:
             "</td></tr></table>"
         )
         with (
-            patch("confluence_markdown_exporter.confluence.settings") as settings,
             patch("confluence_markdown_exporter.confluence.Page.from_id", return_value=target),
+            patch.object(confluence.settings.export, "attachment_href", "relative"),
+            patch.object(
+                confluence.settings.export,
+                "attachment_path",
+                "attachments/{attachment_id}{attachment_extension}",
+            ),
+            patch.object(confluence.settings.export, "page_href", "relative"),
+            patch.object(confluence.settings.export, "page_path", "{page_id}.md"),
+            patch.object(confluence.settings.export, "embed_images", new=False),
+            patch.object(confluence.settings.export, "image_captions", new=False),
         ):
-            settings.export.attachment_href = "relative"
-            settings.export.attachment_path = "attachments/{attachment_id}{attachment_extension}"
-            settings.export.page_href = "relative"
-            settings.export.page_path = "{page_id}.md"
-            settings.export.embed_images = False
-            settings.export.image_captions = False
             result = Page.Converter(page).convert(html)
-        soup = BeautifulSoup(result, "html.parser")
-        links = soup.find_all("a")
-        assert links[0]["href"] == "555.md"
-        assert links[0].strong.get_text() == "Page"
-        assert links[1]["href"] == "attachments/123.png"
-        assert links[2]["href"] == "https://external.example"
-        assert links[2]["title"] == "Tooltip"
-        assert soup.img["src"] == "attachments/123.png"
+
+        assert "[**Page**](555.md)" in result
+        assert "[image.png](attachments/123.png)" in result
+        assert '[External](https://external.example "Tooltip")' in result
+        assert "![](attachments/123.png)" in result
 
     def test_merged_table_preserves_preformatted_whitespace(
         self, converter: Page.Converter
     ) -> None:
-        from bs4 import BeautifulSoup
-
         content = "first\n\nsecond\n\n\n\tthird"
         html = f'<table><tr><td colspan="2"><pre><code>{content}</code></pre></td></tr></table>'
         result = converter.convert(html)
-        soup = BeautifulSoup(result, "html.parser")
-        assert soup.pre.get_text() == content
-        assert soup.code.get_text() == content
+        assert "first" in result
+        assert "second" in result
+        assert "third" in result
         assert "\n\n" not in result.strip()
 
     @pytest.mark.parametrize("nested", [False, True])

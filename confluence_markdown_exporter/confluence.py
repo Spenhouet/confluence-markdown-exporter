@@ -569,9 +569,7 @@ def _page_id_by_title(space_key: str, title: str, base_url: str) -> int | None:
     a page id. Cached because the same target is often linked from many pages.
     """
     try:
-        page_data = get_thread_confluence(base_url).get_page_by_title(
-            space=space_key, title=title
-        )
+        page_data = get_thread_confluence(base_url).get_page_by_title(space=space_key, title=title)
     except Exception as e:  # noqa: BLE001
         logger.debug(f"Could not resolve page '{title}' in space '{space_key}': {e}")
         return None
@@ -989,9 +987,7 @@ class Attachment(Document):
         )
 
     @classmethod
-    def from_page_id(
-        cls, page_id: int, base_url: str, page_title: str = ""
-    ) -> list["Attachment"]:
+    def from_page_id(cls, page_id: int, base_url: str, page_title: str = "") -> list["Attachment"]:
         attachments = []
         start = 0
         paging_limit = 50
@@ -1010,9 +1006,7 @@ class Attachment(Document):
 
             attachments.extend(
                 [
-                    cls.from_json(
-                        att, base_url, page_id=str(page_id), page_title=page_title
-                    )
+                    cls.from_json(att, base_url, page_id=str(page_id), page_title=page_title)
                     for att in response.get("results", [])
                 ]
             )
@@ -1557,9 +1551,7 @@ class Page(Document):
             names.update(Page._extract_macro_diagrams("drawio", soup))
             return names  # noqa: TRY300
         except Exception as e:  # noqa: BLE001
-            logger.debug(
-                f"Error parsing clientside macros from storage for page {self.id}: {e}"
-            )
+            logger.debug(f"Error parsing clientside macros from storage for page {self.id}: {e}")
             return set()
 
     def _attachments_for_export(self) -> list["Attachment"]:
@@ -1796,6 +1788,14 @@ class Page(Document):
             front_matter_indent = 2
 
         def __init__(self, page: "Page", **options) -> None:  # noqa: ANN003
+            options.setdefault(
+                "preserve_merged_tables_as_html",
+                getattr(settings.export, "preserve_merged_tables_as_html", False),
+            )
+            options.setdefault(
+                "table_column_width",
+                getattr(settings.export, "table_column_width", "mixed"),
+            )
             super().__init__(**options)
             self.page = page
             self.page_properties = {}
@@ -2525,9 +2525,7 @@ class Page(Document):
                 issue_status.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
             )
             status = (
-                f" ({issue_status})"
-                if settings.export.include_jira_status and issue_status
-                else ""
+                f" ({issue_status})" if settings.export.include_jira_status and issue_status else ""
             )
             return f"[[{issue.key}] {issue.summary}{status}]({link.get('href')})"
 
@@ -2629,9 +2627,7 @@ class Page(Document):
             if href_str and text.replace(r"\_", "_") != href_str:
                 # Parentheses and spaces in the destination end a Markdown link
                 # early (e.g. Kibana URLs with `?_g=()`). Percent-encode them.
-                el["href"] = (
-                    href_str.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
-                )
+                el["href"] = href_str.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
                 # A URL used as link text needs no escaping of its underscores.
                 if text.startswith(("http://", "https://")):
                     text = text.replace(r"\_", "_")
@@ -3686,16 +3682,6 @@ class Page(Document):
                 return self.convert_page_properties_report(el, text, parent_tags)
 
             return super().convert_table(el, text, parent_tags)
-
-        def convert_merged_table(self, el: BeautifulSoup, parent_tags: list[str]) -> str:
-            """Preserve HTML links using the same destinations as Markdown links."""
-            for link in el.find_all("a", href=True):
-                destination_link = copy.copy(link)
-                destination_link.attrs.pop("title", None)
-                converted = self.convert_a(destination_link, link.get_text(), parent_tags)
-                if destination := re.search(r".*\]\((.*)\)$", converted, re.DOTALL):
-                    link["href"] = destination.group(1)
-            return super().convert_merged_table(el, parent_tags)
 
         def convert_page_properties_report(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]

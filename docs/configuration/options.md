@@ -207,6 +207,15 @@ Controls the visual alignment and space padding of Markdown table columns.
 - Default: `mixed`
 - ENV Var: `CME_EXPORT__TABLE_COLUMN_WIDTH`
 
+### export.preserve_merged_tables_as_html
+
+Whether to preserve tables containing merged cells (`rowspan` or `colspan`) as HTML tables instead of duplicating merged cells across rows and columns in Markdown tables.
+
+When enabled, merged tables are output as HTML tables with cell spans preserved and cell contents converted through the standard Markdown converter (e.g. status macros become `<mark>`, code blocks become fenced blocks, and links are converted according to [`export.page_href`](#exportpage_href)). Ordinary tables without merges always use Markdown.
+
+- Default: `False`
+- ENV Var: `CME_EXPORT__PRESERVE_MERGED_TABLES_AS_HTML`
+
 ### export.page_properties_format
 
 Controls how Confluence Page Properties macros (key-value tables) are rendered. Duplicate property keys are automatically disambiguated by appending a counter (e.g. `status`, `status_2`, `status_3`).
