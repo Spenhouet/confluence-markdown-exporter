@@ -1843,6 +1843,14 @@ class Page(Document):
             front_matter_indent = 2
 
         def __init__(self, page: "Page", **options) -> None:  # noqa: ANN003
+            options.setdefault(
+                "preserve_merged_tables_as_html",
+                getattr(settings.export, "preserve_merged_tables_as_html", False),
+            )
+            options.setdefault(
+                "table_column_width",
+                getattr(settings.export, "table_column_width", "mixed"),
+            )
             super().__init__(**options)
             self.page = page
             self.page_properties = {}

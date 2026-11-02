@@ -2,6 +2,7 @@
 
 from typing import Any
 
+import pytest
 from bs4 import BeautifulSoup
 
 from confluence_markdown_exporter.utils.table_converter import TableConverter
@@ -437,11 +438,7 @@ class TestMergedCells:
         assert self._convert(html)[2:] == ["| A | B |"]
 
     def test_zero_or_negative_colspan_keeps_the_cell(self) -> None:
-        """A colspan below 1 must still occupy one position instead of erasing the cell.
-
-        This is what the minimum of 1 in ``pad`` protects: without it the cell is
-        repeated zero times and disappears from the row.
-        """
+        """A colspan below 1 must still occupy one position instead of erasing the cell."""
         zero = """
         <table>
             <tr><th>H1</th><th>H2</th></tr>
@@ -458,11 +455,7 @@ class TestMergedCells:
         assert self._convert(negative)[2:] == ["| A | B |"]
 
     def test_spanned_cell_is_converted_only_once(self) -> None:
-        """Repeated positions must reuse the conversion, not run it again.
-
-        Cell conversion is stateful in ``Page.Converter`` (the PlantUML macro index
-        advances per converted macro), so a repeated cell must not be reprocessed.
-        """
+        """Repeated positions must reuse the conversion, not run it again."""
         html = """
         <table>
             <tr><th>H1</th><th>H2</th></tr>
@@ -476,7 +469,57 @@ class TestMergedCells:
 
         ids = converter.converted_cell_ids
         assert len(ids) == len(set(ids)), "a cell was converted more than once"
-        # 2 headers + 1 spanned cell + 3 regular cells. This counts only the pass
-        # convert_table performs itself; markdownify's own tree descent converts every
-        # cell once more, which is pre-existing behaviour and out of scope here.
         assert len(ids) == 6
+
+
+class TestPreserveMergedTablesAsHtml:
+    """When enabled, merged tables are preserved as HTML tables."""
+
+    @pytest.mark.parametrize(
+        "attributes",
+        [
+            'colspan="3"',
+            'rowspan="2"',
+            'rowspan="3"',
+            'rowspan="2" colspan="2"',
+            'rowspan="0"',
+        ],
+    )
+    @pytest.mark.parametrize("tag", ["td", "th"])
+    def test_merge_preserves_cell_once(self, attributes: str, tag: str) -> None:
+        html = (
+            f"<table><tr><{tag} {attributes}>Shared</{tag}><{tag}>A</{tag}></tr>"
+            "<tr><td>B</td></tr><tr><td>C</td></tr></table>"
+        )
+        result = TableConverter(
+            table_column_width="compact", preserve_merged_tables_as_html=True
+        ).convert(html)
+        assert BeautifulSoup(result, "html.parser").find("table") is not None
+        assert result.count("Shared") == 1
+
+    @pytest.mark.parametrize(
+        "attributes",
+        [
+            'colspan="abc"',
+            'colspan="0"',
+            'colspan="-1"',
+            'rowspan="abc"',
+            'rowspan="-1"',
+            'rowspan="1" colspan="1"',
+        ],
+    )
+    def test_non_merging_attributes_keep_markdown(self, attributes: str) -> None:
+        html = (
+            f"<table><tr><th>H1</th><th>H2</th></tr>"
+            f"<tr><td {attributes}>A</td><td>B</td></tr></table>"
+        )
+        result = TableConverter(
+            table_column_width="compact", preserve_merged_tables_as_html=True
+        ).convert(html)
+        assert result.splitlines()[-1] == "| A | B |"
+
+    def test_blank_lines_do_not_terminate_html_block(self) -> None:
+        html = '<table>\n\n<tr><td colspan="2">Shared</td></tr>\n\n</table>'
+        result = TableConverter(preserve_merged_tables_as_html=True).convert(html).strip()
+        assert "\n\n" not in result
+        assert BeautifulSoup(result, "html.parser").td["colspan"] == "2"
