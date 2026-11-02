@@ -11,6 +11,7 @@ Exports individual pages, pages with descendants, folders, or entire spaces via 
 ### Content & formatting
 
 - **Rich text**: headings, paragraphs, bold, italic, underline, lists, tables, links, images, attachments, and image captions
+- **Merged tables**: rowspan and colspan are preserved as HTML tables, with each cell's content appearing once. Ordinary tables continue to use Markdown; viewing merged tables requires a reader that supports HTML tables.
 - **Page links**: links to Confluence pages become relative Markdown links, whether they were inserted as page links, pasted as full page URLs, or pasted as tiny links (`/wiki/x/...`, the "Copy link" shortlink)
 - **Images**: saved as local attachment files and linked, or embedded as base64 data URIs with [`export.embed_images`](./configuration/options.md#exportembed_images)
 - **Emoticons**: Cloud emoji and Server/Data Center emoticons converted to Unicode characters

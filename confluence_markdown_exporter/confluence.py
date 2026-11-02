@@ -3687,6 +3687,16 @@ class Page(Document):
 
             return super().convert_table(el, text, parent_tags)
 
+        def convert_merged_table(self, el: BeautifulSoup, parent_tags: list[str]) -> str:
+            """Preserve HTML links using the same destinations as Markdown links."""
+            for link in el.find_all("a", href=True):
+                destination_link = copy.copy(link)
+                destination_link.attrs.pop("title", None)
+                converted = self.convert_a(destination_link, link.get_text(), parent_tags)
+                if destination := re.search(r".*\]\((.*)\)$", converted, re.DOTALL):
+                    link["href"] = destination.group(1)
+            return super().convert_merged_table(el, parent_tags)
+
         def convert_page_properties_report(
             self, el: BeautifulSoup, text: str, parent_tags: list[str]
         ) -> str:
