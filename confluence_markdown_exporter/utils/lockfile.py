@@ -68,6 +68,22 @@ class OrgEntry(BaseModel):
     spaces: dict[str, SpaceEntry] = Field(default_factory=dict)
 
 
+def _drop_moved_entries(target: OrgEntry, current: OrgEntry) -> None:
+    """Drop entries in *target* that list a page under a space it has moved out of.
+
+    *current* holds the space each page belongs to now.
+    """
+    owner = {
+        page_id: space_key
+        for space_key, space_entry in current.spaces.items()
+        for page_id in space_entry.pages
+    }
+    for space_key, space_entry in target.spaces.items():
+        moved = [p for p in space_entry.pages if owner.get(p, space_key) != space_key]
+        for page_id in moved:
+            del space_entry.pages[page_id]
+
+
 class ConfluenceLock(BaseModel):
     """Lock file tracking exported Confluence data."""
 
@@ -133,6 +149,10 @@ class ConfluenceLock(BaseModel):
             self.orgs[org_url] = OrgEntry()
         if space_key not in self.orgs[org_url].spaces:
             self.orgs[org_url].spaces[space_key] = SpaceEntry()
+        # A page that moved to another space must not stay listed under the old one.
+        for other_key, other_space in self.orgs[org_url].spaces.items():
+            if other_key != space_key:
+                other_space.pages.pop(str(page.id), None)
 
         self.orgs[org_url].spaces[space_key].pages[str(page.id)] = PageEntry(
             title=page.title,
@@ -160,6 +180,7 @@ class ConfluenceLock(BaseModel):
                 if space_key not in existing.orgs[org_url].spaces:
                     existing.orgs[org_url].spaces[space_key] = SpaceEntry()
                 existing.orgs[org_url].spaces[space_key].pages.update(space_entry.pages)
+            _drop_moved_entries(existing.orgs[org_url], org_entry)
 
         if delete_ids:
             for page_id in delete_ids:
@@ -311,11 +332,15 @@ class LockfileManager:
         return False
 
     @classmethod
-    def unseen_ids(cls) -> set[str]:
-        """Return lockfile page IDs not encountered during the current export run."""
-        if cls._lock is None:
-            return set()
-        return set(cls._lock.all_pages().keys()) - cls._seen_page_ids
+    def unseen_ids_by_space(cls, base_url: str) -> dict[str, set[str]]:
+        """Return unseen page IDs of the org *base_url*, keyed by the space they are under."""
+        if cls._lock is None or base_url not in cls._lock.orgs:
+            return {}
+        result: dict[str, set[str]] = {}
+        for space_key, space in cls._lock.orgs[base_url].spaces.items():
+            if unseen := set(space.pages) - cls._seen_page_ids:
+                result[space_key] = unseen
+        return result
 
     @classmethod
     def _unlink_page_files(cls, export_path: str) -> bool:
