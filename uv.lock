@@ -210,7 +210,7 @@ wheels = [
 
 [[package]]
 name = "confluence-markdown-exporter"
-version = "5.5.1"
+version = "5.5.2"
 source = { editable = "." }
 dependencies = [
     { name = "atlassian-python-api" },
