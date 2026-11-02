@@ -452,6 +452,8 @@ Limit space exports (`spaces`, `orgs`) to the space homepage and its descendants
 
 Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.
 
+With `False`, every page is exported again, but the lockfile is still read and updated. Attachments whose version changed are downloaded again, and `export.cleanup_stale` still applies.
+
 - Default: `True`
 - ENV Var: `CME_EXPORT__SKIP_UNCHANGED`
 

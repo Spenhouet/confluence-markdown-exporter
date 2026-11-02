@@ -83,6 +83,7 @@ def _reset_lockfile_manager() -> None:
     LockfileManager._output_path = None
     LockfileManager._all_entries_snapshot = {}
     LockfileManager._seen_page_ids = set()
+    LockfileManager._skip_unchanged = True
 
 
 class TestLockfileManagerInit:
@@ -170,6 +171,34 @@ class TestLockfileManagerInit:
 
             assert LockfileManager._lock is not None
             assert LockfileManager._lock.orgs == {}
+
+
+class TestFullExportKeepsLockfile:
+    """With skip_unchanged disabled the lockfile is still loaded, but pages are not skipped."""
+
+    @patch("confluence_markdown_exporter.utils.app_data_store.get_settings")
+    def test_lockfile_loaded_and_unchanged_page_exported(
+        self, mock_get_settings: MagicMock
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            (output / "page.md").write_text("x")
+            (output / LOCKFILE_FILENAME).write_text(
+                json.dumps(
+                    _lock_data({"100": {"title": "P", "version": 1, "export_path": "page.md"}})
+                ),
+                encoding="utf-8",
+            )
+            mock_get_settings.return_value.export.output_path = output
+            mock_get_settings.return_value.export.lockfile_name = LOCKFILE_FILENAME
+            mock_get_settings.return_value.export.skip_unchanged = False
+
+            LockfileManager.init()
+
+            assert LockfileManager.get_page_attachment_entries("100") == {}
+            assert LockfileManager._lock is not None
+            assert LockfileManager._lock.get_page("100") is not None
+            assert LockfileManager.should_export(_make_mock_page(100, 1, "page.md"))
 
 
 class TestLockfileManagerRecordPage:
