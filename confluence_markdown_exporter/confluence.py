@@ -605,6 +605,18 @@ def _page_path_template(page_id: int, base_url: str) -> str:
     return settings.export.page_path
 
 
+def _safe_urlparse(url: str) -> urllib.parse.ParseResult | None:
+    """Parse a URL, returning None for one that cannot be parsed.
+
+    Hrefs come from page content, so they can be anything an author typed. For example
+    ``http://Some Page [Spec`` makes ``urlparse`` raise ``ValueError: Invalid IPv6 URL``.
+    """
+    try:
+        return urllib.parse.urlparse(url)
+    except ValueError:
+        return None
+
+
 @functools.lru_cache(maxsize=10000)
 def _link_target(page_id: int, base_url: str) -> "Descendant | None":
     """Fetch just enough of a linked page to build a link to it.
@@ -2600,8 +2612,13 @@ class Page(Document):
             href_str = str(el.get("href", ""))
             if href_str and (attachment := self._attachment_from_download_href(href_str)):
                 return self._format_attachment_link(attachment)
-            if href_str:
-                parsed_href = urlparse(href_str)
+            parsed_href = _safe_urlparse(href_str) if href_str else None
+            if href_str and parsed_href is None:
+                logger.warning(
+                    f"Malformed link '{href_str}' on page '{self.page.title}' "
+                    f"(ID: {self.page.id}), keeping it as written"
+                )
+            if parsed_href is not None:
                 base_host = urlparse(getattr(self.page, "base_url", "") or "").hostname
                 if not parsed_href.hostname or parsed_href.hostname == base_host:
                     query_params = urllib.parse.parse_qs(parsed_href.query)
@@ -2695,7 +2712,9 @@ class Page(Document):
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
         def _attachment_from_download_href(self, href: str) -> Attachment | None:
-            parsed = urlparse(href)
+            parsed = _safe_urlparse(href)
+            if parsed is None:
+                return None
             path_parts = [unquote(part) for part in parsed.path.split("/") if part]
             try:
                 filename = path_parts[path_parts.index("attachments") + 2]
