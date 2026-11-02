@@ -3898,26 +3898,49 @@ class Page(Document):
 _CQL_MAX_BATCH_SIZE: int = 25
 
 
-def _fetch_page_ids_v2_batch(batch: list[str], base_url: str) -> set[str]:
+def _fetch_page_ids_v2_batch(
+    batch: list[str], base_url: str, space_id: str | None = None
+) -> set[str]:
     """Single v2 API request for a batch of page IDs.
 
     Uses GET /api/v2/pages?id=X&id=Y&...  (Atlassian Cloud).
     The v2 API accepts multiple ``id`` params, so they are encoded directly
     into the URL path since the SDK only accepts a dict for ``params``.
+    With *space_id*, pages found in another space are left out.
     """
     query = urllib.parse.urlencode([("id", pid) for pid in batch] + [("limit", len(batch))])
     response = cast("dict", get_thread_confluence(base_url).get(f"api/v2/pages?{query}"))
     if not response:
         return set()
-    return {str(item["id"]) for item in response.get("results", [])}
+    return {
+        str(item["id"])
+        for item in response.get("results", [])
+        if space_id is None or str(item.get("spaceId")) == space_id
+    }
 
 
-def _fetch_page_ids_cql_batch(batch: list[str], base_url: str) -> set[str]:
+def _v2_space_id(space_key: str, base_url: str) -> str:
+    """Return the v2 API space id for *space_key*. Raises if the space is not found."""
+    query = urllib.parse.urlencode({"keys": space_key})
+    response = cast("dict", get_thread_confluence(base_url).get(f"api/v2/spaces?{query}"))
+    results = response.get("results", []) if response else []
+    if not results:
+        msg = f"Space '{space_key}' not found"
+        raise ValueError(msg)
+    return str(results[0]["id"])
+
+
+def _fetch_page_ids_cql_batch(
+    batch: list[str], base_url: str, space_key: str | None = None
+) -> set[str]:
     """Single CQL v1 request for a batch of page IDs.
 
     Uses GET /rest/api/content/search with id in (...) (self-hosted / fallback).
+    With *space_key*, only pages in that space are returned.
     """
     cql = "id in ({})".format(",".join(batch))
+    if space_key is not None:
+        cql = f'space="{space_key}" AND {cql}'
     response = cast(
         "dict",
         get_thread_confluence(base_url).get(
@@ -3930,8 +3953,12 @@ def _fetch_page_ids_cql_batch(batch: list[str], base_url: str) -> set[str]:
     return {str(item["id"]) for item in response.get("results", [])}
 
 
-def fetch_deleted_page_ids(page_ids: list[str], base_url: str) -> set[str]:
+def fetch_deleted_page_ids(
+    page_ids: list[str], base_url: str, space_key: str | None = None
+) -> set[str]:
     """Return the subset of *page_ids* that no longer exist in Confluence.
+
+    With *space_key*, a page that now lives in another space counts as gone too.
 
     Uses the v2 REST API when ``connection_config.use_v2_api`` is enabled
     (multiple ``id`` query params, up to ``export.existence_check_batch_size``
@@ -3956,13 +3983,25 @@ def fetch_deleted_page_ids(page_ids: list[str], base_url: str) -> set[str]:
     )
     existing: set[str] = set()
 
+    space_id = None
+    if use_v2 and space_key is not None:
+        try:
+            space_id = _v2_space_id(space_key, base_url)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Failed to look up space '%s'. Skipping deletion for its %d page(s).",
+                space_key,
+                len(page_ids),
+            )
+            return set()
+
     for i in range(0, len(page_ids), effective_batch_size):
         batch = page_ids[i : i + effective_batch_size]
         try:
             if use_v2:
-                existing.update(_fetch_page_ids_v2_batch(batch, base_url))
+                existing.update(_fetch_page_ids_v2_batch(batch, base_url, space_id))
             else:
-                existing.update(_fetch_page_ids_cql_batch(batch, base_url))
+                existing.update(_fetch_page_ids_cql_batch(batch, base_url, space_key))
         except Exception:  # noqa: BLE001
             logger.warning(
                 "Failed to check page existence for batch (%d IDs). "
@@ -3982,11 +4021,20 @@ def sync_removed_pages(base_url: str) -> None:
 
     # Renamed and moved pages are seen during the run, so they never show up as
     # unseen. Their old files still need removing, which needs no API call.
+    # The check is per space, so a page that moved to another space is removed from
+    # the space it left. A page also listed under a space it is still in is kept.
     deleted: set[str] = set()
-    unseen = LockfileManager.unseen_ids()
+    unseen_by_space = LockfileManager.unseen_ids_by_space(base_url)
+    unseen = set().union(*unseen_by_space.values())
     if unseen:
+        gone: set[str] = set()
+        kept: set[str] = set()
         with console.status(f"[dim]Checking {len(unseen)} unseen page(s) for removal…[/dim]"):
-            deleted = fetch_deleted_page_ids(sorted(unseen), base_url)
+            for space_key, page_ids in sorted(unseen_by_space.items()):
+                missing = fetch_deleted_page_ids(sorted(page_ids), base_url, space_key)
+                gone |= missing
+                kept |= page_ids - missing
+        deleted = gone - kept
         if deleted:
             logger.info("Removing %d stale page(s) from local export.", len(deleted))
     else:

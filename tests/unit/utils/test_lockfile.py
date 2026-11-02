@@ -247,6 +247,30 @@ class TestLockfileManagerRecordPage:
             assert "200" in saved["orgs"]["https://org-b.atlassian.net"]["spaces"]["BBB"]["pages"]
 
 
+    def test_record_page_moved_to_other_space_drops_old_entry(self) -> None:
+        """A page recorded under a new space is no longer listed under the old one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            lockfile_path = Path(tmp) / LOCKFILE_FILENAME
+            lockfile_path.write_text(
+                json.dumps(
+                    _lock_data(
+                        {"100": {"title": "Page", "version": 1, "export_path": "A/Page.md"}},
+                        space_key="A",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            LockfileManager._lockfile_path = lockfile_path
+            LockfileManager._lock = ConfluenceLock.load(lockfile_path)
+
+            LockfileManager.record_page(_make_mock_page(100, 2, "B/Page.md", space_key="B"))
+
+            saved = json.loads(lockfile_path.read_text(encoding="utf-8"))
+            spaces = saved["orgs"][_TEST_BASE_URL]["spaces"]
+            assert "100" not in spaces["A"]["pages"]
+            assert spaces["B"]["pages"]["100"]["export_path"] == "B/Page.md"
+
+
 class TestLockfileManagerShouldExport:
     """Test cases for LockfileManager.should_export."""
 
@@ -686,6 +710,63 @@ class TestFetchDeletedPageIds:
         assert mock_client.get.call_count == 2
 
 
+    @patch("confluence_markdown_exporter.confluence.settings")
+    @patch("confluence_markdown_exporter.confluence.get_thread_confluence")
+    def test_cql_check_is_limited_to_space(
+        self, mock_get_client: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        """With a space key, the CQL query only finds pages in that space."""
+        mock_settings.connection_config.use_v2_api = False
+        mock_settings.export.existence_check_batch_size = 250
+        mock_client = MagicMock()
+        mock_client.get.return_value = {"results": [{"id": "100"}]}
+        mock_get_client.return_value = mock_client
+
+        from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
+
+        result = fetch_deleted_page_ids(["100", "200"], _TEST_BASE_URL, "A")
+
+        assert result == {"200"}
+        cql = mock_client.get.call_args.kwargs["params"]["cql"]
+        assert cql == 'space="A" AND id in (100,200)'
+
+    @patch("confluence_markdown_exporter.confluence.settings")
+    @patch("confluence_markdown_exporter.confluence.get_thread_confluence")
+    def test_v2_check_ignores_pages_in_other_spaces(
+        self, mock_get_client: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        """With a space key, a page the v2 API finds in another space counts as gone."""
+        mock_settings.connection_config.use_v2_api = True
+        mock_settings.export.existence_check_batch_size = 250
+        mock_client = MagicMock()
+        mock_client.get.side_effect = lambda path: (
+            {"results": [{"id": "11", "key": "A"}]}
+            if path.startswith("api/v2/spaces")
+            else {"results": [{"id": "100", "spaceId": "11"}, {"id": "200", "spaceId": "22"}]}
+        )
+        mock_get_client.return_value = mock_client
+
+        from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
+
+        assert fetch_deleted_page_ids(["100", "200"], _TEST_BASE_URL, "A") == {"200"}
+
+    @patch("confluence_markdown_exporter.confluence.settings")
+    @patch("confluence_markdown_exporter.confluence.get_thread_confluence")
+    def test_v2_space_lookup_failure_deletes_nothing(
+        self, mock_get_client: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        """If the space can't be resolved, every page is assumed to still exist."""
+        mock_settings.connection_config.use_v2_api = True
+        mock_settings.export.existence_check_batch_size = 250
+        mock_client = MagicMock()
+        mock_client.get.return_value = {"results": []}
+        mock_get_client.return_value = mock_client
+
+        from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
+
+        assert fetch_deleted_page_ids(["100"], _TEST_BASE_URL, "A") == set()
+
+
 class TestSyncRemovedPages:
     """Test cases for sync_removed_pages, the only caller of remove_pages."""
 
@@ -721,7 +802,7 @@ class TestSyncRemovedPages:
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp)
             old_file, new_file = self._setup_moved_page(output)
-            assert LockfileManager.unseen_ids() == set()
+            assert LockfileManager.unseen_ids_by_space(_TEST_BASE_URL) == {}
 
             sync_removed_pages(_TEST_BASE_URL)
 
@@ -773,8 +854,116 @@ class TestSyncRemovedPages:
 
             sync_removed_pages(_TEST_BASE_URL)
 
-            mock_fetch.assert_called_once_with(["200"], _TEST_BASE_URL)
+            mock_fetch.assert_called_once_with(["200"], _TEST_BASE_URL, _TEST_SPACE_KEY)
             assert not gone_file.exists()
+
+    @patch("confluence_markdown_exporter.confluence.fetch_deleted_page_ids")
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_page_moved_out_of_space_is_removed(
+        self, mock_settings: MagicMock, mock_fetch: MagicMock
+    ) -> None:
+        """A page that left the exported space is pruned, even though it still exists."""
+        from confluence_markdown_exporter.confluence import sync_removed_pages
+
+        mock_settings.export.cleanup_stale = True
+        mock_fetch.side_effect = lambda ids, _url, space: set(ids) if space == "A" else set()
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            moved_file = output / "A" / "Moved.md"
+            moved_file.parent.mkdir(parents=True)
+            moved_file.write_text("moved")
+
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._lock = ConfluenceLock(
+                orgs={
+                    _TEST_BASE_URL: OrgEntry(
+                        spaces={
+                            "A": SpaceEntry(
+                                pages={
+                                    "100": PageEntry(
+                                        title="Kept", version=1, export_path="A/Kept.md"
+                                    ),
+                                    "200": PageEntry(
+                                        title="Moved", version=1, export_path="A/Moved.md"
+                                    ),
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
+            LockfileManager._seen_page_ids = {"100"}
+
+            sync_removed_pages(_TEST_BASE_URL)
+
+            mock_fetch.assert_called_once_with(["200"], _TEST_BASE_URL, "A")
+            assert not moved_file.exists()
+            assert LockfileManager._lock.get_page("200") is None
+
+    @patch("confluence_markdown_exporter.confluence.fetch_deleted_page_ids")
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_page_listed_under_two_spaces_is_kept_if_one_still_has_it(
+        self, mock_settings: MagicMock, mock_fetch: MagicMock
+    ) -> None:
+        """An older lockfile may list a moved page twice. Its live entry must survive."""
+        from confluence_markdown_exporter.confluence import sync_removed_pages
+
+        mock_settings.export.cleanup_stale = True
+        mock_fetch.side_effect = lambda ids, _url, space: set(ids) if space == "A" else set()
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            live_file = output / "B" / "Page.md"
+            live_file.parent.mkdir(parents=True)
+            live_file.write_text("live")
+
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = output / LOCKFILE_FILENAME
+            entry_a = PageEntry(title="Page", version=1, export_path="A/Page.md")
+            entry_b = PageEntry(title="Page", version=2, export_path="B/Page.md")
+            LockfileManager._lock = ConfluenceLock(
+                orgs={
+                    _TEST_BASE_URL: OrgEntry(
+                        spaces={
+                            "A": SpaceEntry(pages={"100": entry_a}),
+                            "B": SpaceEntry(pages={"100": entry_b}),
+                        }
+                    )
+                }
+            )
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
+            LockfileManager._seen_page_ids = set()
+
+            sync_removed_pages(_TEST_BASE_URL)
+
+            assert live_file.exists()
+            assert LockfileManager._lock.orgs[_TEST_BASE_URL].spaces["B"].pages["100"]
+
+    @patch("confluence_markdown_exporter.confluence.fetch_deleted_page_ids")
+    @patch("confluence_markdown_exporter.confluence.settings")
+    def test_pages_of_other_orgs_are_not_checked(
+        self, mock_settings: MagicMock, mock_fetch: MagicMock
+    ) -> None:
+        """Unseen pages from another Confluence instance are not checked against this one."""
+        from confluence_markdown_exporter.confluence import sync_removed_pages
+
+        mock_settings.export.cleanup_stale = True
+        mock_fetch.return_value = set()
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            LockfileManager._output_path = output
+            LockfileManager._lockfile_path = output / LOCKFILE_FILENAME
+            LockfileManager._lock = _lock_with_pages(
+                {"100": PageEntry(title="Other", version=1, export_path="o/Other.md")},
+                base_url="https://other.atlassian.net",
+            )
+            LockfileManager._all_entries_snapshot = dict(LockfileManager._lock.all_pages())
+            LockfileManager._seen_page_ids = set()
+
+            sync_removed_pages(_TEST_BASE_URL)
+
+            mock_fetch.assert_not_called()
 
     @patch("confluence_markdown_exporter.confluence.settings")
     def test_noop_when_cleanup_stale_disabled(self, mock_settings: MagicMock) -> None:
