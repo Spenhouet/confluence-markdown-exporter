@@ -904,6 +904,19 @@ class TestLinkSanitization:
         )
         assert expected in conv.markdown
 
+    def test_malformed_href_keeps_link_and_page(self) -> None:
+        page = MockPage()
+        page.html = (
+            '<p>before <a href="http://Some Page [Spec Design notes#section">see here</a>'
+            " after</p>"
+        )
+        with patch("confluence_markdown_exporter.confluence.logger") as logger:
+            markdown = Page.Converter(page).markdown
+        assert "[see here](http://Some%20Page%20[Spec%20Design%20notes#section)" in markdown
+        assert "before" in markdown
+        assert "after" in markdown
+        assert "Malformed link" in logger.warning.call_args.args[0]
+
     def test_url_anchor_text_underscores_not_escaped(self) -> None:
         page = MockPage()
         page.html = (
