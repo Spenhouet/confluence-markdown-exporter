@@ -795,11 +795,17 @@ class TestFetchDeletedPageIds:
         mock_settings.connection_config.use_v2_api = True
         mock_settings.export.existence_check_batch_size = 250
         mock_client = MagicMock()
-        mock_client.get.side_effect = lambda path: (
-            {"results": [{"id": "11", "key": "A"}]}
-            if path.startswith("api/v2/spaces")
-            else {"results": [{"id": "100", "spaceId": "11"}, {"id": "200", "spaceId": "22"}]}
-        )
+        def get(path: str, params: dict | None = None) -> dict:
+            if path.startswith("api/v2/spaces"):
+                return {"results": [{"id": "11", "key": "A"}]}
+            if path.startswith("api/v2/pages"):
+                return {"results": [{"id": "100", "spaceId": "11"}, {"id": "200", "spaceId": "22"}]}
+            # CQL re-check for ids v2 did not return (databases), limited to the space
+            assert params is not None
+            assert params["cql"] == 'space="A" AND id in (200)'
+            return {"results": []}
+
+        mock_client.get.side_effect = get
         mock_get_client.return_value = mock_client
 
         from confluence_markdown_exporter.confluence import fetch_deleted_page_ids
