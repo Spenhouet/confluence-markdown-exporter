@@ -1176,10 +1176,14 @@ def _add_databases(
     Databases are exported as placeholder pages because the API does not provide
     their entries. A database whose export path is already taken by a page or by
     another database is skipped, so a placeholder never overwrites another file.
-    Server/DC has no databases; if it rejects the query, `_search_pages` returns
-    an empty list.
+    Server/DC has no databases and rejects the query with an HTTP error, which is
+    ignored here so page discovery is not affected.
     """
-    databases = _search_pages(f"type=database AND {scope_cql}", base_url)
+    try:
+        databases = _search_pages(f"type=database AND {scope_cql}", base_url)
+    except HTTPError as e:
+        logger.debug(f"Database search rejected ({e}), exporting pages only")
+        return [*pages]
     if not databases:
         return [*pages]
     taken_paths = {page.export_path for page in pages}
