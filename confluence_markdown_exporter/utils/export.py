@@ -146,7 +146,7 @@ def github_heading_slug(text: str) -> str:
     """
     text = text.lower().strip()
     text = re.sub(r"[^\w\s-]", "", text)  # drop punctuation; keep letters, digits, spaces, hyphens
-    text = re.sub(r"[\s_]+", "-", text)   # whitespace/underscores → hyphens
+    text = re.sub(r"\s+", "-", text)   # whitespace → hyphens (underscores kept, like GitHub)
     return re.sub(r"-{2,}", "-", text)    # collapse runs of hyphens (e.g. "- word" → "-word")
 
 
