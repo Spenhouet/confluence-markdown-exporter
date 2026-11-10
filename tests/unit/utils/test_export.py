@@ -302,6 +302,11 @@ class TestGithubHeadingSlug:
     def test_empty_string(self) -> None:
         assert github_heading_slug("") == ""
 
+    def test_underscores_preserved_like_github(self) -> None:
+        """GitHub keeps underscores in anchors; only spaces become hyphens."""
+        assert github_heading_slug("Section_title here") == "section_title-here"
+        assert github_heading_slug("snake_case_name") == "snake_case_name"
+
 
 class TestEscapeCharacterClass:
     """Test cases for escape_character_class function."""
