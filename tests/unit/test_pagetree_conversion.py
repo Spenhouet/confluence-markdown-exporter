@@ -3,13 +3,16 @@
 import logging
 from collections.abc import Callable
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
 import pytest
 from bs4 import BeautifulSoup
 
+from confluence_markdown_exporter.confluence import Descendant
 from confluence_markdown_exporter.confluence import Page
+from confluence_markdown_exporter.confluence import Space
 from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
 
 
@@ -156,6 +159,85 @@ def test_content_tree_renders_nested_list(
     result = converter.convert_pagetree(_el(), "", [])
 
     assert result == "\n- [[Child A]]\n- [[Child B]]\n  - [[Grandchild B1]]\n\n"
+
+
+@pytest.mark.parametrize(
+    ("href_style", "space_key", "ancestor_gate", "expected_link"),
+    [
+        ("wiki", "TEST", None, "[[Child A]]"),
+        ("relative", "TEST", None, "[Child A](Child%20A.md)"),
+        ("relative", "OTHER", 100, "[Child A](../OTHER/Child%20A.md)"),
+        ("absolute", "OTHER", None, "[Child A](/OTHER/Child%20A.md)"),
+        ("relative", "OTHER", 999, "[Child A](https://example.atlassian.net/wiki/pages/1)"),
+    ],
+)
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_content_tree_uses_descendant_details_without_refetching_pages(
+    mock_settings: MagicMock,
+    href_style: str,
+    space_key: str,
+    ancestor_gate: int | None,
+    expected_link: str,
+) -> None:
+    space = Space(base_url=BASE_URL, key=space_key, name=space_key, description="", homepage=None)
+    with patch("confluence_markdown_exporter.confluence.Space.from_key", return_value=space):
+        descendant = Descendant.from_json(
+            {
+                "id": "1",
+                "title": "Child A",
+                "_expandable": {"space": f"/rest/api/space/{space_key}"},
+                "_links": {"base": BASE_URL, "webui": "/pages/1"},
+                "ancestors": [
+                    {"id": "999", "title": "Homepage"},
+                    {"id": "100", "title": "Root Page"},
+                ],
+            },
+            BASE_URL,
+        )
+    page = _make_page(_content_tree_editor2())
+    page.descendants = [descendant]
+    page.export_path = Path("TEST/Root Page.md")
+    converter = _converter(mock_settings, page)
+    mock_settings.export.page_href = href_style
+    mock_settings.export.page_href_relative_only_if_ancestor_of = ancestor_gate
+    mock_settings.export.page_path = "{space_key}/{page_title}.md"
+    mock_settings.export.page_path_if_parent = None
+
+    with patch(
+        "confluence_markdown_exporter.confluence._link_target",
+        side_effect=AssertionError("descendant details are already available"),
+    ):
+        result = converter.convert_pagetree(_el(), "", [])
+
+    assert result == f"\n- {expected_link}\n\n"
+
+
+@patch("confluence_markdown_exporter.confluence.settings")
+def test_repeated_content_tree_reuses_descendants(
+    mock_settings: MagicMock,
+) -> None:
+    descendants = [_descendant(1, "Child A", [100])]
+    page = _make_page(_content_tree_editor2(), descendants)
+
+    class CountingPage:
+        def __init__(self) -> None:
+            self.descendants_calls = 0
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(page, name)
+
+        @property
+        def descendants(self) -> list[MagicMock]:
+            self.descendants_calls += 1
+            return descendants
+
+    counting_page = CountingPage()
+    converter = _converter(mock_settings, counting_page)
+
+    converter.convert_pagetree(_el(), "", [])
+    converter.convert_pagetree(_el(), "", [])
+
+    assert counting_page.descendants_calls == 1
 
 
 @patch("confluence_markdown_exporter.confluence.Page.from_id")

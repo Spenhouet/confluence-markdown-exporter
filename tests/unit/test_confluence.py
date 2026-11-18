@@ -30,6 +30,7 @@ from confluence_markdown_exporter.confluence import User
 from confluence_markdown_exporter.confluence import Version
 from confluence_markdown_exporter.confluence import _has_child_pages
 from confluence_markdown_exporter.confluence import _page_id_by_title
+from confluence_markdown_exporter.utils.lockfile import AttachmentEntry
 
 
 @pytest.fixture(autouse=True)
@@ -588,6 +589,36 @@ class TestAttachmentsExportFlag:
         att.export.assert_called_once()
         assert "att-1" in result
 
+    @pytest.mark.parametrize(
+        ("old_entries", "forced"),
+        [
+            ({"att-1": AttachmentEntry(version=2, path="attachments/att-1.bin")}, True),
+            ({}, False),
+        ],
+    )
+    def test_reversioned_attachment_is_forced(
+        self, tmp_path: Path, old_entries: dict, forced: bool
+    ) -> None:
+        """A version change in the lockfile forces the download over the existing file."""
+        att = self._make_attachment_mock(version=3)
+        page = self._make_page_mock([att])
+        (tmp_path / "attachments").mkdir()
+        (tmp_path / "attachments" / "att-1.bin").write_text("old")
+
+        with (
+            patch("confluence_markdown_exporter.confluence.settings") as mock_settings,
+            patch("confluence_markdown_exporter.confluence.LockfileManager") as mock_lockfile,
+            patch("confluence_markdown_exporter.confluence.get_stats"),
+        ):
+            mock_settings.export.attachments_export = "referenced"
+            mock_settings.export.output_path = tmp_path
+            mock_lockfile.get_page_attachment_entries.return_value = old_entries
+
+            result = Page.export_attachments(page)
+
+        att.export.assert_called_once_with(force=forced)
+        assert result["att-1"].version == 3
+
     def test_disabled_skips_download_and_lockfile(self) -> None:
         """With attachments_export='disabled', no download and no lockfile lookup."""
         att = self._make_attachment_mock()
@@ -876,6 +907,19 @@ class TestLinkSanitization:
             "(https://kibana.example.com/app/kibana#/dashboard/AWW0?_g=%28%29&_a=%28desc:%27test%27%29)"
         )
         assert expected in conv.markdown
+
+    def test_malformed_href_keeps_link_and_page(self) -> None:
+        page = MockPage()
+        page.html = (
+            '<p>before <a href="http://Some Page [Spec Design notes#section">see here</a>'
+            " after</p>"
+        )
+        with patch("confluence_markdown_exporter.confluence.logger") as logger:
+            markdown = Page.Converter(page).markdown
+        assert "[see here](http://Some%20Page%20[Spec%20Design%20notes#section)" in markdown
+        assert "before" in markdown
+        assert "after" in markdown
+        assert "Malformed link" in logger.warning.call_args.args[0]
 
     def test_url_anchor_text_underscores_not_escaped(self) -> None:
         page = MockPage()
@@ -2192,6 +2236,51 @@ class TestPagePropertiesReportFrozenFetchesAllRows:
 
         assert "Page A" in result
         client.get.assert_not_called()
+
+    def test_space_key_falls_back_to_details_space_key(self) -> None:
+        """Confluence Data Center names the attribute data-details-space-key."""
+        client = MagicMock()
+        client.get.side_effect = [
+            {
+                "total": 1,
+                "totalPages": 1,
+                "currentPage": 0,
+                "detailLines": [
+                    self._detail_line(101, "Page A", ["<p>v1.0</p>", "<p>Yes</p>"]),
+                ],
+            },
+        ]
+        report_html = self._REPORT_HTML.replace(
+            'data-current-space-key="TS"', 'data-details-space-key="DC"'
+        )
+
+        result = self._convert_frozen(client, report_html=report_html)
+
+        assert "Page A" in result
+        params = client.get.call_args_list[0].kwargs["params"]
+        assert params["spaceKey"] == "DC"
+
+    def test_current_space_key_takes_precedence(self) -> None:
+        client = MagicMock()
+        client.get.side_effect = [
+            {
+                "total": 1,
+                "totalPages": 1,
+                "currentPage": 0,
+                "detailLines": [
+                    self._detail_line(101, "Page A", ["<p>v1.0</p>", "<p>Yes</p>"]),
+                ],
+            },
+        ]
+        report_html = self._REPORT_HTML.replace(
+            'data-current-space-key="TS"',
+            'data-current-space-key="TS" data-details-space-key="DC"',
+        )
+
+        self._convert_frozen(client, report_html=report_html)
+
+        params = client.get.call_args_list[0].kwargs["params"]
+        assert params["spaceKey"] == "TS"
 
     def test_row_without_page_id_renders_plain_title(self) -> None:
         client = MagicMock()

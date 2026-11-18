@@ -118,7 +118,7 @@ class TestGliffyConversion:
             '<ac:parameter ac:name="diagramName">my_diagram</ac:parameter>'
             '</ac:structured-macro>'
         )
-        page.body_view = '<div class="gliffy-macro"></div>'
+        page.body = '<div class="gliffy-macro"></div>'
 
         # Mock attachment
         attachment = MagicMock()
@@ -147,7 +147,7 @@ class TestGliffyConversion:
             '<ac:parameter ac:name="diagramName">missing_diagram</ac:parameter>'
             '</ac:structured-macro>'
         )
-        page.body_view = ""
+        page.body = ""
         page.get_attachments_by_title = MagicMock(return_value=[])
 
         converter = MagicMock(spec=Converter)
@@ -162,7 +162,7 @@ class TestGliffyConversion:
         """Test that Gliffy with no storage returns error."""
         page = MagicMock(spec=Page)
         page.body_storage = None
-        page.body_view = ""
+        page.body = ""
 
         converter = MagicMock(spec=Converter)
         converter.page = page
@@ -215,7 +215,7 @@ class TestDrawIOServerDCFallback:
             '<ac:parameter ac:name="diagramName">architecture</ac:parameter>'
             '</ac:structured-macro>'
         )
-        page.body_view = '<div class="drawio-diagram">Something without cloud pattern</div>'
+        page.body = '<div class="drawio-diagram">Something without cloud pattern</div>'
 
         # Mock attachments
         drawio_att = MagicMock()

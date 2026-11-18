@@ -29,6 +29,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.cleanup_stale` | Delete local files for removed pages |\n\n"
     "| `export.page_path` | File path template for exported pages |\n\n"
     "| `export.only_homepage_descendants` | Space exports skip pages outside homepage tree |\n\n"
+    "| `export.database_placeholders` | Export Cloud databases as placeholder pages |\n\n"
     "| `export.page_path_if_parent` | Page path template for pages with child pages |\n\n"
     "| `export.attachment_path` | File path template for exported attachments |\n\n"
     "| `export.attachment_path_if_parent` | Attachment path template for parent pages |\n\n"

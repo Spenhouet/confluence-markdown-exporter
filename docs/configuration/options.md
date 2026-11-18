@@ -457,9 +457,18 @@ Limit space exports (`spaces`, `orgs`) to the space homepage and its descendants
 - Default: `True`
 - ENV Var: `CME_EXPORT__ONLY_HOMEPAGE_DESCENDANTS`
 
+### export.database_placeholders
+
+Export Confluence Cloud databases as placeholder pages. The Confluence API does not provide database entries, so each placeholder holds a short note and a link to the database in Confluence. Set to `false` to skip databases. Server/Data Center has no databases.
+
+- Default: `True`
+- ENV Var: `CME_EXPORT__DATABASE_PLACEHOLDERS`
+
 ### export.skip_unchanged
 
 Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.
+
+With `False`, every page is exported again, but the lockfile is still read and updated. Attachments whose version changed are downloaded again, and `export.cleanup_stale` still applies.
 
 - Default: `True`
 - ENV Var: `CME_EXPORT__SKIP_UNCHANGED`
@@ -467,6 +476,8 @@ Skip exporting pages that have not changed since last export. Uses a lockfile to
 ### export.cleanup_stale
 
 After export, delete local files for pages removed from Confluence or whose export path has changed. Renaming or moving a page in Confluence changes its export path, so the file at the previous path is removed along with its `.comments.md` sidecar. Renaming a parent page also changes the path of every descendant, because `{ancestor_titles}` is part of the default `export.page_path`.
+
+A page that moved to another space counts as removed from the space it left. Its file there is deleted on the next export of that space, even if the other space is never exported.
 
 The old file is kept when another page now occupies that exact path, and when the old and new paths are the same file on disk. The latter happens on a case-only rename on a case-insensitive filesystem such as the macOS or Windows default.
 

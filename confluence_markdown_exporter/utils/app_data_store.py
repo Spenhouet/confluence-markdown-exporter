@@ -404,6 +404,15 @@ class ExportConfig(BaseModel):
             "such as additional root pages. A warning is logged when pages are skipped."
         ),
     )
+    database_placeholders: bool = Field(
+        default=True,
+        title="Database Placeholders",
+        description=(
+            "Whether Confluence Cloud databases are exported as placeholder pages with a link "
+            "to the database. The API does not provide database entries. Set to false to skip "
+            "databases."
+        ),
+    )
     page_path_if_parent: str | None = Field(
         default=None,
         title="Page Path Template for Parent Pages",
