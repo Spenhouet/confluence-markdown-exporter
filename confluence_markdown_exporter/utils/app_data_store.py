@@ -552,16 +552,16 @@ class ExportConfig(BaseModel):
             "  compact: never align columns, yielding minimal and clean markdown code."
         ),
     )
-    preserve_merged_tables_as_html: bool = Field(
-        default=False,
-        title="Preserve Merged Tables as HTML",
+    table_format: Literal["markdown", "html"] = Field(
+        default="markdown",
+        title="Table Format",
         description=(
-            "Whether to preserve tables containing merged cells (rowspan or colspan) as HTML "
-            "tables instead of duplicating merged cells across rows and columns in Markdown.\n"
-            "When enabled, merged tables are output as HTML with cell spans preserved and "
-            "cell contents converted through the standard Markdown converter (e.g. status "
-            "macros, code blocks, and links are converted). Ordinary tables continue to use "
-            "Markdown format."
+            "How tables in the page body are exported.\n"
+            "  markdown: Markdown pipe tables (default). Merged cells are repeated across\n"
+            "    the rows and columns they span.\n"
+            "  html: HTML tables with HTML cell content. Merged cells keep their rowspan\n"
+            "    and colspan, so each cell's content appears once. Wiki links fall back to\n"
+            "    relative links inside these tables."
         ),
     )
     page_properties_format: Literal[

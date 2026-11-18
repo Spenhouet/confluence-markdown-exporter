@@ -20,6 +20,7 @@ dependencies = [
     # v2 cursor pagination builds an invalid next-page URL. Cap until we migrate.
     'atlassian-python-api>=4,<5',
     'jmespath',
+    'markdown-it-py',
     'markdownify',
     'pydantic-settings',
     'pyyaml',

@@ -1906,15 +1906,22 @@ class Page(Document):
             macros_to_ignore: Set[str] = frozenset(["qc-read-and-understood-signature-box"])
             front_matter_indent = 2
 
+        @property
+        def _page_href(self) -> str:
+            """`export.page_href`, with wiki links falling back to relative inside HTML tables."""
+            style = settings.export.page_href
+            return "relative" if style == "wiki" and self._html_cell_depth else style
+
+        @property
+        def _attachment_href(self) -> str:
+            """`export.attachment_href`, with wiki links falling back to relative in HTML tables."""
+            style = settings.export.attachment_href
+            return "relative" if style == "wiki" and self._html_cell_depth else style
+
+        def _resolved_table_format(self) -> str:
+            return str(settings.export.table_format)
+
         def __init__(self, page: "Page", **options) -> None:  # noqa: ANN003
-            options.setdefault(
-                "preserve_merged_tables_as_html",
-                getattr(settings.export, "preserve_merged_tables_as_html", False),
-            )
-            options.setdefault(
-                "table_column_width",
-                getattr(settings.export, "table_column_width", "mixed"),
-            )
             super().__init__(**options)
             self.page = page
             self.page_properties = {}
@@ -2348,11 +2355,11 @@ class Page(Document):
             modified_header_text = modified_header.text.strip() if modified_header else "Modified"
 
             def _get_path(p: Path) -> str:
-                attachment_path = self._get_path_for_href(p, settings.export.attachment_href)
+                attachment_path = self._get_path_for_href(p, self._attachment_href)
                 return attachment_path.replace(" ", "%20")
 
             def _attachment_link(att: Attachment) -> str:
-                if settings.export.attachment_href == "wiki":
+                if self._attachment_href == "wiki":
                     return f"[[{att.export_path.name}|{att.title}]]"
                 return f"[{att.title}]({_get_path(att.export_path)})"
 
@@ -2753,7 +2760,7 @@ class Page(Document):
                         if page_id:
                             return self.convert_page_link(page_id, label)
             if (href := href_str).startswith("#"):
-                if settings.export.page_href == "wiki":
+                if self._page_href == "wiki":
                     return f"[[#{text}]]"
                 return f"[{text}](#{github_heading_slug(href[1:])})"
 
@@ -2799,7 +2806,7 @@ class Page(Document):
 
             PageTitleRegistry.register(int(page.id), page.title)
 
-            if settings.export.page_href == "wiki":
+            if self._page_href == "wiki":
                 # Wiki aliases are shown verbatim, so drop the Markdown escapes
                 # markdownify added to the anchor text (e.g. "my\\_page").
                 label = re.sub(r"\\([_*])", r"\1", label)
@@ -2810,14 +2817,14 @@ class Page(Document):
                     return f"[[{page.title}|{label}]]"
                 return f"[[{page.title}]]"
 
-            page_path = self._get_path_for_href(page.export_path, settings.export.page_href)
+            page_path = self._get_path_for_href(page.export_path, self._page_href)
             return f"[{label}]({page_path.replace(' ', '%20')})"
 
         def _format_attachment_link(self, attachment: Attachment) -> str:
-            if settings.export.attachment_href == "wiki":
+            if self._attachment_href == "wiki":
                 return f"[[{attachment.export_path.name}|{attachment.title}]]"
 
-            path = self._get_path_for_href(attachment.export_path, settings.export.attachment_href)
+            path = self._get_path_for_href(attachment.export_path, self._attachment_href)
             return f"[{attachment.title}]({path.replace(' ', '%20')})"
 
         def _attachment_from_download_href(self, href: str) -> Attachment | None:
@@ -3048,7 +3055,7 @@ class Page(Document):
 
             data_uri = self._image_data_uri(attachment) if settings.export.embed_images else None
 
-            if settings.export.attachment_href == "wiki" and not data_uri:
+            if self._attachment_href == "wiki" and not data_uri:
                 img_md = f"![[{attachment.export_path.name}]]"
                 return f"{img_md}\n*{caption}*" if caption else img_md
 
@@ -3056,7 +3063,7 @@ class Page(Document):
                 el["src"] = data_uri
             else:
                 path = self._get_path_for_href(
-                    attachment.export_path, settings.export.attachment_href
+                    attachment.export_path, self._attachment_href
                 )
                 el["src"] = path.replace(" ", "%20")
             tags = parent_tags if isinstance(parent_tags, list | set) else set()
@@ -3268,17 +3275,17 @@ class Page(Document):
                 return f"\n<!-- DrawIO diagram `{drawio_name}` not found -->\n\n"
 
             # Render based on href setting
-            if settings.export.attachment_href == "wiki":
+            if self._attachment_href == "wiki":
                 preview_filename = preview_attachments[0].export_path.name
                 drawio_filename = drawio_attachments[0].export_path.name
                 drawio_image_embedding = f"![[{preview_filename}|{drawio_name}]]"
                 drawio_link = f"[[{drawio_filename}|{drawio_image_embedding}]]"
             else:
                 drawio_path = self._get_path_for_href(
-                    drawio_attachments[0].export_path, settings.export.attachment_href
+                    drawio_attachments[0].export_path, self._attachment_href
                 )
                 preview_path = self._get_path_for_href(
-                    preview_attachments[0].export_path, settings.export.attachment_href
+                    preview_attachments[0].export_path, self._attachment_href
                 )
                 drawio_image_embedding = f"![{drawio_name}]({preview_path.replace(' ', '%20')})"
                 drawio_link = f"[{drawio_image_embedding}]({drawio_path.replace(' ', '%20')})"
@@ -3313,11 +3320,11 @@ class Page(Document):
                 return f"\n<!-- Gliffy diagram `{gliffy_name}` preview image not found -->\n\n"
 
             # Render as markdown image link
-            if settings.export.attachment_href == "wiki":
+            if self._attachment_href == "wiki":
                 preview_filename = preview_attachments[0].export_path.name
                 return f"\n![[{preview_filename}|{gliffy_name}]]\n\n"
             preview_path = self._get_path_for_href(
-                preview_attachments[0].export_path, settings.export.attachment_href
+                preview_attachments[0].export_path, self._attachment_href
             )
             return f"\n![{gliffy_name}]({preview_path.replace(' ', '%20')})\n\n"
 

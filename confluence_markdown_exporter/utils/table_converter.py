@@ -1,9 +1,10 @@
+import html
 import re
-from itertools import chain
 from typing import cast
 
 from bs4 import BeautifulSoup
 from bs4 import Tag
+from markdown_it import MarkdownIt
 from markdownify import MarkdownConverter
 from tabulate import tabulate
 
@@ -13,6 +14,12 @@ _MAX_TABLE_LINE_LEN = 120
 
 _LEADING_BR_OR_WS = re.compile(r"^(?:\s|<br\s*/?>)+")
 _TRAILING_BR_OR_WS = re.compile(r"(?:\s|<br\s*/?>)+$")
+_PRE_BLOCK = re.compile(r"<pre\b.*?</pre>", re.DOTALL)
+_SINGLE_PARAGRAPH = re.compile(r"<p>((?:(?!</?p>).)*)</p>", re.DOTALL)
+
+# Renders the Markdown of a cell back to HTML for `export.table_format = html`. Raw HTML
+# the converter emits (e.g. <mark>, <details>) passes through unchanged.
+_CELL_RENDERER = MarkdownIt("commonmark", {"html": True}).enable(["table", "strikethrough"])
 
 
 def to_markdown_table(
@@ -109,42 +116,44 @@ def pad(rows: list[list[Tag]]) -> list[list[Tag]]:
     return padded
 
 
+def _table_rows(el: Tag) -> list[Tag]:
+    """Return the rows of *el*, not of tables nested in it."""
+    row_tags: list[Tag] = []
+    for child in el.find_all(["thead", "tbody", "tfoot", "tr"], recursive=False):
+        if child.name == "tr":
+            row_tags.append(cast("Tag", child))
+        else:
+            row_tags.extend(cast("list[Tag]", child.find_all("tr", recursive=False)))
+    return row_tags
+
+
+def _render_cell_html(markdown: str) -> str:
+    """Render the Markdown of one cell as HTML that stays inside an HTML block.
+
+    A blank line ends a CommonMark HTML block, so newlines in preformatted text become
+    character references and other blank lines are dropped. A cell that is a single
+    paragraph loses the <p> wrapper.
+    """
+    rendered = _CELL_RENDERER.render(markdown).strip()
+    if (match := _SINGLE_PARAGRAPH.fullmatch(rendered)) is not None:
+        rendered = match.group(1)
+    rendered = _PRE_BLOCK.sub(lambda m: m.group(0).replace("\n", "&#10;"), rendered)
+    return re.sub(r"\n\s*\n", "\n", rendered)
+
+
+def _span_attrs(cell: Tag) -> str:
+    """Return the rowspan and colspan attributes of *cell* that merge cells."""
+    attrs = ""
+    for name in ("rowspan", "colspan"):
+        if cell.has_attr(name) and _get_int_attr(cell, name) != 1:
+            attrs += f' {name}="{html.escape(str(_get_int_attr(cell, name)))}"'
+    return attrs
+
+
 def normalize_table_cell_text(text: str) -> str:
     text = text.replace("|", "\\|").replace("\n", "<br/>")
     text = _LEADING_BR_OR_WS.sub("", text)
     return _TRAILING_BR_OR_WS.sub("", text)
-
-
-def _remove_empty_column_groups(el: Tag) -> None:
-    for table in [el, *el.find_all("table")]:
-        groups = table.find_all("colgroup", recursive=False)
-        # Keep all column positions if any declaration carries layout metadata.
-        if not groups or not all(
-            not group.attrs
-            and all(
-                (isinstance(child, Tag) and child.name == "col" and not child.attrs)
-                or (not isinstance(child, Tag) and not str(child).strip())
-                for child in group.children
-            )
-            for group in groups
-        ):
-            continue
-        declared_columns = sum(max(1, len(group.find_all("col"))) for group in groups)
-        row_width = max(
-            (
-                sum(
-                    max(1, _get_int_attr(cell, "colspan"))
-                    for cell in row.find_all(["td", "th"], recursive=False)
-                )
-                for row in table.find_all("tr")
-                if row.find_parent("table") is table
-            ),
-            default=0,
-        )
-        # Extra declared columns can affect the grid even without attributes.
-        if declared_columns <= row_width:
-            for group in groups:
-                group.decompose()
 
 
 class TableConverter(MarkdownConverter):
@@ -152,8 +161,74 @@ class TableConverter(MarkdownConverter):
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         self._table_column_width = kwargs.pop("table_column_width", None)
-        self._preserve_merged_tables_as_html = kwargs.pop("preserve_merged_tables_as_html", None)
+        self._table_format = kwargs.pop("table_format", None)
+        # Depth of HTML table cells being converted. Wiki links don't work inside HTML,
+        # so links fall back to relative paths while it is above zero.
+        self._html_cell_depth = 0
         super().__init__(*args, **kwargs)
+
+    def _resolved_table_format(self) -> str:
+        if self._table_format is not None:
+            return str(self._table_format)
+        try:
+            return get_settings().export.table_format
+        except (AttributeError, RuntimeError):
+            return "markdown"
+
+    def _convert_html_cell(self, cell: Tag, parent_tags: set[str]) -> str:
+        """Convert the content of *cell* as ordinary page content and render it as HTML.
+
+        The cell is converted as a block, not as a pipe table cell, so lists and code
+        blocks keep their structure. The cell stays in the tree (renamed for the duration)
+        because some converters look at the element's position in the page.
+        """
+        name = cell.name
+        cell.name = "div"
+        self._html_cell_depth += 1
+        try:
+            markdown = self.process_tag(cell, parent_tags=set(parent_tags))
+        finally:
+            self._html_cell_depth -= 1
+            cell.name = name
+        return _render_cell_html(markdown)
+
+    def convert_html_table(self, el: Tag, parent_tags: set[str]) -> str:
+        """Convert *el* to an HTML table whose cells hold HTML.
+
+        Merged cells keep their rowspan and colspan, so each cell's content appears once.
+        Confluence classes and other attributes are dropped. Tables nested in a cell are
+        converted the same way through the cell content.
+        """
+        sections: list[tuple[str | None, list[Tag]]] = []
+        for child in el.find_all(["thead", "tbody", "tfoot", "tr"], recursive=False):
+            if child.name == "tr":
+                if sections and sections[-1][0] is None:
+                    sections[-1][1].append(cast("Tag", child))
+                else:
+                    sections.append((None, [cast("Tag", child)]))
+            else:
+                sections.append(
+                    (child.name, cast("list[Tag]", child.find_all("tr", recursive=False)))
+                )
+
+        if not any(tr.find(["td", "th"], recursive=False) for _, rows in sections for tr in rows):
+            return ""
+
+        lines: list[str] = []
+        for section, rows in sections:
+            if section:
+                lines.append(f"<{section}>")
+            for tr in rows:
+                cells = cast("list[Tag]", tr.find_all(["td", "th"], recursive=False))
+                rendered = [
+                    f"<{cell.name}{_span_attrs(cell)}>"
+                    f"{self._convert_html_cell(cell, parent_tags)}</{cell.name}>"
+                    for cell in cells
+                ]
+                lines.append("<tr>" + "".join(rendered) + "</tr>")
+            if section:
+                lines.append(f"</{section}>")
+        return "\n\n<table>\n" + "\n".join(lines) + "\n</table>\n\n"
 
     def _format_table(
         self,
@@ -183,18 +258,15 @@ class TableConverter(MarkdownConverter):
 
         return aligned
 
-    def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:  # noqa: C901, PLR0912
-        _remove_empty_column_groups(el)
-
+    def convert_table(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         if "table" in parent_tags:
             return str(el)
 
-        row_tags: list[Tag] = []
-        for child in el.find_all(["thead", "tbody", "tfoot", "tr"], recursive=False):
-            if child.name == "tr":
-                row_tags.append(cast("Tag", child))
-            else:
-                row_tags.extend(cast("list[Tag]", child.find_all("tr", recursive=False)))
+        if self._resolved_table_format() == "html":
+            tags = {t for t in self._normalize_parent_tags(parent_tags) if t != "_inline"}
+            return self.convert_html_table(cast("Tag", el), tags)
+
+        row_tags = _table_rows(cast("Tag", el))
         rows = [
             cast("list[Tag]", tr.find_all(["td", "th"], recursive=False)) for tr in row_tags if tr
         ]
@@ -202,22 +274,6 @@ class TableConverter(MarkdownConverter):
         # Check if rows is empty OR if all rows are empty lists (e.g., <tr></tr>)
         if not rows or not any(rows):
             return ""
-
-        preserve_merged = self._preserve_merged_tables_as_html
-        if preserve_merged is None:
-            try:
-                preserve_merged = get_settings().export.preserve_merged_tables_as_html
-            except (AttributeError, RuntimeError):
-                preserve_merged = False
-
-        has_merged = any(
-            _get_int_attr(cell, "colspan") > 1
-            or (_get_int_attr(cell, "rowspan") != 1 and _get_int_attr(cell, "rowspan") >= 0)
-            for cell in chain.from_iterable(rows)
-        )
-
-        if preserve_merged and has_merged:
-            return self.convert_merged_table(el, rows, parent_tags)
 
         padded_rows = pad(rows)
         # A merged cell occupies several grid positions but must be converted only
@@ -252,44 +308,6 @@ class TableConverter(MarkdownConverter):
             is_nested=is_nested,
             mode=mode,
         )
-
-    def convert_merged_table(
-        self,
-        el: Tag,
-        rows: list[list[Tag]],
-        parent_tags: "TableConverter.ParentTags | bool",
-    ) -> str:
-        """Keep merges and rich cell content in an HTML block, converting cell contents."""
-        for tag in [el, *el.find_all(["thead", "tbody", "tfoot", "tr"], recursive=False)]:
-            if tag.has_attr("class"):
-                cleaned = [c for c in tag.get("class", []) if not c.startswith("confluence")]
-                if cleaned:
-                    tag["class"] = cleaned
-                else:
-                    del tag["class"]
-
-        tags = self._normalize_parent_tags(parent_tags)
-        table_tags = set(tags) | {"table"}
-
-        for row in rows:
-            for cell in row:
-                content = self.process_tag(cell, parent_tags=table_tags)
-                if cell.has_attr("class"):
-                    cleaned_classes = [
-                        c for c in cell.get("class", []) if not c.startswith("confluence")
-                    ]
-                    if cleaned_classes:
-                        cell["class"] = cleaned_classes
-                    else:
-                        del cell["class"]
-                cell.clear()
-                if content:
-                    cell.extend(BeautifulSoup(content, "html.parser").contents)
-
-        result = str(el)
-        # Blank lines end CommonMark HTML blocks even inside a table.
-        result = re.sub(r"\n\s*\n+", "\n", result)
-        return "\n\n" + result.strip() + "\n\n"
 
     def convert_th(self, el: BeautifulSoup, text: str, parent_tags: list[str]) -> str:
         """This method is empty because we want a No-Op for the <th> tag."""
