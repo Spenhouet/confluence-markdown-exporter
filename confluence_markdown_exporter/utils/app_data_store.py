@@ -552,6 +552,18 @@ class ExportConfig(BaseModel):
             "  compact: never align columns, yielding minimal and clean markdown code."
         ),
     )
+    table_format: Literal["markdown", "html"] = Field(
+        default="markdown",
+        title="Table Format",
+        description=(
+            "How tables in the page body are exported.\n"
+            "  markdown: Markdown pipe tables (default). Merged cells are repeated across\n"
+            "    the rows and columns they span.\n"
+            "  html: HTML tables with HTML cell content. Merged cells keep their rowspan\n"
+            "    and colspan, so each cell's content appears once. Wiki links fall back to\n"
+            "    relative links inside these tables."
+        ),
+    )
     page_properties_format: Literal[
         "frontmatter",
         "table",

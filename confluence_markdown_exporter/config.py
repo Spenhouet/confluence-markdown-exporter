@@ -41,6 +41,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.include_macro` | How to render `include`/`excerpt-include` macros:"
     " `inline` (default) or `transclusion` (Obsidian `![[Page Title]]` embed) |\n\n"
     "| `export.page_breadcrumbs` | Include breadcrumb links at top of page |\n\n"
+    "| `export.table_format` | Table output: `markdown` (default) or `html` |\n\n"
     "| `export.table_column_width` | Visual alignment of table columns: "
     "`aligned`, `mixed` (default), or `compact` |\n\n"
     "| `export.confluence_url_in_frontmatter` | Include Confluence page URL in YAML "

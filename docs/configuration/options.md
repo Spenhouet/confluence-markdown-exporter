@@ -194,6 +194,20 @@ Whether to include breadcrumb links at the top of the page.
 - Default: `True`
 - ENV Var: `CME_EXPORT__PAGE_BREADCRUMBS`
 
+### export.table_format
+
+How tables in the page body are exported.
+
+| Value | Behaviour |
+| ----- | --------- |
+| `markdown` | Markdown pipe tables (default). Pipe tables cannot merge cells, so the content of a merged cell is repeated in every row and column it spans. |
+| `html` | HTML tables. Merged cells keep their `rowspan` and `colspan`, so each cell's content appears once. Cell content is HTML too: links, formatting, lists, code blocks and images are converted the same way as elsewhere on the page and then written as HTML, because Markdown is not rendered inside an HTML table. Confluence classes and styling are dropped. |
+
+With `html`, links in tables use relative paths even when [`export.page_href`](#exportpage_href) or [`export.attachment_href`](#exportattachment_href) is `wiki`, since wiki links do not work inside HTML. [`export.table_column_width`](#exporttable_column_width) has no effect on HTML tables.
+
+- Default: `markdown`
+- ENV Var: `CME_EXPORT__TABLE_FORMAT`
+
 ### export.table_column_width
 
 Controls the visual alignment and space padding of Markdown table columns.

@@ -386,6 +386,7 @@ def _export_settings(tmp_path: Path) -> SimpleNamespace:
             attachments_export="referenced",
             include_macro="inline",
             page_properties_report_format="frozen",
+            table_format="markdown",
         )
     )
 
