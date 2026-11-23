@@ -5,8 +5,10 @@ https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 
 import base64
 import copy
+import csv
 import functools
 import html
+import io
 import itertools
 import json
 import logging
@@ -1168,18 +1170,49 @@ def _search_pages(cql: str, base_url: str) -> list["Descendant"]:
 _PageT = TypeVar("_PageT", bound="Page | Descendant")
 
 
+def _clean_v2_path(path: str, client_url: str) -> str:
+    """Strip redundant prefix from a v2 REST API path when joining with client_url."""
+    parsed_client = urllib.parse.urlparse(client_url)
+    base_prefix = parsed_client.path.rstrip("/")
+    if base_prefix and path.startswith(base_prefix + "/"):
+        path = path[len(base_prefix) + 1 :]
+    elif path.startswith("/wiki/"):
+        path = path[len("/wiki/") :]
+    return path.lstrip("/")
+
+
+def _extract_adf_text(node: object) -> str:
+    """Recursively extract plain text from an Atlassian Document Format (ADF) node."""
+    if isinstance(node, list):
+        return "".join(_extract_adf_text(child) for child in node)
+    if not isinstance(node, dict):
+        return ""
+    node_type = str(node.get("type", ""))
+    if node_type == "text":
+        return str(node.get("text", ""))
+    if node_type == "hardBreak":
+        return "\n"
+    content = node.get("content", [])
+    text = "".join(_extract_adf_text(child) for child in content)
+    if node_type in ("paragraph", "heading"):
+        return text + "\n"
+    return text
+
+
 def _add_databases(
     pages: list[_PageT], scope_cql: str, base_url: str
 ) -> list["_PageT | Descendant"]:
     """Return *pages* plus the Confluence Cloud databases matching *scope_cql*.
 
-    Databases are exported as placeholder pages because the API does not provide
-    their entries. A database whose export path is already taken by a page or by
-    another database is skipped, so a placeholder never overwrites another file.
+    Databases are exported as tables (or placeholder pages) depending on configuration.
+    A database whose export path is already taken by a page or by another database
+    is skipped, so an export never overwrites another file.
     Server/DC has no databases and rejects the query with an HTTP error, which is
     ignored here so page discovery is not affected.
     """
-    if not settings.export.database_placeholders:
+    if settings.export.database_export == "none" or not getattr(
+        settings.export, "database_placeholders", True
+    ):
         return [*pages]
     try:
         databases = _search_pages(f"type=database AND {scope_cql}", base_url)
@@ -1336,6 +1369,9 @@ class Page(Document):
             logger.warning("Skipping export for inaccessible page id=%s", self.id)
             return {}
 
+        if self.type == "database":
+            return self._export_database_content()
+
         logger.debug("Exporting page id=%s '%s'", self.id, self.title)
         if settings.export.log_level == "DEBUG":
             self.export_body()
@@ -1344,18 +1380,341 @@ class Page(Document):
         attachment_entries = self.export_attachments()
         logger.debug("Converting to Markdown for page id=%s", self.id)
         self.export_markdown()
-        if self.type == "database":
-            logger.info(
-                f"'{self.title}' is a Confluence database. Its entries cannot be exported, "
-                "so a placeholder page with a link to it was written."
-            )
-        elif settings.export.comments_export != "none":
+        if settings.export.comments_export != "none":
             logger.debug("Exporting comments for page id=%s", self.id)
             self.export_comments_sidecar()
         logger.info(
             "Exported '%s' -> %s", self.title, settings.export.output_path / self.export_path
         )
         return attachment_entries
+
+    def _export_database_content(self) -> dict[str, AttachmentEntry]:
+        if settings.export.database_export == "none" or not getattr(
+            settings.export, "database_placeholders", True
+        ):
+            logger.info(
+                "Skipping Confluence database '%s' (id=%s) because database_export is 'none'",
+                self.title,
+                self.id,
+            )
+            return {}
+        if settings.export.database_export == "placeholder":
+            self.export_markdown()
+            logger.info(
+                f"'{self.title}' is a Confluence database. Its entries cannot be exported, "
+                "so a placeholder page with a link to it was written."
+            )
+            logger.info(
+                "Exported '%s' -> %s", self.title, settings.export.output_path / self.export_path
+            )
+            return {}
+
+        try:
+            self.export_database()
+            logger.info(
+                "Exported database '%s' -> %s",
+                self.title,
+                settings.export.output_path / self.export_path,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed to export database '%s' (id=%s): %s. Falling back to placeholder.",
+                self.title,
+                self.id,
+                e,
+            )
+            self.export_markdown()
+            logger.info(
+                f"'{self.title}' is a Confluence database. Its entries cannot be exported, "
+                "so a placeholder page with a link to it was written."
+            )
+            logger.info(
+                "Exported '%s' -> %s", self.title, settings.export.output_path / self.export_path
+            )
+        return {}
+
+    def fetch_database_fields(self) -> list[dict[str, Any]]:
+        client = get_thread_confluence(self.base_url)
+        path = f"api/v2/databases/{self.id}/fields"
+        fields: list[dict[str, Any]] = []
+        while path:
+            cleaned_path = _clean_v2_path(path, client.url)
+            resp = cast("dict[str, Any]", client.get(cleaned_path))
+            if not resp or not isinstance(resp, dict):
+                break
+            results = resp.get("results", [])
+            fields.extend(results)
+            path = resp.get("_links", {}).get("next")
+        return fields
+
+    def fetch_database_entries(self) -> list[dict[str, Any]]:
+        client = get_thread_confluence(self.base_url)
+        path = f"api/v2/databases/{self.id}/entries"
+        entries: list[dict[str, Any]] = []
+        while path:
+            cleaned_path = _clean_v2_path(path, client.url)
+            resp = cast("dict[str, Any]", client.get(cleaned_path))
+            if not resp or not isinstance(resp, dict):
+                break
+            results = resp.get("results", [])
+            entries.extend(results)
+            path = resp.get("_links", {}).get("next")
+        return entries
+
+    def _format_database_cell_value(  # noqa: C901, PLR0911, PLR0912, PLR0915
+        self, field: dict[str, Any], cell_data: dict[str, Any] | None, *, for_markdown: bool = True
+    ) -> str:
+        if cell_data is None or not isinstance(cell_data, dict):
+            return ""
+
+        val_type = cell_data.get("type", field.get("type", ""))
+
+        if val_type == "text":
+            text_val = cell_data.get("plain")
+            if text_val is None and "rich" in cell_data:
+                text_val = _extract_adf_text(cell_data["rich"]).strip()
+            return str(text_val or "")
+
+        if val_type == "aiSummary":
+            summary = cell_data.get("plain") or cell_data.get("value") or ""
+            return str(summary)
+
+        if val_type == "number":
+            val = cell_data.get("value")
+            return str(val) if val is not None else ""
+
+        if val_type == "checkbox":
+            val = cell_data.get("value")
+            if for_markdown:
+                return "[x]" if val is True else "[ ]"
+            return "true" if val is True else ("false" if val is False else "")
+
+        if val_type == "date":
+            val = cell_data.get("value")
+            return str(val) if val is not None else ""
+
+        if val_type == "select":
+            options = cell_data.get("value") or []
+            if isinstance(options, list):
+                labels = [
+                    opt.get("label", "")
+                    for opt in options
+                    if isinstance(opt, dict) and opt.get("label")
+                ]
+                return ", ".join(labels)
+            return ""
+
+        if val_type == "hyperlink":
+            items = cell_data.get("value") or []
+            if isinstance(items, list):
+                links = []
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    url = item.get("url", "")
+                    label = item.get("label") or url
+                    if for_markdown and url:
+                        links.append(f"[{label}]({url})")
+                    else:
+                        links.append(label or url)
+                return ", ".join(links)
+            return ""
+
+        if val_type == "user":
+            users = cell_data.get("value") or []
+            if isinstance(users, list):
+                names = []
+                for user_ref in users:
+                    if not isinstance(user_ref, dict):
+                        continue
+                    aid = user_ref.get("accountId", "")
+                    if aid:
+                        try:
+                            user = User.from_accountid(aid, self.base_url)
+                            name = (
+                                user.display_name.removesuffix("(Unlicensed)")
+                                .removesuffix("(Deactivated)")
+                                .strip()
+                            )
+                            names.append(name or aid)
+                        except Exception:  # noqa: BLE001
+                            names.append(aid)
+                return ", ".join(names)
+            return ""
+
+        if val_type == "jiraIssue":
+            issues = cell_data.get("value") or []
+            if isinstance(issues, list):
+                jira_items = []
+                for issue_ref in issues:
+                    if not isinstance(issue_ref, dict):
+                        continue
+                    key = issue_ref.get("key", "")
+                    if not key:
+                        continue
+                    if for_markdown:
+                        try:
+                            issue = JiraIssue.from_key(key, self.base_url)
+                            url = f"{self.base_url}/browse/{key}"
+                            if issue:
+                                issue_status = " ".join(issue.status.split())
+                                issue_status = (
+                                    issue_status.replace("\\", "\\\\")
+                                    .replace("[", "\\[")
+                                    .replace("]", "\\]")
+                                )
+                                status = (
+                                    f" ({issue_status})"
+                                    if settings.export.include_jira_status and issue_status
+                                    else ""
+                                )
+                                jira_items.append(f"[[{issue.key}] {issue.summary}{status}]({url})")
+                            else:
+                                jira_items.append(f"[[{key}]]({url})")
+                        except Exception:  # noqa: BLE001
+                            jira_items.append(f"[[{key}]]({self.base_url}/browse/{key})")
+                    else:
+                        jira_items.append(key)
+                return ", ".join(jira_items)
+            return ""
+
+        if val_type == "pageLink":
+            pages_ref = cell_data.get("value") or []
+            if isinstance(pages_ref, list):
+                page_links = []
+                for p_ref in pages_ref:
+                    if not isinstance(p_ref, dict):
+                        continue
+                    cid = str(p_ref.get("contentId", ""))
+                    if not cid:
+                        continue
+                    title = ""
+                    try:
+                        if cid.isdigit():
+                            title = PageTitleRegistry.get(int(cid)) or ""
+                            if not title:
+                                title = Page.from_id(int(cid), self.base_url).title
+                    except Exception:  # noqa: BLE001
+                        title = ""
+                    label = title or f"Page {cid}"
+                    if for_markdown:
+                        page_links.append(
+                            f"[{label}]({self.base_url}/wiki/spaces/{self.space.key}/pages/{cid})"
+                        )
+                    else:
+                        page_links.append(label)
+                return ", ".join(page_links)
+            return ""
+
+        if val_type == "entryLink":
+            entry_refs = cell_data.get("value") or []
+            if isinstance(entry_refs, list):
+                return ", ".join(
+                    str(ref.get("entryId", ""))
+                    for ref in entry_refs
+                    if isinstance(ref, dict) and ref.get("entryId")
+                )
+            return ""
+
+        if val_type == "attachment":
+            att_refs = cell_data.get("value") or []
+            if isinstance(att_refs, list):
+                return ", ".join(
+                    str(ref.get("mediaId", ""))
+                    for ref in att_refs
+                    if isinstance(ref, dict) and ref.get("mediaId")
+                )
+            return ""
+
+        val = cell_data.get("value")
+        return str(val) if val is not None else ""
+
+    def export_database(self) -> None:
+        fields = self.fetch_database_fields()
+        entries = self.fetch_database_entries()
+
+        formats = settings.export.database_formats
+
+        if "markdown" in formats:
+            self.export_database_markdown(fields, entries)
+
+        if "csv" in formats:
+            self.export_database_csv(fields, entries)
+
+        if "json" in formats:
+            self.export_database_json(fields, entries)
+
+    def export_database_markdown(
+        self, fields: list[dict[str, Any]], entries: list[dict[str, Any]]
+    ) -> None:
+        headers = [str(f.get("name", "")) for f in fields]
+        rows: list[list[str]] = []
+        for entry in entries:
+            values = entry.get("values", {})
+            row = [
+                self._format_database_cell_value(f, values.get(f.get("id", "")), for_markdown=True)
+                for f in fields
+            ]
+            rows.append(row)
+
+        doc_parts: list[str] = []
+        if settings.export.include_document_title:
+            doc_parts.append(f"# {self.title}\n")
+
+        if self.web_url:
+            doc_parts.append(f"[Open {self.title} in Confluence]({self.web_url})\n")
+
+        if settings.export.table_format == "html":
+            th_cells = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
+            tr_rows = []
+            for row in rows:
+                td_cells = "".join(f"<td>{html.escape(c)}</td>" for c in row)
+                tr_rows.append(f"<tr>{td_cells}</tr>")
+            tbody = "".join(tr_rows)
+            table_html = f"<table><thead><tr>{th_cells}</tr></thead><tbody>{tbody}</tbody></table>"
+            doc_parts.append(table_html)
+        else:
+            normalized_rows = [[normalize_table_cell_text(cell) for cell in row] for row in rows]
+            table_md = tabulate(normalized_rows, headers=headers, tablefmt="pipe")
+            doc_parts.append(table_md)
+
+        content = "\n\n".join(part.strip() for part in doc_parts if part.strip()) + "\n"
+        save_file(settings.export.output_path / self.export_path, content)
+
+    def export_database_csv(
+        self, fields: list[dict[str, Any]], entries: list[dict[str, Any]]
+    ) -> None:
+        headers = [str(f.get("name", "")) for f in fields]
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(headers)
+        for entry in entries:
+            values = entry.get("values", {})
+            row = [
+                self._format_database_cell_value(f, values.get(f.get("id", "")), for_markdown=False)
+                for f in fields
+            ]
+            writer.writerow(row)
+        csv_path = (
+            settings.export.output_path / self.export_path.parent / f"{self.export_path.stem}.csv"
+        )
+        save_file(csv_path, output.getvalue())
+
+    def export_database_json(
+        self, fields: list[dict[str, Any]], entries: list[dict[str, Any]]
+    ) -> None:
+        data = {
+            "id": str(self.id),
+            "title": self.title,
+            "space": self.space.key,
+            "web_url": self.web_url,
+            "fields": fields,
+            "entries": entries,
+        }
+        json_path = (
+            settings.export.output_path / self.export_path.parent / f"{self.export_path.stem}.json"
+        )
+        save_file(json_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
     def export_with_descendants(self) -> None:
         with console.status(
@@ -1875,9 +2234,10 @@ class Page(Document):
         base_path = urllib.parse.urlparse(base_url).path.rstrip("/")
         relative_path = parsed.path[len(base_path) :]
         if match := parse_confluence_path(relative_path):
-            if match.page_id:
-                logger.debug("Resolved page id=%s from Confluence URL %s", match.page_id, page_url)
-                return Page.from_id(match.page_id, base_url)
+            target_id = match.page_id or match.database_id
+            if target_id:
+                logger.debug("Resolved page id=%s from Confluence URL %s", target_id, page_url)
+                return Page.from_id(target_id, base_url)
 
             if match.space_key and match.page_title:
                 logger.debug(
@@ -3062,9 +3422,7 @@ class Page(Document):
             if data_uri:
                 el["src"] = data_uri
             else:
-                path = self._get_path_for_href(
-                    attachment.export_path, self._attachment_href
-                )
+                path = self._get_path_for_href(attachment.export_path, self._attachment_href)
                 el["src"] = path.replace(" ", "%20")
             tags = parent_tags if isinstance(parent_tags, list | set) else set()
             if "_inline" in tags:

@@ -462,12 +462,29 @@ Limit space exports (`spaces`, `orgs`) to the space homepage and its descendants
 - Default: `True`
 - ENV Var: `CME_EXPORT__ONLY_HOMEPAGE_DESCENDANTS`
 
-### export.database_placeholders
+### export.database_export
 
-Export Confluence Cloud databases as placeholder pages. The Confluence API does not provide database entries, so each placeholder holds a short note and a link to the database in Confluence. Set to `false` to skip databases. Server/Data Center has no databases.
+How Confluence Cloud databases are exported.
 
-- Default: `True`
-- ENV Var: `CME_EXPORT__DATABASE_PLACEHOLDERS`
+- `table` — export database fields and entries as a table (default). If fetching fields or entries fails, gracefully falls back to a placeholder page.
+- `placeholder` — export a placeholder page with a note and a link to the database in Confluence.
+- `none` — skip databases entirely.
+
+Server/Data Center has no databases. Legacy setting `export.database_placeholders=false` is automatically migrated to `export.database_export: "none"`.
+
+- Default: `table`
+- ENV Var: `CME_EXPORT__DATABASE_EXPORT`
+
+### export.database_formats
+
+Which formats to export for database objects when `export.database_export` is `table`. Accepts a list containing any of `markdown`, `csv`, and `json`.
+
+- `markdown` — writes a Markdown table file (`.md`) honoring `export.table_format`.
+- `csv` — writes a raw CSV file (`.csv`) alongside the document.
+- `json` — writes a raw JSON data file (`.json`) alongside the document.
+
+- Default: `["markdown"]`
+- ENV Var: `CME_EXPORT__DATABASE_FORMATS`
 
 ### export.skip_unchanged
 

@@ -89,7 +89,7 @@ cme org <base-url>
 
 ## Databases
 
-Confluence Cloud databases inside an exported space, folder or page tree are exported as placeholder pages. The Confluence API does not provide database entries, so the placeholder only holds a link to the database in Confluence, and an info message is logged each time it is written. Set [`export.database_placeholders`](configuration/options.md#exportdatabase_placeholders) to `false` to skip databases. A database is skipped with a warning when a page or another database is already exported to the same path. Like pages, databases outside the homepage tree of a space are not exported unless [`export.only_homepage_descendants`](configuration/options.md#exportonly_homepage_descendants) is `false`. Database URLs cannot be passed to `cme pages`.
+Confluence Cloud databases inside an exported space, folder or page tree are exported according to [`export.database_export`](configuration/options.md#exportdatabase_export) (default: `table`). When set to `table`, the database schema fields and row entries are fetched via the Confluence REST API and formatted as a Markdown table (or HTML table depending on `export.table_format`). You can also export raw CSV or JSON sidecars via [`export.database_formats`](configuration/options.md#exportdatabase_formats). If the database REST API is inaccessible or fails, the exporter gracefully falls back to generating a placeholder page with a link to the original database. Set `export.database_export` to `placeholder` for fallback link pages only, or `none` to skip databases. Database URLs (e.g. `https://company.atlassian.net/wiki/spaces/KEY/database/123/Tasks`) can also be exported directly using `cme pages URL` or the `cme database URL` / `cme databases URL` aliases.
 
 ## Output layout
 

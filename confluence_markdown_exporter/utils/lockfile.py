@@ -320,9 +320,14 @@ class LockfileManager:
             return True
 
         # Re-export if the output file is missing from disk
-        if cls._output_path is not None and not (cls._output_path / entry.export_path).exists():
-            logger.debug("Page id=%s output file missing — will re-export", page_id)
-            return True
+        if cls._output_path is not None:
+            primary_path = cls._output_path / entry.export_path
+            if not primary_path.exists():
+                csv_path = primary_path.with_suffix(".csv")
+                json_path = primary_path.with_suffix(".json")
+                if not (csv_path.exists() or json_path.exists()):
+                    logger.debug("Page id=%s output file missing — will re-export", page_id)
+                    return True
 
         # Export if version or export_path has changed
         if entry.version != page.version.number or entry.export_path != str(page.export_path):

@@ -404,15 +404,35 @@ class ExportConfig(BaseModel):
             "such as additional root pages. A warning is logged when pages are skipped."
         ),
     )
-    database_placeholders: bool = Field(
-        default=True,
-        title="Database Placeholders",
+    database_export: Literal["table", "placeholder", "none"] = Field(
+        default="table",
+        title="Database Export",
         description=(
-            "Whether Confluence Cloud databases are exported as placeholder pages with a link "
-            "to the database. The API does not provide database entries. Set to false to skip "
-            "databases."
+            "How Confluence Cloud databases are exported.\n"
+            "  'table' — export database fields and entries as a table (default).\n"
+            "  'placeholder' — export a placeholder page linking to Confluence.\n"
+            "  'none' — skip databases entirely."
         ),
     )
+    database_formats: list[Literal["markdown", "csv", "json"]] = Field(
+        default_factory=lambda: ["markdown"],
+        title="Database Export Formats",
+        description=(
+            "Which formats to export for database objects when database_export is 'table'.\n"
+            "  'markdown' — generate Markdown table file (.md).\n"
+            "  'csv' — generate CSV sidecar file (.csv).\n"
+            "  'json' — generate JSON sidecar file (.json)."
+        ),
+    )
+
+    @property
+    def database_placeholders(self) -> bool:
+        return self.database_export != "none"
+
+    @database_placeholders.setter
+    def database_placeholders(self, value: bool) -> None:
+        self.database_export = "table" if value else "none"
+
     page_path_if_parent: str | None = Field(
         default=None,
         title="Page Path Template for Parent Pages",
@@ -660,6 +680,17 @@ class ExportConfig(BaseModel):
         old_val = data.pop("inline_comments", None)
         if old_val is not None and "comments_export" not in data:
             data["comments_export"] = "inline" if str(old_val).lower() in ("true", "1") else "none"
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_database_placeholders(cls, data: object) -> object:
+        """Migrate legacy database_placeholders bool to database_export literal."""
+        if not isinstance(data, dict):
+            return data
+        old_val = data.pop("database_placeholders", None)
+        if old_val is not None and "database_export" not in data:
+            data["database_export"] = "table" if str(old_val).lower() in ("true", "1") else "none"
         return data
 
     filename_encoding: str = Field(
