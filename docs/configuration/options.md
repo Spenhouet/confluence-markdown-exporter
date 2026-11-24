@@ -496,6 +496,8 @@ Maximum depth for recursively resolving database-to-database entry references (`
 
 Confluence Page references (`pageLink`) are always resolved to their page titles.
 
+> **Limitation:** `backlink` fields always render the list of linking entries rather than a count even when *"Display as: Number of items linked to entry"* is set in Confluence, because the Confluence Cloud REST API does not expose that column display option.
+
 - Default: `0`
 - ENV Var: `CME_EXPORT__DATABASE_RESOLVE_DEPTH`
 

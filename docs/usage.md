@@ -91,6 +91,10 @@ cme org <base-url>
 
 Confluence Cloud databases inside an exported space, folder or page tree are exported according to [`export.database_export`](configuration/options.md#exportdatabase_export) (default: `table`). When set to `table`, the database schema fields and row entries are fetched via the Confluence REST API and formatted as a Markdown table (or HTML table depending on `export.table_format`). You can also export raw CSV or JSON sidecars via [`export.database_formats`](configuration/options.md#exportdatabase_formats). If the database REST API is inaccessible or fails, the exporter gracefully falls back to generating a placeholder page with a link to the original database. Set `export.database_export` to `placeholder` for fallback link pages only, or `none` to skip databases. Database URLs (e.g. `https://company.atlassian.net/wiki/spaces/KEY/database/123/Tasks`) can also be exported directly using `cme pages URL` or the `cme database URL` / `cme databases URL` aliases.
 
+**Limitations:**
+
+- **Entry backlink display options:** When [`export.database_resolve_depth`](configuration/options.md#exportdatabase_resolve_depth) is greater than `0`, `backlink` fields always render the list of referencing entries. The Confluence Cloud *"Display as: Number of items linked to entry"* column option cannot be preserved because the Confluence Cloud REST API v2 does not expose backlink display settings or view configurations.
+
 ## Output layout
 
 The exported Markdown file(s) will be saved in the configured output directory (see [`export.output_path`](./configuration/options.md#exportoutput_path)) e.g.:
