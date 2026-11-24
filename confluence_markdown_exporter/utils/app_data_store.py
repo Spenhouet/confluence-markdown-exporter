@@ -424,6 +424,17 @@ class ExportConfig(BaseModel):
             "  'json' — generate JSON sidecar file (.json)."
         ),
     )
+    database_resolve_depth: int = Field(
+        default=0,
+        ge=0,
+        title="Database Reference Resolving Depth",
+        description=(
+            "Maximum depth for recursively resolving references in Confluence Cloud databases.\n"
+            "  0 — do not resolve database references (keep raw entry IDs/UUIDs; default).\n"
+            "  1 — resolve direct references (e.g. entryLink to title, entryDetails to value).\n"
+            "  >1 — resolve nested references (e.g. entryDetails pointing to another reference)."
+        ),
+    )
 
     @property
     def database_placeholders(self) -> bool:

@@ -486,6 +486,19 @@ Which formats to export for database objects when `export.database_export` is `t
 - Default: `["markdown"]`
 - ENV Var: `CME_EXPORT__DATABASE_FORMATS`
 
+### export.database_resolve_depth
+
+Maximum depth for recursively resolving database-to-database entry references (`entryLink` and `entryDetails`) in Confluence Cloud databases.
+
+- `0` — do not resolve database references (default). Displays raw entry IDs/UUIDs for `entryLink` and leaves `entryDetails` uncomputed.
+- `1` — resolve direct references (e.g. `entryLink` displays the target entry's title, and `entryDetails` looks up the corresponding field value).
+- `>1` — resolve multi-hop transitive references across databases up to the specified depth limit.
+
+Confluence Page references (`pageLink`) are always resolved to their page titles.
+
+- Default: `0`
+- ENV Var: `CME_EXPORT__DATABASE_RESOLVE_DEPTH`
+
 ### export.skip_unchanged
 
 Skip exporting pages that have not changed since last export. Uses a lockfile to track page versions.

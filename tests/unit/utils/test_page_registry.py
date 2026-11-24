@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from confluence_markdown_exporter.utils.page_registry import PageTitleRegistry
@@ -61,3 +63,19 @@ def test_blank_inputs_ignored() -> None:
     PageTitleRegistry.register(1, "")
     assert PageTitleRegistry.title_count("X") == 0
     assert PageTitleRegistry.title_count("") == 0
+
+
+def test_get_and_export_path_scope() -> None:
+    path = Path("SPACE/My Page.md")
+    PageTitleRegistry.register(42, "My Page", export_path=path)
+
+    assert PageTitleRegistry.get(42) == "My Page"
+    assert PageTitleRegistry.get(999) is None
+    assert PageTitleRegistry.get_export_path(42) == path
+    assert PageTitleRegistry.get_export_path(999) is None
+    assert PageTitleRegistry.is_in_export_scope(42) is True
+    assert PageTitleRegistry.is_in_export_scope(999) is False
+
+    PageTitleRegistry.reset()
+    assert PageTitleRegistry.get(42) is None
+    assert PageTitleRegistry.is_in_export_scope(42) is False
