@@ -1328,28 +1328,87 @@ def _extract_text_cell_value(val: object) -> str:
     return str(text) if text else ""
 
 
-def _extract_database_entry_title(fields: list[dict[str, Any]], entry: dict[str, Any]) -> str:
+def _format_structured_fallback(val: object) -> str:
+    """Format a generic dict/list cell value into readable text instead of raw Python repr."""
+    if val is None:
+        return ""
+    if isinstance(val, list):
+        return ", ".join(p for item in val if (p := _format_structured_fallback(item)))
+    if not isinstance(val, dict):
+        return str(val)
+
+    result = next(
+        (
+            str(val[k])
+            for k in (
+                "plain",
+                "label",
+                "title",
+                "name",
+                "displayName",
+                "key",
+                "url",
+                "entryId",
+                "accountId",
+                "mediaId",
+            )
+            if val.get(k)
+        ),
+        "",
+    )
+    if not result and val.get("rich"):
+        result = _extract_adf_text(val["rich"]).strip()
+    if not result and (cid := val.get("contentId")):
+        int_cid = int(cid) if str(cid).isdigit() else None
+        result = (PageTitleRegistry.get(int_cid) if int_cid is not None else None) or f"Page {cid}"
+    return result
+
+
+def _format_fallback_title_field(
+    field: dict[str, Any],
+    val: object,
+    entry: dict[str, Any],
+    page: "Page | None",
+) -> str:
+    if not isinstance(val, dict):
+        return ""
+    if page is not None:
+        return page._format_database_cell_value(
+            field, val, for_markdown=False, entry=entry, resolve_depth=0
+        )
+    return _extract_text_cell_value(val) or _format_structured_fallback(val.get("value"))
+
+
+def _extract_database_entry_title(
+    fields: list[dict[str, Any]],
+    entry: dict[str, Any],
+    *,
+    page: "Page | None" = None,
+) -> str:
     """Find the display title of a database entry according to Confluence Cloud rules."""
     values = entry.get("values", {})
     # 1. Field with id "title" or name "Title"
     for f in fields:
         fid = str(f.get("id", ""))
         fname = str(f.get("name", "")).strip().lower()
-        if fid == "title" or fname == "title":
-            if text := _extract_text_cell_value(values.get(fid)):
-                return text
+        if (fid == "title" or fname == "title") and (
+            text := _extract_text_cell_value(values.get(fid))
+        ):
+            return text
     # 2. First text field with non-empty value
     for f in fields:
-        if f.get("type") == "text":
-            if text := _extract_text_cell_value(values.get(str(f.get("id", "")))):
-                return text
-    # 3. First field with any non-empty value
-    for f in fields:
-        val = values.get(str(f.get("id", "")))
-        if isinstance(val, dict):
-            text = val.get("plain") or val.get("value")
-            if text:
-                return str(text)
+        if f.get("type") == "text" and (
+            text := _extract_text_cell_value(values.get(str(f.get("id", ""))))
+        ):
+            return text
+    # 3. First field with any non-empty value (prefer non-reference fields before entryLink)
+    deferred_types = {"entryLink", "entryDetails", "backlink", "entryBacklink"}
+    ordered_fields = [f for f in fields if f.get("type") not in deferred_types] + [
+        f for f in fields if f.get("type") == "entryLink"
+    ]
+    for f in ordered_fields:
+        if text := _format_fallback_title_field(f, values.get(str(f.get("id", ""))), entry, page):
+            return text
     return "Unnamed entry"
 
 
@@ -1770,7 +1829,7 @@ class Page(Document):
                 resolved_links.append(target_entry_id)
                 continue
 
-            entry_title = _extract_database_entry_title(tgt_fields, tgt_entry)
+            entry_title = _extract_database_entry_title(tgt_fields, tgt_entry, page=self)
             if not for_markdown:
                 resolved_links.append(entry_title)
                 continue
@@ -1839,6 +1898,7 @@ class Page(Document):
     def _format_database_backlink_cell(
         self,
         field: dict[str, Any],
+        cell_data: object,
         *,
         for_markdown: bool,
         entry: dict[str, Any] | None,
@@ -1849,6 +1909,9 @@ class Page(Document):
         settings_dict = field.get("settings", {})
         src_db_id = str(settings_dict.get("sourceDatabaseContentId") or "")
         if not src_db_id:
+            refs = self._normalize_cell_refs(cell_data)
+            if any("contentId" in ref for ref in refs):
+                return self._format_database_page_link_cell(cell_data, for_markdown=for_markdown)
             return ""
         target_data = DatabaseDataCache.get_or_fetch(src_db_id, self.base_url)
         if not target_data:
@@ -1870,7 +1933,7 @@ class Page(Document):
                 for r in self._normalize_cell_refs(s_values.get(fid))
             ):
                 continue
-            title = _extract_database_entry_title(src_fields, s_entry)
+            title = _extract_database_entry_title(src_fields, s_entry, page=self)
             if for_markdown and src_export_path is not None:
                 backlinks.append(self._format_in_scope_link(src_export_path, src_db_title, title))
             else:
@@ -1902,7 +1965,7 @@ class Page(Document):
             current_db_id = str(self.id)
 
         cell_dict = cell_data if isinstance(cell_data, dict) else {}
-        val_type = cell_dict.get("type", field.get("type", ""))
+        val_type = cell_dict.get("type") or field.get("type", "")
 
         if val_type == "text":
             return _extract_text_cell_value(cell_dict)
@@ -1975,6 +2038,7 @@ class Page(Document):
         if val_type in ("backlink", "entryBacklink"):
             return self._format_database_backlink_cell(
                 field,
+                cell_dict,
                 for_markdown=for_markdown,
                 entry=entry,
                 resolve_depth=resolve_depth,
@@ -1988,6 +2052,12 @@ class Page(Document):
             )
 
         val = cell_dict.get("value")
+        if isinstance(val, list) and any(
+            isinstance(item, dict) and "contentId" in item for item in val
+        ):
+            return self._format_database_page_link_cell(cell_dict, for_markdown=for_markdown)
+        if isinstance(val, dict | list):
+            return _format_structured_fallback(val)
         return str(val) if val is not None else ""
 
     def export_database(self) -> None:

@@ -1183,3 +1183,69 @@ class TestDatabaseExtendedFieldTypesAndCaches:
         # Cached hit does not re-fetch
         assert PageMetadataCache.get_or_fetch("321", BASE_URL) is meta
         assert client.get.call_count == 1
+
+    @patch(f"{MODULE}.settings")
+    def test_backlink_resolves_page_link_primary_column_title(
+        self, mock_settings: MagicMock
+    ) -> None:
+        """Backlink resolves pageLink primary columns to page titles instead of raw contentId."""
+        mock_settings.export.database_resolve_depth = 1
+        mock_settings.export.page_path = "{space_key}/{page_title}.md"
+        mock_settings.export.page_path_if_parent = None
+        mock_settings.export.page_href = "relative"
+
+        PageTitleRegistry.register(1, "Source DB", Path("DEV/Source DB.md"))
+        PageTitleRegistry.register(2, "Target DB", Path("DEV/Target DB.md"))
+        PageTitleRegistry.register(555, "Design Spec", Path("DEV/Design Spec.md"))
+
+        src_fields = [
+            {"id": "page-col", "name": "Spec", "type": "pageLink"},
+            {"id": "link", "name": "Target", "type": "entryLink"},
+        ]
+        src_entries = [
+            {
+                "id": "src-e1",
+                "values": {
+                    "page-col": {"type": "pageLink", "value": [{"contentId": "555"}]},
+                    "link": {"type": "entryLink", "value": [{"entryId": "target-e1"}]},
+                },
+            }
+        ]
+        DatabaseDataCache.set("1", src_fields, src_entries, "Source DB")
+
+        target_db = _make_database_page(page_id=2, title="Target DB")
+        backlink_field = {
+            "id": "bl",
+            "name": "Backlink",
+            "type": "backlink",
+            "settings": {"sourceDatabaseContentId": "1"},
+        }
+        entry = {"id": "target-e1", "values": {"bl": {"type": "backlink", "value": None}}}
+
+        res = target_db._format_database_cell_value(
+            backlink_field, entry["values"]["bl"], for_markdown=True, entry=entry
+        )
+        assert res == "[Design Spec](Source DB.md)"
+
+    @patch(f"{MODULE}.settings")
+    def test_backlink_with_direct_content_id_value_formats_page_link(
+        self, mock_settings: MagicMock
+    ) -> None:
+        """Backlink without sourceDatabaseContentId formats direct contentId refs as page links."""
+        mock_settings.export.database_resolve_depth = 1
+        mock_settings.export.page_path = "{space_key}/{page_title}.md"
+        mock_settings.export.page_path_if_parent = None
+        mock_settings.export.page_href = "relative"
+
+        PageTitleRegistry.register(555, "Design Spec", Path("DEV/Design Spec.md"))
+        db = _make_database_page(page_id=2, title="Target DB")
+        backlink_field = {"id": "bl", "name": "Backlink", "type": "backlink", "settings": {}}
+        entry = {
+            "id": "e1",
+            "values": {"bl": {"type": "backlink", "value": [{"contentId": "555"}]}},
+        }
+
+        res = db._format_database_cell_value(
+            backlink_field, entry["values"]["bl"], for_markdown=True, entry=entry
+        )
+        assert res == "[Design Spec](Design Spec.md)"
