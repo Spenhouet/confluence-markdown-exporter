@@ -690,6 +690,24 @@ class Organization(BaseModel):
             spaces=[Space.from_json(space, base_url) for space in data.get("results", [])],
         )
 
+    @staticmethod
+    def _fetch_spaces(base_url: str) -> list[JsonResponse]:
+        """Fetch every current, non-personal space, following the paginated space list."""
+        confluence = get_thread_confluence(base_url)
+        spaces: list[JsonResponse] = []
+        start = 0
+        while True:
+            page = cast(
+                "JsonResponse",
+                confluence.get_all_spaces(start=start, space_status="current", expand="homepage"),
+            )
+            results = page.get("results", [])
+            if not results:
+                break
+            spaces.extend(results)
+            start += len(results)
+        return [space for space in spaces if space.get("type") != "personal"]
+
     @classmethod
     @functools.lru_cache(maxsize=100)
     def from_url(cls, base_url: str) -> "Organization":
@@ -697,15 +715,7 @@ class Organization(BaseModel):
         with console.status(
             f"[dim]Fetching space list from [highlight]{base_url}[/highlight]…[/dim]"
         ):
-            org = cls.from_json(
-                cast(
-                    "JsonResponse",
-                    get_thread_confluence(base_url).get_all_spaces(
-                        space_type="global", space_status="current", expand="homepage"
-                    ),
-                ),
-                base_url,
-            )
+            org = cls.from_json({"results": cls._fetch_spaces(base_url)}, base_url)
         logger.info("Found %d space(s) in %s", len(org.spaces), base_url)
         return org
 
