@@ -1958,7 +1958,7 @@ class Page(Document):
         current_db_title: str | None = None,
     ) -> str:
         if resolve_depth is None:
-            resolve_depth = getattr(settings.export, "database_resolve_depth", 0)
+            resolve_depth = getattr(settings.export, "database_resolve_depth", 2)
         if visited is None:
             visited = set()
         if current_db_id is None:

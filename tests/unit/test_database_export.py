@@ -141,7 +141,7 @@ class TestDatabaseConfig:
         assert cfg.database_export == "table"
         assert cfg.database_formats == ["markdown"]
         assert cfg.database_placeholders is True
-        assert cfg.database_resolve_depth == 0
+        assert cfg.database_resolve_depth == 2
 
     def test_database_resolve_depth_rejects_negative(self) -> None:
         with pytest.raises(ValidationError):

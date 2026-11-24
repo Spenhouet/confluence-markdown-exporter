@@ -31,7 +31,7 @@ _CONFIG_KEYS_EPILOG = (
     "| `export.only_homepage_descendants` | Space exports skip pages outside homepage tree |\n\n"
     "| `export.database_export` | Cloud database export: `table`, `placeholder`, `none` |\n\n"
     "| `export.database_formats` | Formats for database objects: `markdown`, `csv`, `json` |\n\n"
-    "| `export.database_resolve_depth` | Depth to resolve database references (default: 0) |\n\n"
+    "| `export.database_resolve_depth` | Depth to resolve database references (default: 2) |\n\n"
     "| `export.page_path_if_parent` | Page path template for pages with child pages |\n\n"
     "| `export.attachment_path` | File path template for exported attachments |\n\n"
     "| `export.attachment_path_if_parent` | Attachment path template for parent pages |\n\n"
