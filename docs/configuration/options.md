@@ -472,6 +472,8 @@ How Confluence Cloud databases are exported.
 
 Server/Data Center has no databases. Legacy setting `export.database_placeholders=false` is automatically migrated to `export.database_export: "none"`.
 
+> **Limitation:** When `table` is used, only a full export of all fields and all entries is possible — selections or configurations from Confluence database views (filters, sorting, grouping, hidden columns) cannot be applied because the Confluence Cloud REST API does not expose them.
+
 - Default: `table`
 - ENV Var: `CME_EXPORT__DATABASE_EXPORT`
 

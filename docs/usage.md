@@ -93,6 +93,7 @@ Confluence Cloud databases inside an exported space, folder or page tree are exp
 
 **Limitations:**
 
+- **Full database export only (no view filtering or selection):** Exporting a database always exports all fields and all entries of the entire database. Confluence views (such as filtered, sorted, grouped, or column-restricted views, or selecting a specific/default view) cannot be applied because the Confluence Cloud REST API v2 does not expose view configurations or view-scoped entry queries.
 - **Entry backlink display options:** When [`export.database_resolve_depth`](configuration/options.md#exportdatabase_resolve_depth) is greater than `0`, `backlink` fields always render the list of referencing entries. The Confluence Cloud *"Display as: Number of items linked to entry"* column option cannot be preserved because the Confluence Cloud REST API v2 does not expose backlink display settings or view configurations.
 
 ## Output layout
