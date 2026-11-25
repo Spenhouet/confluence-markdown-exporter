@@ -462,12 +462,46 @@ Limit space exports (`spaces`, `orgs`) to the space homepage and its descendants
 - Default: `True`
 - ENV Var: `CME_EXPORT__ONLY_HOMEPAGE_DESCENDANTS`
 
-### export.database_placeholders
+### export.database_export
 
-Export Confluence Cloud databases as placeholder pages. The Confluence API does not provide database entries, so each placeholder holds a short note and a link to the database in Confluence. Set to `false` to skip databases. Server/Data Center has no databases.
+How Confluence Cloud databases are exported.
 
-- Default: `True`
-- ENV Var: `CME_EXPORT__DATABASE_PLACEHOLDERS`
+- `table` — export database fields and entries as a table (default). If fetching fields or entries fails, gracefully falls back to a placeholder page.
+- `placeholder` — export a placeholder page with a note and a link to the database in Confluence.
+- `none` — skip databases entirely.
+
+Server/Data Center has no databases. Legacy setting `export.database_placeholders=false` is automatically migrated to `export.database_export: "none"`.
+
+> **Limitation:** When `table` is used, only a full export of all fields and all entries is possible — selections or configurations from Confluence database views (filters, sorting, grouping, hidden columns) cannot be applied because the Confluence Cloud REST API does not expose them.
+
+- Default: `table`
+- ENV Var: `CME_EXPORT__DATABASE_EXPORT`
+
+### export.database_formats
+
+Which formats to export for database objects when `export.database_export` is `table`. Accepts a list containing any of `markdown`, `csv`, and `json`.
+
+- `markdown` — writes a Markdown table file (`.md`) honoring `export.table_format`.
+- `csv` — writes a raw CSV file (`.csv`) alongside the document.
+- `json` — writes a raw JSON data file (`.json`) alongside the document.
+
+- Default: `["markdown"]`
+- ENV Var: `CME_EXPORT__DATABASE_FORMATS`
+
+### export.database_resolve_depth
+
+Maximum depth for recursively resolving database-to-database entry references (`entryLink` and `entryDetails`) in Confluence Cloud databases.
+
+- `0` — do not resolve database references. Displays raw entry IDs/UUIDs for `entryLink` and leaves `entryDetails` uncomputed.
+- `1` — resolve direct references (e.g. `entryLink` displays the target entry's title, and `entryDetails` looks up the corresponding field value).
+- `>1` — resolve multi-hop transitive references across databases up to the specified depth limit (default: `2`).
+
+Confluence Page references (`pageLink`) are always resolved to their page titles.
+
+> **Limitation:** `backlink` fields always render the list of linking entries rather than a count even when *"Display as: Number of items linked to entry"* is set in Confluence, because the Confluence Cloud REST API does not expose that column display option.
+
+- Default: `2`
+- ENV Var: `CME_EXPORT__DATABASE_RESOLVE_DEPTH`
 
 ### export.skip_unchanged
 

@@ -5,8 +5,10 @@ https://developer.atlassian.com/cloud/confluence/rest/v1/intro
 
 import base64
 import copy
+import csv
 import functools
 import html
+import io
 import itertools
 import json
 import logging
@@ -71,6 +73,9 @@ from confluence_markdown_exporter.api_clients import parse_confluence_path
 from confluence_markdown_exporter.api_clients import parse_gateway_url
 from confluence_markdown_exporter.utils.app_data_store import get_settings
 from confluence_markdown_exporter.utils.app_data_store import normalize_instance_url
+from confluence_markdown_exporter.utils.database_cache import DatabaseDataCache
+from confluence_markdown_exporter.utils.database_cache import PageMetadataCache
+from confluence_markdown_exporter.utils.database_cache import fetch_v2_paginated
 from confluence_markdown_exporter.utils.drawio_converter import load_and_parse_drawio
 from confluence_markdown_exporter.utils.export import github_heading_slug
 from confluence_markdown_exporter.utils.export import sanitize_filename
@@ -483,6 +488,7 @@ class JiraIssue(BaseModel):
     summary: str
     description: str | None
     status: str
+    raw: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "JiraIssue":
@@ -492,6 +498,7 @@ class JiraIssue(BaseModel):
             summary=fields.get("summary", ""),
             description=fields.get("description", ""),
             status=fields.get("status", {}).get("name", ""),
+            raw=data,
         )
 
     @classmethod
@@ -568,6 +575,7 @@ class Version(BaseModel):
     by: User
     when: str
     friendly_when: str
+    message: str = ""
 
     @classmethod
     def from_json(cls, data: JsonResponse) -> "Version":
@@ -576,6 +584,7 @@ class Version(BaseModel):
             by=User.from_json(data.get("by", {})),
             when=data.get("when", ""),
             friendly_when=data.get("friendlyWhen", ""),
+            message=data.get("message", "") or "",
         )
 
 
@@ -1168,18 +1177,38 @@ def _search_pages(cql: str, base_url: str) -> list["Descendant"]:
 _PageT = TypeVar("_PageT", bound="Page | Descendant")
 
 
+def _extract_adf_text(node: object) -> str:
+    """Recursively extract plain text from an Atlassian Document Format (ADF) node."""
+    if isinstance(node, list):
+        return "".join(_extract_adf_text(child) for child in node)
+    if not isinstance(node, dict):
+        return ""
+    node_type = str(node.get("type", ""))
+    if node_type == "text":
+        return str(node.get("text", ""))
+    if node_type == "hardBreak":
+        return "\n"
+    content = node.get("content", [])
+    text = "".join(_extract_adf_text(child) for child in content)
+    if node_type in ("paragraph", "heading"):
+        return text + "\n"
+    return text
+
+
 def _add_databases(
     pages: list[_PageT], scope_cql: str, base_url: str
 ) -> list["_PageT | Descendant"]:
     """Return *pages* plus the Confluence Cloud databases matching *scope_cql*.
 
-    Databases are exported as placeholder pages because the API does not provide
-    their entries. A database whose export path is already taken by a page or by
-    another database is skipped, so a placeholder never overwrites another file.
+    Databases are exported as tables (or placeholder pages) depending on configuration.
+    A database whose export path is already taken by a page or by another database
+    is skipped, so an export never overwrites another file.
     Server/DC has no databases and rejects the query with an HTTP error, which is
     ignored here so page discovery is not affected.
     """
-    if not settings.export.database_placeholders:
+    if settings.export.database_export == "none" or not getattr(
+        settings.export, "database_placeholders", True
+    ):
         return [*pages]
     try:
         databases = _search_pages(f"type=database AND {scope_cql}", base_url)
@@ -1191,6 +1220,7 @@ def _add_databases(
     taken_paths = {page.export_path for page in pages}
     kept: list[Descendant] = []
     for database in databases:
+        DatabaseDataCache.register_database_id(database.id)
         if database.export_path in taken_paths:
             logger.warning(
                 f"Skipping Confluence database '{database.title}' (id {database.id}): "
@@ -1288,6 +1318,136 @@ def _parse_image_captions(storage_xml: str) -> dict[str, str]:
     return captions
 
 
+def _extract_text_cell_value(val: object) -> str:
+    """Extract plain text from a database cell dict, falling back to ADF rich text."""
+    if not isinstance(val, dict):
+        return ""
+    text = val.get("plain")
+    if not text and val.get("rich"):
+        text = _extract_adf_text(val["rich"]).strip()
+    return str(text) if text else ""
+
+
+def _format_structured_fallback(val: object) -> str:
+    """Format a generic dict/list cell value into readable text instead of raw Python repr."""
+    if val is None:
+        return ""
+    if isinstance(val, list):
+        return ", ".join(p for item in val if (p := _format_structured_fallback(item)))
+    if not isinstance(val, dict):
+        return str(val)
+
+    result = next(
+        (
+            str(val[k])
+            for k in (
+                "plain",
+                "label",
+                "title",
+                "name",
+                "displayName",
+                "key",
+                "url",
+                "entryId",
+                "accountId",
+                "mediaId",
+            )
+            if val.get(k)
+        ),
+        "",
+    )
+    if not result and val.get("rich"):
+        result = _extract_adf_text(val["rich"]).strip()
+    if not result and (cid := val.get("contentId")):
+        int_cid = int(cid) if str(cid).isdigit() else None
+        result = (PageTitleRegistry.get(int_cid) if int_cid is not None else None) or f"Page {cid}"
+    return result
+
+
+def _format_fallback_title_field(
+    field: dict[str, Any],
+    val: object,
+    entry: dict[str, Any],
+    page: "Page | None",
+) -> str:
+    if not isinstance(val, dict):
+        return ""
+    if page is not None:
+        return page._format_database_cell_value(
+            field, val, for_markdown=False, entry=entry, resolve_depth=0
+        )
+    return _extract_text_cell_value(val) or _format_structured_fallback(val.get("value"))
+
+
+def _extract_database_entry_title(
+    fields: list[dict[str, Any]],
+    entry: dict[str, Any],
+    *,
+    page: "Page | None" = None,
+) -> str:
+    """Find the display title of a database entry according to Confluence Cloud rules."""
+    values = entry.get("values", {})
+    # 1. Field with id "title" or name "Title"
+    for f in fields:
+        fid = str(f.get("id", ""))
+        fname = str(f.get("name", "")).strip().lower()
+        if (fid == "title" or fname == "title") and (
+            text := _extract_text_cell_value(values.get(fid))
+        ):
+            return text
+    # 2. First text field with non-empty value
+    for f in fields:
+        if f.get("type") == "text" and (
+            text := _extract_text_cell_value(values.get(str(f.get("id", ""))))
+        ):
+            return text
+    # 3. First field with any non-empty value (prefer non-reference fields before entryLink)
+    deferred_types = {"entryLink", "entryDetails", "backlink", "entryBacklink"}
+    ordered_fields = [f for f in fields if f.get("type") not in deferred_types] + [
+        f for f in fields if f.get("type") == "entryLink"
+    ]
+    for f in ordered_fields:
+        if text := _format_fallback_title_field(f, values.get(str(f.get("id", ""))), entry, page):
+            return text
+    return "Unnamed entry"
+
+
+def _extract_page_detail(meta: dict[str, Any], prop_key: str) -> str:  # noqa: PLR0911
+    """Extract a metadata field from a page metadata dictionary."""
+    key_norm = prop_key.lower().replace(" ", "").replace("_", "").replace("-", "")
+    if key_norm in ("createdat", "created"):
+        return str(meta.get("created", ""))
+    if key_norm in ("createdby", "author", "creator"):
+        return str(meta.get("created_by", ""))
+    if key_norm in ("lastupdatedat", "lastmodifiedat", "lastmodified", "updatedat", "modifiedat"):
+        return str(meta.get("last_modified", ""))
+    if key_norm in ("lastupdatedby", "lastmodifiedby", "modifier"):
+        return str(meta.get("last_modified_by", ""))
+    if key_norm in ("versionnumber", "version"):
+        val = meta.get("version")
+        return str(val) if val is not None else ""
+    if key_norm in ("includeversioncomment", "versioncomment"):
+        return str(meta.get("version_comment", ""))
+    if key_norm in ("excerptcontent", "excerpt"):
+        return str(meta.get("excerpt", ""))
+    return str(meta.get(prop_key, ""))
+
+
+def _format_jira_field_value(raw_val: Any) -> str:  # noqa: ANN401
+    """Format an arbitrary Jira issue field value into a readable string."""
+    if raw_val is None:
+        return ""
+    if isinstance(raw_val, dict):
+        if raw_val.get("type") == "doc" or "content" in raw_val:
+            return _extract_adf_text(raw_val).strip()
+        disp = raw_val.get("displayName") or raw_val.get("name") or raw_val.get("value")
+        return str(disp) if disp is not None else ""
+    if isinstance(raw_val, list):
+        items = [_format_jira_field_value(item) for item in raw_val if item is not None]
+        return ", ".join(item for item in items if item)
+    return str(raw_val)
+
+
 class Page(Document):
     id: int
     type: str = ""
@@ -1336,6 +1496,11 @@ class Page(Document):
             logger.warning("Skipping export for inaccessible page id=%s", self.id)
             return {}
 
+        PageTitleRegistry.register(int(self.id), self.title, getattr(self, "export_path", None))
+
+        if self.type == "database":
+            return self._export_database_content()
+
         logger.debug("Exporting page id=%s '%s'", self.id, self.title)
         if settings.export.log_level == "DEBUG":
             self.export_body()
@@ -1344,18 +1509,674 @@ class Page(Document):
         attachment_entries = self.export_attachments()
         logger.debug("Converting to Markdown for page id=%s", self.id)
         self.export_markdown()
-        if self.type == "database":
-            logger.info(
-                f"'{self.title}' is a Confluence database. Its entries cannot be exported, "
-                "so a placeholder page with a link to it was written."
-            )
-        elif settings.export.comments_export != "none":
+        if settings.export.comments_export != "none":
             logger.debug("Exporting comments for page id=%s", self.id)
             self.export_comments_sidecar()
         logger.info(
             "Exported '%s' -> %s", self.title, settings.export.output_path / self.export_path
         )
         return attachment_entries
+
+    def _export_database_content(self) -> dict[str, AttachmentEntry]:
+        if settings.export.database_export == "none" or not getattr(
+            settings.export, "database_placeholders", True
+        ):
+            logger.info(
+                "Skipping Confluence database '%s' (id=%s) because database_export is 'none'",
+                self.title,
+                self.id,
+            )
+            return {}
+        if settings.export.database_export == "placeholder":
+            self.export_markdown()
+            logger.info(
+                f"'{self.title}' is a Confluence database. Its entries cannot be exported, "
+                "so a placeholder page with a link to it was written."
+            )
+            logger.info(
+                "Exported '%s' -> %s", self.title, settings.export.output_path / self.export_path
+            )
+            return {}
+
+        try:
+            self.export_database()
+            logger.info(
+                "Exported database '%s' -> %s",
+                self.title,
+                settings.export.output_path / self.export_path,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed to export database '%s' (id=%s): %s. Falling back to placeholder.",
+                self.title,
+                self.id,
+                e,
+            )
+            self.export_markdown()
+            logger.info(
+                f"'{self.title}' is a Confluence database. Its entries cannot be exported, "
+                "so a placeholder page with a link to it was written."
+            )
+            logger.info(
+                "Exported '%s' -> %s", self.title, settings.export.output_path / self.export_path
+            )
+        return {}
+
+    def fetch_database_fields(self) -> list[dict[str, Any]]:
+        """Fetch all schema fields for this Confluence Cloud database."""
+        client = get_thread_confluence(self.base_url)
+        return fetch_v2_paginated(client, f"api/v2/databases/{self.id}/fields")
+
+    def fetch_database_entries(self) -> list[dict[str, Any]]:
+        """Fetch all row entries for this Confluence Cloud database."""
+        client = get_thread_confluence(self.base_url)
+        return fetch_v2_paginated(client, f"api/v2/databases/{self.id}/entries")
+
+    @staticmethod
+    def _normalize_cell_refs(cell_data: object) -> list[dict[str, Any]]:
+        if not isinstance(cell_data, dict):
+            return []
+        raw_val = cell_data.get("value") or []
+        if isinstance(raw_val, dict):
+            return [raw_val]
+        if isinstance(raw_val, list):
+            return [item for item in raw_val if isinstance(item, dict)]
+        return []
+
+    @classmethod
+    def _extract_source_refs(
+        cls, entry: dict[str, Any] | None, source_field_id: str | None
+    ) -> list[dict[str, Any]]:
+        if not source_field_id or not entry:
+            return []
+        source_val = entry.get("values", {}).get(source_field_id)
+        return cls._normalize_cell_refs(source_val)
+
+    def _format_in_scope_link(self, target_export_path: Path, target_title: str, label: str) -> str:
+        """Format a link to an in-scope exported page or database."""
+        if settings.export.page_href == "wiki":
+            if PageTitleRegistry.is_ambiguous(target_title):
+                vault_path = target_export_path.with_suffix("").as_posix()
+                return f"[[{vault_path}|{label}]]"
+            if target_title != label:
+                return f"[[{target_title}|{label}]]"
+            return f"[[{label}]]"
+        if settings.export.page_href == "absolute":
+            return f"[{label}](/{str(target_export_path).lstrip('/')})"
+        rel = os.path.relpath(target_export_path, self.export_path.parent).replace(os.sep, "/")
+        return f"[{label}]({rel})"
+
+    def _format_database_user_cell(self, cell_data: object) -> str:
+        names: list[str] = []
+        for user_ref in self._normalize_cell_refs(cell_data):
+            disp = user_ref.get("displayName") or user_ref.get("name")
+            if disp:
+                names.append(str(disp))
+                continue
+            aid = user_ref.get("accountId", "")
+            if not aid:
+                continue
+            try:
+                user = User.from_accountid(aid, self.base_url)
+                name = (
+                    user.display_name.removesuffix("(Unlicensed)")
+                    .removesuffix("(Deactivated)")
+                    .strip()
+                )
+                names.append(name or aid)
+            except Exception:  # noqa: BLE001
+                names.append(aid)
+        return ", ".join(names)
+
+    def _format_database_jira_cell(self, cell_data: object, *, for_markdown: bool) -> str:
+        jira_items: list[str] = []
+        for issue_ref in self._normalize_cell_refs(cell_data):
+            key = issue_ref.get("key", "")
+            if not key:
+                continue
+            if not for_markdown:
+                jira_items.append(key)
+                continue
+            url = f"{self.base_url}/browse/{key}"
+            try:
+                issue = JiraIssue.from_key(key, self.base_url)
+                if issue:
+                    issue_status = (
+                        " ".join(issue.status.split())
+                        .replace("\\", "\\\\")
+                        .replace("[", "\\[")
+                        .replace("]", "\\]")
+                    )
+                    status = (
+                        f" ({issue_status})"
+                        if settings.export.include_jira_status and issue_status
+                        else ""
+                    )
+                    jira_items.append(f"[[{issue.key}] {issue.summary}{status}]({url})")
+                else:
+                    jira_items.append(f"[[{key}]]({url})")
+            except Exception:  # noqa: BLE001
+                jira_items.append(f"[[{key}]]({url})")
+        return ", ".join(jira_items)
+
+    def _format_database_jira_details_cell(
+        self, field: dict[str, Any], entry: dict[str, Any] | None
+    ) -> str:
+        settings_dict = field.get("settings", {})
+        source_field_id = settings_dict.get("sourceFieldId")
+        jira_field_key = settings_dict.get("jiraFieldKey", "")
+        key_lower = jira_field_key.lower().replace(" ", "").replace("_", "")
+        field_vals: list[str] = []
+        for issue_ref in self._extract_source_refs(entry, source_field_id):
+            key = issue_ref.get("key", "")
+            if not key:
+                continue
+            try:
+                issue = JiraIssue.from_key(key, self.base_url)
+                if not issue or not issue.raw:
+                    continue
+                fields = issue.raw.get("fields", {})
+                raw_val = fields.get(jira_field_key)
+                if raw_val is None:
+                    raw_val = next(
+                        (
+                            fv
+                            for fk, fv in fields.items()
+                            if fk.lower().replace(" ", "").replace("_", "") == key_lower
+                        ),
+                        None,
+                    )
+                val_str = _format_jira_field_value(raw_val)
+                if val_str:
+                    field_vals.append(val_str)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(
+                    "Failed fetching Jira field %s for issue %s: %s",
+                    jira_field_key,
+                    key,
+                    e,
+                )
+        return ", ".join(field_vals)
+
+    def _format_database_page_link_cell(self, cell_data: object, *, for_markdown: bool) -> str:
+        page_links: list[str] = []
+        for p_ref in self._normalize_cell_refs(cell_data):
+            cid = str(p_ref.get("contentId", ""))
+            if not cid:
+                continue
+            int_cid = int(cid) if cid.isdigit() else None
+            title = PageTitleRegistry.get(int_cid) or "" if int_cid is not None else ""
+            export_path = (
+                PageTitleRegistry.get_export_path(int_cid) if int_cid is not None else None
+            )
+            page_meta = None
+            if not title or export_path is None:
+                page_meta = PageMetadataCache.get_or_fetch(cid, self.base_url)
+                if page_meta and not title:
+                    title = page_meta.get("title", "")
+
+            label = title or f"Page {cid}"
+            if not for_markdown:
+                page_links.append(label)
+            elif export_path is not None:
+                page_links.append(self._format_in_scope_link(export_path, title, label))
+            else:
+                web_url = (page_meta or {}).get("web_url")
+                if not web_url:
+                    space_key = (page_meta or {}).get("space_key") or self.space.key
+                    web_url = f"{self.base_url}/wiki/spaces/{space_key}/pages/{cid}"
+                page_links.append(f"[{label}]({web_url})")
+        return ", ".join(page_links)
+
+    def _format_database_page_meta_cell(
+        self, val_type: str, field: dict[str, Any], entry: dict[str, Any] | None
+    ) -> str:
+        settings_dict = field.get("settings", {})
+        source_field_id = settings_dict.get("sourceFieldId")
+        prop_key = settings_dict.get("pagePropertyKey", "")
+        items: list[str] = []
+        for p_ref in self._extract_source_refs(entry, source_field_id):
+            cid = str(p_ref.get("contentId", ""))
+            if not cid:
+                continue
+            meta = PageMetadataCache.get_or_fetch(cid, self.base_url)
+            if not meta:
+                continue
+            if val_type == "pageStatus" and meta.get("status"):
+                items.append(str(meta["status"]))
+            elif val_type == "pageLabels" and meta.get("labels"):
+                items.extend(str(lbl) for lbl in meta["labels"])
+            elif val_type == "pageDetails":
+                val = _extract_page_detail(meta, prop_key)
+                if val:
+                    items.append(str(val))
+        return ", ".join(items)
+
+    def _resolve_database_target(
+        self,
+        ref: dict[str, Any],
+        target_entry_id: str,
+        lookup_field_id: str | None,
+        current_db_id: str,
+    ) -> tuple[str, tuple[list[dict[str, Any]], list[dict[str, Any]], str] | None]:
+        space_key = getattr(self.space, "key", None)
+        raw_db_id = ref.get("databaseContentId")
+        if raw_db_id:
+            target_db_id = str(raw_db_id)
+            return target_db_id, DatabaseDataCache.get_or_fetch(target_db_id, self.base_url)
+
+        if lookup_field_id:
+            target_data = DatabaseDataCache.find_database_for_field(
+                lookup_field_id, self.base_url, space_key
+            )
+            if target_data:
+                resolved_id = (
+                    DatabaseDataCache.get_database_id_for_field(lookup_field_id) or current_db_id
+                )
+                return resolved_id, target_data
+
+        target_data = DatabaseDataCache.find_database_for_entry(
+            target_entry_id, self.base_url, space_key
+        )
+        if target_data:
+            resolved_id = (
+                DatabaseDataCache.get_database_id_for_entry(target_entry_id) or current_db_id
+            )
+            return resolved_id, target_data
+
+        return current_db_id, DatabaseDataCache.get_or_fetch(current_db_id, self.base_url)
+
+    def _database_export_path(self, database_id: str) -> Path | None:
+        if database_id == str(self.id):
+            return self.export_path
+        int_db_id = int(database_id) if database_id and database_id.isdigit() else 0
+        return PageTitleRegistry.get_export_path(int_db_id)
+
+    def _format_database_entry_link_cell(
+        self,
+        cell_data: object,
+        *,
+        for_markdown: bool,
+        resolve_depth: int,
+        visited: set[tuple[str, str]],
+        current_db_id: str,
+    ) -> str:
+        entry_refs = self._normalize_cell_refs(cell_data)
+        if resolve_depth <= 0:
+            return ", ".join(
+                str(ref.get("entryId", "")) for ref in entry_refs if ref.get("entryId")
+            )
+
+        resolved_links: list[str] = []
+        for ref in entry_refs:
+            target_entry_id = str(ref.get("entryId", ""))
+            if not target_entry_id:
+                continue
+
+            target_db_id, target_data = self._resolve_database_target(
+                ref, target_entry_id, None, current_db_id
+            )
+            if (target_db_id, target_entry_id) in visited:
+                resolved_links.append(f"Entry {target_entry_id}")
+                continue
+            if not target_data:
+                resolved_links.append(target_entry_id)
+                continue
+
+            tgt_fields, tgt_entries, tgt_db_title = target_data
+            tgt_entry = next((e for e in tgt_entries if str(e.get("id")) == target_entry_id), None)
+            if not tgt_entry:
+                resolved_links.append(target_entry_id)
+                continue
+
+            entry_title = _extract_database_entry_title(tgt_fields, tgt_entry, page=self)
+            if not for_markdown:
+                resolved_links.append(entry_title)
+                continue
+
+            tgt_export_path = self._database_export_path(target_db_id)
+            if tgt_export_path is not None:
+                resolved_links.append(
+                    self._format_in_scope_link(tgt_export_path, tgt_db_title, entry_title)
+                )
+            else:
+                resolved_links.append(entry_title)
+        return ", ".join(resolved_links)
+
+    def _format_database_entry_details_cell(
+        self,
+        field: dict[str, Any],
+        *,
+        for_markdown: bool,
+        entry: dict[str, Any] | None,
+        resolve_depth: int,
+        visited: set[tuple[str, str]],
+        current_db_id: str,
+    ) -> str:
+        if resolve_depth <= 0:
+            return ""
+        settings_dict = field.get("settings", {})
+        source_field_id = settings_dict.get("sourceFieldId")
+        lookup_field_id = settings_dict.get("lookupFieldId")
+        if not source_field_id or not lookup_field_id or not entry:
+            return ""
+
+        resolved_details: list[str] = []
+        for ref in self._extract_source_refs(entry, source_field_id):
+            target_entry_id = str(ref.get("entryId", ""))
+            if not target_entry_id:
+                continue
+
+            target_db_id, target_data = self._resolve_database_target(
+                ref, target_entry_id, lookup_field_id, current_db_id
+            )
+            if (target_db_id, target_entry_id) in visited or not target_data:
+                continue
+
+            tgt_fields, tgt_entries, tgt_db_title = target_data
+            tgt_entry = next((e for e in tgt_entries if str(e.get("id")) == target_entry_id), None)
+            tgt_field = next((f for f in tgt_fields if f.get("id") == lookup_field_id), None)
+            if not tgt_entry or not tgt_field:
+                continue
+
+            tgt_cell_val = tgt_entry.get("values", {}).get(lookup_field_id)
+            formatted = self._format_database_cell_value(
+                tgt_field,
+                tgt_cell_val,
+                for_markdown=for_markdown,
+                entry=tgt_entry,
+                all_fields=tgt_fields,
+                resolve_depth=resolve_depth - 1,
+                visited=visited | {(target_db_id, target_entry_id)},
+                current_db_id=target_db_id,
+                current_db_title=tgt_db_title,
+            )
+            if formatted:
+                resolved_details.append(formatted)
+        return ", ".join(resolved_details)
+
+    def _format_database_backlink_cell(
+        self,
+        field: dict[str, Any],
+        cell_data: object,
+        *,
+        for_markdown: bool,
+        entry: dict[str, Any] | None,
+        resolve_depth: int,
+    ) -> str:
+        if resolve_depth <= 0 or not entry:
+            return ""
+        settings_dict = field.get("settings", {})
+        src_db_id = str(settings_dict.get("sourceDatabaseContentId") or "")
+        if not src_db_id:
+            refs = self._normalize_cell_refs(cell_data)
+            if any("contentId" in ref for ref in refs):
+                return self._format_database_page_link_cell(cell_data, for_markdown=for_markdown)
+            return ""
+        target_data = DatabaseDataCache.get_or_fetch(src_db_id, self.base_url)
+        if not target_data:
+            return ""
+
+        src_fields, src_entries, src_db_title = target_data
+        my_entry_id = str(entry.get("id", ""))
+        src_export_path = self._database_export_path(src_db_id) if for_markdown else None
+        entry_link_field_ids = [
+            str(f.get("id", "")) for f in src_fields if f.get("type") == "entryLink"
+        ]
+
+        backlinks: list[str] = []
+        for s_entry in src_entries:
+            s_values = s_entry.get("values", {})
+            if not any(
+                str(r.get("entryId")) == my_entry_id
+                for fid in entry_link_field_ids
+                for r in self._normalize_cell_refs(s_values.get(fid))
+            ):
+                continue
+            title = _extract_database_entry_title(src_fields, s_entry, page=self)
+            if for_markdown and src_export_path is not None:
+                backlinks.append(self._format_in_scope_link(src_export_path, src_db_title, title))
+            else:
+                backlinks.append(title)
+
+        display_mode = settings_dict.get("display") or settings_dict.get("format")
+        if display_mode in ("number", "count"):
+            return str(len(backlinks))
+        return ", ".join(backlinks)
+
+    def _format_database_cell_value(  # noqa: C901, PLR0911, PLR0912
+        self,
+        field: dict[str, Any],
+        cell_data: dict[str, Any] | None,
+        *,
+        for_markdown: bool = True,
+        entry: dict[str, Any] | None = None,
+        all_fields: list[dict[str, Any]] | None = None,
+        resolve_depth: int | None = None,
+        visited: set[tuple[str, str]] | None = None,
+        current_db_id: str | None = None,
+        current_db_title: str | None = None,
+    ) -> str:
+        if resolve_depth is None:
+            resolve_depth = getattr(settings.export, "database_resolve_depth", 2)
+        if visited is None:
+            visited = set()
+        if current_db_id is None:
+            current_db_id = str(self.id)
+
+        cell_dict = cell_data if isinstance(cell_data, dict) else {}
+        val_type = cell_dict.get("type") or field.get("type", "")
+
+        if val_type == "text":
+            return _extract_text_cell_value(cell_dict)
+
+        if val_type == "aiSummary":
+            return str(cell_dict.get("plain") or cell_dict.get("value") or "")
+
+        if val_type in ("number", "date"):
+            val = cell_dict.get("value")
+            return str(val) if val is not None else ""
+
+        if val_type == "checkbox":
+            val = cell_dict.get("value")
+            if for_markdown:
+                return "[x]" if val is True else "[ ]"
+            return "true" if val is True else ("false" if val is False else "")
+
+        if val_type == "select":
+            options = cell_dict.get("value") or []
+            if isinstance(options, list):
+                return ", ".join(
+                    opt.get("label", "")
+                    for opt in options
+                    if isinstance(opt, dict) and opt.get("label")
+                )
+            return ""
+
+        if val_type == "hyperlink":
+            links = []
+            for item in self._normalize_cell_refs(cell_dict):
+                url = item.get("url", "")
+                label = item.get("label") or url
+                links.append(f"[{label}]({url})" if for_markdown and url else (label or url))
+            return ", ".join(links)
+
+        if val_type == "user":
+            return self._format_database_user_cell(cell_dict)
+
+        if val_type == "jiraIssue":
+            return self._format_database_jira_cell(cell_dict, for_markdown=for_markdown)
+
+        if val_type == "jiraIssueDetails":
+            return self._format_database_jira_details_cell(field, entry)
+
+        if val_type == "pageLink":
+            return self._format_database_page_link_cell(cell_dict, for_markdown=for_markdown)
+
+        if val_type in ("pageStatus", "pageLabels", "pageDetails"):
+            return self._format_database_page_meta_cell(val_type, field, entry)
+
+        if val_type == "entryLink":
+            return self._format_database_entry_link_cell(
+                cell_dict,
+                for_markdown=for_markdown,
+                resolve_depth=resolve_depth,
+                visited=visited,
+                current_db_id=current_db_id,
+            )
+
+        if val_type == "entryDetails":
+            return self._format_database_entry_details_cell(
+                field,
+                for_markdown=for_markdown,
+                entry=entry,
+                resolve_depth=resolve_depth,
+                visited=visited,
+                current_db_id=current_db_id,
+            )
+
+        if val_type in ("backlink", "entryBacklink"):
+            return self._format_database_backlink_cell(
+                field,
+                cell_dict,
+                for_markdown=for_markdown,
+                entry=entry,
+                resolve_depth=resolve_depth,
+            )
+
+        if val_type == "attachment":
+            return ", ".join(
+                str(ref.get("mediaId", ""))
+                for ref in self._normalize_cell_refs(cell_dict)
+                if ref.get("mediaId")
+            )
+
+        val = cell_dict.get("value")
+        if isinstance(val, list) and any(
+            isinstance(item, dict) and "contentId" in item for item in val
+        ):
+            return self._format_database_page_link_cell(cell_dict, for_markdown=for_markdown)
+        if isinstance(val, dict | list):
+            return _format_structured_fallback(val)
+        return str(val) if val is not None else ""
+
+    def export_database(self) -> None:
+        fields = self.fetch_database_fields()
+        entries = self.fetch_database_entries()
+
+        DatabaseDataCache.set(str(self.id), fields, entries, self.title)
+
+        formats = settings.export.database_formats
+
+        if "markdown" in formats:
+            self.export_database_markdown(fields, entries)
+
+        if "csv" in formats:
+            self.export_database_csv(fields, entries)
+
+        if "json" in formats:
+            self.export_database_json(fields, entries)
+
+    def export_database_markdown(
+        self, fields: list[dict[str, Any]], entries: list[dict[str, Any]]
+    ) -> None:
+        headers = [str(f.get("name", "")) for f in fields]
+        rows: list[list[str]] = []
+        for entry in entries:
+            values = entry.get("values", {})
+            row = [
+                self._format_database_cell_value(
+                    f,
+                    values.get(f.get("id", "")),
+                    for_markdown=True,
+                    entry=entry,
+                    all_fields=fields,
+                )
+                for f in fields
+            ]
+            rows.append(row)
+
+        doc_parts: list[str] = []
+        if settings.export.include_document_title:
+            doc_parts.append(f"# {self.title}\n")
+
+        if self.web_url:
+            doc_parts.append(f"[Open {self.title} in Confluence]({self.web_url})\n")
+
+        if settings.export.table_format == "html":
+            th_cells = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
+            tr_rows = []
+            for row in rows:
+                td_cells = "".join(f"<td>{html.escape(c)}</td>" for c in row)
+                tr_rows.append(f"<tr>{td_cells}</tr>")
+            tbody = "".join(tr_rows)
+            table_html = f"<table><thead><tr>{th_cells}</tr></thead><tbody>{tbody}</tbody></table>"
+            doc_parts.append(table_html)
+        else:
+            normalized_rows = [[normalize_table_cell_text(cell) for cell in row] for row in rows]
+            table_md = tabulate(normalized_rows, headers=headers, tablefmt="pipe")
+            doc_parts.append(table_md)
+
+        content = "\n\n".join(part.strip() for part in doc_parts if part.strip()) + "\n"
+        save_file(settings.export.output_path / self.export_path, content)
+
+    def export_database_csv(
+        self, fields: list[dict[str, Any]], entries: list[dict[str, Any]]
+    ) -> None:
+        headers = [str(f.get("name", "")) for f in fields]
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(headers)
+        for entry in entries:
+            values = entry.get("values", {})
+            row = [
+                self._format_database_cell_value(
+                    f,
+                    values.get(f.get("id", "")),
+                    for_markdown=False,
+                    entry=entry,
+                    all_fields=fields,
+                )
+                for f in fields
+            ]
+            writer.writerow(row)
+        csv_path = (
+            settings.export.output_path / self.export_path.parent / f"{self.export_path.stem}.csv"
+        )
+        save_file(csv_path, output.getvalue())
+
+    def export_database_json(
+        self, fields: list[dict[str, Any]], entries: list[dict[str, Any]]
+    ) -> None:
+        exported_entries = []
+        for entry in entries:
+            entry_copy = dict(entry)
+            values = entry.get("values", {})
+            resolved_values = {
+                str(f.get("id", "")): self._format_database_cell_value(
+                    f,
+                    values.get(f.get("id", "")),
+                    for_markdown=False,
+                    entry=entry,
+                    all_fields=fields,
+                )
+                for f in fields
+            }
+            entry_copy["resolved_values"] = resolved_values
+            exported_entries.append(entry_copy)
+
+        data = {
+            "id": str(self.id),
+            "title": self.title,
+            "space": self.space.key,
+            "web_url": self.web_url,
+            "fields": fields,
+            "entries": exported_entries,
+        }
+        json_path = (
+            settings.export.output_path / self.export_path.parent / f"{self.export_path.stem}.json"
+        )
+        save_file(json_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
     def export_with_descendants(self) -> None:
         with console.status(
@@ -1875,9 +2696,10 @@ class Page(Document):
         base_path = urllib.parse.urlparse(base_url).path.rstrip("/")
         relative_path = parsed.path[len(base_path) :]
         if match := parse_confluence_path(relative_path):
-            if match.page_id:
-                logger.debug("Resolved page id=%s from Confluence URL %s", match.page_id, page_url)
-                return Page.from_id(match.page_id, base_url)
+            target_id = match.page_id or match.database_id
+            if target_id:
+                logger.debug("Resolved page id=%s from Confluence URL %s", target_id, page_url)
+                return Page.from_id(target_id, base_url)
 
             if match.space_key and match.page_title:
                 logger.debug(
@@ -3062,9 +3884,7 @@ class Page(Document):
             if data_uri:
                 el["src"] = data_uri
             else:
-                path = self._get_path_for_href(
-                    attachment.export_path, self._attachment_href
-                )
+                path = self._get_path_for_href(attachment.export_path, self._attachment_href)
                 el["src"] = path.replace(" ", "%20")
             tags = parent_tags if isinstance(parent_tags, list | set) else set()
             if "_inline" in tags:
@@ -4698,7 +5518,7 @@ def _export_page_worker(page: "Page | Descendant", stats: ExportStats | None = N
         stats.inc_exported()
 
 
-def export_pages(pages: list["Page | Descendant"]) -> None:
+def export_pages(pages: list["Page | Descendant"]) -> None:  # noqa: C901, PLR0912
     """Export a list of Confluence pages to Markdown.
 
     Pages are exported in parallel using ThreadPoolExecutor for significant
@@ -4711,7 +5531,9 @@ def export_pages(pages: list["Page | Descendant"]) -> None:
     # Mark all pages as seen so cleanup skips API checks for unchanged pages
     LockfileManager.mark_seen([p.id for p in pages])
     for p in pages:
-        PageTitleRegistry.register(int(p.id), p.title)
+        PageTitleRegistry.register(int(p.id), p.title, getattr(p, "export_path", None))
+        if getattr(p, "type", "") == "database":
+            DatabaseDataCache.register_database_id(p.id)
     pages_to_export = [page for page in pages if LockfileManager.should_export(page)]
 
     skipped_count = len(pages) - len(pages_to_export)

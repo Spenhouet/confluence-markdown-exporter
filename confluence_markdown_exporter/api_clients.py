@@ -104,6 +104,7 @@ class ConfluenceRef(BaseModel):
     # A tiny link carries only a page id, so the space key is optional.
     space_key: Annotated[str | None, AfterValidator(_decode_url_part)] = None
     page_id: int | None = None
+    database_id: int | None = None
     page_title: Annotated[str | None, AfterValidator(_decode_url_part)] = None
 
 
@@ -115,14 +116,20 @@ _CLOUD_URL_RE = re.compile(
     r"(?:/(?!pages/)[^/?#]+)?/?$"
 )
 
-# 2) Server [/display]/{space_key}[/{page_title}]
+# 2) Database [/wiki][spaces/{space_key}]/database/{database_id}[/{page_title}]
+_DATABASE_URL_RE = re.compile(
+    r"^(?:/ex/confluence/[^/]+)?(?:/wiki)?(?:/spaces/(?P<space_key>[A-Za-z0-9_~.-]+))?"
+    r"/database/(?P<database_id>\d+)(?:/(?P<page_title>[^/?#]+))?/?$"
+)
+
+# 3) Server [/display]/{space_key}[/{page_title}]
 _SERVER_URL_RE = re.compile(
     r"^(?:/display)?"
     r"/(?P<space_key>[A-Za-z0-9._-]+)"
     r"(?:/(?P<page_title>[^/?#]+))?/?$"
 )
 
-# 3) Tiny link [/wiki]/x/{tiny_id}: the "Copy link" shortlink, which encodes the page id
+# 4) Tiny link [/wiki]/x/{tiny_id}: the "Copy link" shortlink, which encodes the page id
 _TINY_URL_RE = re.compile(
     r"^(?:/ex/confluence/[^/]+)?(?:/wiki)?/x/(?P<tiny_id>[A-Za-z0-9_-]{1,11})$"
 )
@@ -163,7 +170,7 @@ def parse_confluence_path(path: str) -> ConfluenceRef | None:
         page_id = decode_tiny_link_page_id(m.group("tiny_id"))
         return ConfluenceRef(page_id=page_id) if page_id else None
 
-    if m := _CLOUD_URL_RE.match(path) or _SERVER_URL_RE.match(path):
+    if m := _DATABASE_URL_RE.match(path) or _CLOUD_URL_RE.match(path) or _SERVER_URL_RE.match(path):
         return ConfluenceRef.model_validate(m.groupdict())
 
     return None

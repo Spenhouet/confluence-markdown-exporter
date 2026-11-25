@@ -263,6 +263,32 @@ app.command(
 )(pages)
 
 
+app.command(
+    name="database",
+    help=(
+        "Alias for `pages`. Export Confluence databases by URL to Markdown.\n\n"
+        "See `cme pages --help` for full documentation."
+    ),
+    epilog=(
+        "**Example:**\n\n"
+        "- `cme database https://company.atlassian.net/wiki/spaces/KEY/database/123/Tasks`\n\n"
+    ),
+)(pages)
+
+
+app.command(
+    name="databases",
+    help=(
+        "Alias for `pages`. Export Confluence databases by URL to Markdown.\n\n"
+        "See `cme pages --help` for full documentation."
+    ),
+    epilog=(
+        "**Example:**\n\n"
+        "- `cme databases https://company.atlassian.net/wiki/spaces/KEY/database/123/Tasks`\n\n"
+    ),
+)(pages)
+
+
 @app.command(
     help=(
         "Export one or more Confluence pages **and all their descendants** by URL to Markdown.\n\n"

@@ -89,7 +89,12 @@ cme org <base-url>
 
 ## Databases
 
-Confluence Cloud databases inside an exported space, folder or page tree are exported as placeholder pages. The Confluence API does not provide database entries, so the placeholder only holds a link to the database in Confluence, and an info message is logged each time it is written. Set [`export.database_placeholders`](configuration/options.md#exportdatabase_placeholders) to `false` to skip databases. A database is skipped with a warning when a page or another database is already exported to the same path. Like pages, databases outside the homepage tree of a space are not exported unless [`export.only_homepage_descendants`](configuration/options.md#exportonly_homepage_descendants) is `false`. Database URLs cannot be passed to `cme pages`.
+Confluence Cloud databases inside an exported space, folder or page tree are exported according to [`export.database_export`](configuration/options.md#exportdatabase_export) (default: `table`). When set to `table`, the database schema fields and row entries are fetched via the Confluence REST API and formatted as a Markdown table (or HTML table depending on `export.table_format`). You can also export raw CSV or JSON sidecars via [`export.database_formats`](configuration/options.md#exportdatabase_formats). If the database REST API is inaccessible or fails, the exporter gracefully falls back to generating a placeholder page with a link to the original database. Set `export.database_export` to `placeholder` for fallback link pages only, or `none` to skip databases. Database URLs (e.g. `https://company.atlassian.net/wiki/spaces/KEY/database/123/Tasks`) can also be exported directly using `cme pages URL` or the `cme database URL` / `cme databases URL` aliases.
+
+**Limitations:**
+
+- **Full database export only (no view filtering or selection):** Exporting a database always exports all fields and all entries of the entire database. Confluence views (such as filtered, sorted, grouped, or column-restricted views, or selecting a specific/default view) cannot be applied because the Confluence Cloud REST API v2 does not expose view configurations or view-scoped entry queries.
+- **Entry backlink display options:** When [`export.database_resolve_depth`](configuration/options.md#exportdatabase_resolve_depth) is greater than `0`, `backlink` fields always render the list of referencing entries. The Confluence Cloud *"Display as: Number of items linked to entry"* column option cannot be preserved because the Confluence Cloud REST API v2 does not expose backlink display settings or view configurations.
 
 ## Output layout
 
